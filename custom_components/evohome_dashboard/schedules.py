@@ -21,6 +21,10 @@ def validate(schedule: object, *, limits: dict | None = None) -> list[dict]:
     min_points = int(limits.get("min_switchpoints_per_day", 1))
     max_points = int(limits.get("max_switchpoints_per_day", 6))
     resolution = float(limits.get("setpoint_value_resolution", 0.5))
+    minimum = float(limits.get("min_heat_setpoint", 5))
+    maximum = float(limits.get("max_heat_setpoint", 35))
+    if resolution <= 0:
+        raise ValueError("Invalid controller setpoint resolution")
     result = []
     seen = set()
     raw_resolution = str(limits.get("timing_resolution", "00:10:00"))
@@ -57,7 +61,7 @@ def validate(schedule: object, *, limits: dict | None = None) -> list[dict]:
             if isinstance(temp, bool) or not isinstance(temp, (int, float)):
                 raise ValueError("Temperature must be numeric")
             temp = float(temp)
-            if not 5 <= temp <= 35 or abs(round(temp / resolution) * resolution - temp) > 1e-6:
+            if not minimum <= temp <= maximum or abs(round(temp / resolution) * resolution - temp) > 1e-6:
                 raise ValueError("Setpoint outside valid range or resolution")
             sorted_points.append({"time_of_day": moment.strftime("%H:%M:%S"), "heat_setpoint": temp})
         result.append({"day_of_week": name, "switchpoints": sorted_points})

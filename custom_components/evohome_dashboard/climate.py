@@ -26,7 +26,7 @@ class EvoZone(CoordinatorEntity, ClimateEntity):
     _attr_temperature_unit = "°C"
     _attr_hvac_modes = [HVACMode.HEAT, HVACMode.OFF]
     _attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE | ClimateEntityFeature.PRESET_MODE
-    _attr_preset_modes = ["Follow schedule", "Temporary override (1h)", "Permanent override", "Frost protection"]
+    _attr_preset_modes = ["Follow schedule", "Temporary override", "Permanent override", "Frost protection"]
     _attr_has_entity_name = True
 
     def __init__(self, hub, system_id, zone_id):
@@ -94,7 +94,7 @@ class EvoZone(CoordinatorEntity, ClimateEntity):
         if str(z.mode) == "follow_schedule":
             return "Follow schedule"
         if str(z.mode) == "temporary_override":
-            return "Temporary override (1h)"
+            return "Temporary override"
         return "Permanent override"
 
     async def async_set_preset_mode(self, preset_mode):
@@ -102,7 +102,7 @@ class EvoZone(CoordinatorEntity, ClimateEntity):
             await self.coordinator.resume_zone(self._system_id, self._zone_id)
         elif preset_mode == "Frost protection":
             await self.coordinator.set_zone_frost(self._system_id, self._zone_id)
-        elif preset_mode == "Temporary override (1h)":
+        elif preset_mode == "Temporary override":
             await self.coordinator.set_zone(self._system_id, self._zone_id,
                                             self._zone.target_heat_temperature,
                                             until=(datetime.now(timezone.utc) + timedelta(hours=1)).isoformat())

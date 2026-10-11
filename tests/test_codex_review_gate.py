@@ -1,6 +1,7 @@
 """Codex gate regression tests: fail closed for stale reviews and P1/P2."""
 import importlib.util
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
 import unittest
 from unittest.mock import patch
 
@@ -40,17 +41,73 @@ class GateTests(unittest.TestCase):
     def test_unresolved_p2_blocks_merge(self):
         r = [{"user": BOT, "commit_id": SHA, "submitted_at": "2026", "state":"COMMENTED"}]
         s = [{"user": BOT, "body": "<!-- codex-pull-request-review-summary --> \u2705 **Completed** " + chr(96)+SHA[:7]+chr(96)}]
-        with patch.object(gate,"request",return_value={"head":{"sha":SHA}}), \
+        with patch.object(gate,"request",return_value={"head":{"sha":SHA}, "state":"open"}), \
              patch.object(gate,"pages",side_effect=[r,s]), \
-             patch.object(gate,"blockers",return_value=["P2 expiry problem"]):
+             patch.object(gate,"blockers",return_value=["P2 expiry problem"]), \
+             patch.object(gate,"required_ci_state",return_value=("passed","CI passed")):
             state,_=gate.check("token","owner/repo",1,SHA)
         self.assertEqual(state,"blocked")
 
     def test_clean_review_passes(self):
         r = [{"user": BOT, "commit_id": SHA, "submitted_at": "2026", "state":"COMMENTED"}]
         s = [{"user": BOT, "body": "<!-- codex-pull-request-review-summary --> \u2705 **Completed** " + chr(96)+SHA[:7]+chr(96)}]
-        with patch.object(gate,"request",return_value={"head":{"sha":SHA}}), \
+        with patch.object(gate,"request",return_value={"head":{"sha":SHA}, "state":"open"}), \
              patch.object(gate,"pages",side_effect=[r,s]), \
-             patch.object(gate,"blockers",return_value=[]):
+             patch.object(gate,"blockers",return_value=[]), \
+             patch.object(gate,"required_ci_state",return_value=("passed","CI passed")):
             state,_=gate.check("token","owner/repo",1,SHA)
         self.assertEqual(state,"passed")
+
+    def test_recent_quota_only_real_bot_within_six_hours(self):
+        now = datetime(2026, 10, 11, 12, tzinfo=timezone.utc)
+        items = [
+            {"user": BOT, "body": gate.QUOTA_NOTICE, "created_at": "2026-10-11T10:44:00Z"},
+            {"user": {"login": "chatgpt-codex-connector-impersonator"},
+             "body": gate.QUOTA_NOTICE, "created_at": "2026-10-11T11:59:00Z"},
+        ]
+        with patch.object(gate, "request", return_value=items):
+            self.assertTrue(gate.recent_quota_notice("token", "owner/repo", now=now))
+            self.assertFalse(gate.recent_quota_notice(
+                "token", "owner/repo", now=now + timedelta(hours=7)
+            ))
+        items.pop(0)
+        with patch.object(gate, "request", return_value=items):
+            self.assertFalse(gate.recent_quota_notice("token", "owner/repo", now=now))
+
+    def test_required_ci_fail_closed_on_failure_missing_and_pending(self):
+        def sample(name, state="completed", conclusion="success"):
+            return {"name": name, "status": state, "conclusion": conclusion,
+                    "started_at": "2026-10-11T10:00:00Z", "id": 1}
+        success = [sample(n) for n in gate.REQUIRED_CHECKS]
+        with patch.object(gate, "request", return_value={"check_runs": success}):
+            self.assertEqual(gate.required_ci_state("token", "owner/repo", SHA)[0], "passed")
+        for changed in (success[:-1], success[:-1] + [sample(
+                gate.REQUIRED_CHECKS[-1], conclusion="failure")],
+                success[:-1] + [sample(gate.REQUIRED_CHECKS[-1], state="in_progress")]):
+            with patch.object(gate, "request", return_value={"check_runs": changed}):
+                self.assertNotEqual(gate.required_ci_state("token", "owner/repo", SHA)[0], "passed")
+
+    def test_quota_exception_needs_green_ci_and_no_p12(self):
+        with patch.object(gate,"request",return_value={"head":{"sha":SHA}, "state":"open"}), \
+             patch.object(gate,"pages",side_effect=[[],[]]), \
+             patch.object(gate,"blockers",return_value=[]), \
+             patch.object(gate,"required_ci_state",return_value=("passed","all passed")), \
+             patch.object(gate,"recent_quota_notice",return_value=True):
+            state,msg=gate.check("token","owner/repo",7,SHA)
+        self.assertEqual(state,"passed")
+        self.assertIn("quota exception",msg)
+        with patch.object(gate,"request",return_value={"head":{"sha":SHA}, "state":"open"}), \
+             patch.object(gate,"blockers",return_value=[]), \
+             patch.object(gate,"required_ci_state",return_value=("blocked","CI failed")):
+            state,_=gate.check("token","owner/repo",7,SHA)
+        self.assertEqual(state,"blocked")
+        with patch.object(gate,"request",return_value={"head":{"sha":SHA}, "state":"open"}), \
+             patch.object(gate,"blockers",return_value=["![P1 Badge]"]), \
+             patch.object(gate,"required_ci_state",return_value=("passed","all passed")):
+            state,_=gate.check("token","owner/repo",7,SHA)
+        self.assertEqual(state,"blocked")
+
+    def test_closed_pr_is_noop(self):
+        with patch.object(gate,"request",return_value={"head":{"sha":SHA}, "state":"closed"}):
+            state,_=gate.check("token","owner/repo",7,SHA)
+        self.assertEqual(state,"skipped")

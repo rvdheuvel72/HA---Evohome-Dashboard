@@ -27,6 +27,18 @@ class TestOverrideExpiry(unittest.TestCase):
         self.assertTrue(expiry(t0, t0 + timedelta(seconds=59, milliseconds=999)))
         self.assertFalse(expiry(t0, t0 + timedelta(seconds=60)))
 
+
+    def test_adjacent_later_minute_is_not_truncation(self):
+        self.assertFalse(expiry(t0 + timedelta(minutes=1),
+                                t0 + timedelta(seconds=40)))
+
+    def test_stale_previous_expiry_is_not_proof_of_duration_update(self):
+        self.assertFalse(expiry(t0, t0 + timedelta(seconds=40), previous=t0))
+
+    def test_changed_expiry_observed_is_success(self):
+        self.assertTrue(expiry(t0 + timedelta(hours=2), t0 + timedelta(hours=2),
+                               previous=t0 + timedelta(hours=1)))
+
     def test_different_minute_is_not_verification(self):
         self.assertFalse(expiry(t0, t0 + timedelta(minutes=2)))
 

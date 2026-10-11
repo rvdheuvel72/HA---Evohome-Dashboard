@@ -149,6 +149,11 @@ class EvohomeHub(DataUpdateCoordinator[dict]):
             and matches_override_expiry(zone.until, expiry, previous=prior_expiry),
         )
 
+    async def set_zone_frost(self, system_id, zone_id):
+        """Zone off is minimum-temperature frost protection, not RF disconnect."""
+        zone = self._zone(system_id, zone_id)
+        return await self.set_zone(system_id, zone_id, zone.min_heat_setpoint)
+
     async def resume_zone(self, system_id, zone_id):
         zone = self._zone(system_id, zone_id)
         return await self._execute(

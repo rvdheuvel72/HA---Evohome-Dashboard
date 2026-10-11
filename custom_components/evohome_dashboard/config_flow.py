@@ -1,13 +1,23 @@
-"""UI configuration for a single Resideo account."""
+"""UI configuration for a single European Resideo TCC account.
+
+Use the public methods of pinned evohome-async v2.1.0. In that version there is
+no EvohomeClient.setup() method; initialization uses update(dont_update_status=True).
+"""
 from __future__ import annotations
+
+import logging
 
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_PASSWORD, CONF_SCAN_INTERVAL, CONF_USERNAME
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from evohomeasync2 import EvohomeClient
-from .auth import StoredTokenManager
+
+from .auth import StoredTokenManager, token_cache_key
 from .const import DEFAULT_INTERVAL, DOMAIN, MIN_INTERVAL
+from .diagnostics import classify_setup_error
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class EvohomeDashboardConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -15,26 +25,38 @@ class EvohomeDashboardConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(self, user_input=None):
         errors = {}
-        if user_input:
-            await self.async_set_unique_id(user_input[CONF_USERNAME].strip().lower())
+        if user_input is not None:
+            username = user_input[CONF_USERNAME].strip()
+            await self.async_set_unique_id(username.lower())
             self._abort_if_unique_id_configured()
             try:
                 manager = StoredTokenManager(
-                    self.hass, "validation", user_input[CONF_USERNAME],
-                    user_input[CONF_PASSWORD], async_get_clientsession(self.hass),
+                    self.hass,
+                    token_cache_key(username),
+                    username,
+                    user_input[CONF_PASSWORD],
+                    async_get_clientsession(self.hass),
                 )
                 client = EvohomeClient(manager)
-                await client.setup()
-            except Exception as err:  # API errors vary between versions
-                from evohomeasync2 import exceptions
-                errors["base"] = (
-                    "invalid_auth" if isinstance(err, exceptions.AuthenticationFailedError)
-                    else "cannot_connect"
+                # evohome-async==2.1.0: update(...), NOT setup().
+                await client.update(dont_update_status=True)
+                if not client.locations:
+                    errors["base"] = "no_locations"
+            except Exception as err:
+                # Raw cloud errors may contain API response bodies or account names.
+                # Never include str(err), passwords or tokens in the HA log.
+                reason = classify_setup_error(err)
+                _LOGGER.warning(
+                    "Evohome connection setup failed: category=%s exception=%s http_status=%s",
+                    reason, type(err).__name__, getattr(err, "status", None),
                 )
+                errors["base"] = reason
             else:
-                return self.async_create_entry(
-                    title=f"Evohome ({user_input[CONF_USERNAME]})", data=user_input
-                )
+                if not errors:
+                    return self.async_create_entry(
+                        title="Evohome Dashboard",
+                        data={**user_input, CONF_USERNAME: username},
+                    )
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({

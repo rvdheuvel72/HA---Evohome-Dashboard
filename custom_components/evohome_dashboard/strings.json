@@ -11,9 +11,12 @@
       }
     },
     "error": {
-      "cannot_connect": "Cannot reach Resideo",
-      "invalid_auth": "Authentication failed",
-      "unknown": "Unexpected error"
+      "cannot_connect": "Resideo is unreachable (network / timeout).",
+      "invalid_auth": "Resideo rejected the account credentials.",
+      "rate_limited": "Resideo has temporarily rate-limited logins. Wait before trying again.",
+      "invalid_response": "Resideo returned account/installation data this version cannot interpret.",
+      "no_locations": "No Evohome location was returned for this account.",
+      "unknown": "An unexpected integration error occurred; check Home Assistant logs."
     }
   },
   "options": {

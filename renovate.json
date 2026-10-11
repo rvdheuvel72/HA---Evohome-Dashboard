@@ -1,8 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:recommended",
-    ":disableAutomerge"
+    "config:recommended"
   ],
   "timezone": "Europe/Amsterdam",
   "schedule": [
@@ -58,5 +57,6 @@
       "depNameTemplate": "evohome-async",
       "datasourceTemplate": "pypi"
     }
-  ]
+  ],
+  "automerge": false
 }

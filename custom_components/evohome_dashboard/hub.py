@@ -17,6 +17,7 @@ from homeassistant.helpers.storage import Store
 from .model import snapshot
 from .schedules import digest, normalize, validate
 from .const import DOMAIN, MAX_ERRORS
+from .verification import matches_override_expiry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -119,12 +120,14 @@ class EvohomeHub(DataUpdateCoordinator[dict]):
                 return
         raise TimeoutError("The requested heating state was not confirmed by Resideo")
 
-    async def _execute(self, operation, target, action, location, predicate):
+    async def _execute(self, operation, target, action, location, predicate, *, previous_expiry=None):
         async with self._write_lock:
             try:
                 # Pinned 2.1.0 returns None for PUT helpers. No task.wait().
+                prior = previous_expiry() if previous_expiry is not None else None
                 await action()
-                await self._wait_for_state(location, predicate)
+                validator = (lambda: predicate(prior)) if previous_expiry else predicate
+                await self._wait_for_state(location, validator)
                 await self.async_request_refresh()
                 return {"ok": True, "verified": True}
             except Exception as exc:
@@ -144,8 +147,10 @@ class EvohomeHub(DataUpdateCoordinator[dict]):
         return await self._execute(
             "zone_temperature", zone_id,
             lambda: zone.set_temperature(value, until=expiry), zone.location,
-            lambda: str(zone.mode) == expected_mode
-            and abs(zone.target_heat_temperature - value) <= 1e-6,
+            lambda prior: str(zone.mode) == expected_mode
+            and abs(zone.target_heat_temperature - value) <= 1e-6
+            and matches_override_expiry(zone.until, expiry, previous=prior),
+            previous_expiry=lambda: zone.until,
         )
 
     async def resume_zone(self, system_id, zone_id):
@@ -163,7 +168,9 @@ class EvohomeHub(DataUpdateCoordinator[dict]):
         return await self._execute(
             "system_mode", system_id,
             lambda: system.set_mode(mode, until=expiry), system.location,
-            lambda: str(system.mode) == mode,
+            lambda prior: str(system.mode) == mode
+            and matches_override_expiry(system.until, expiry, previous=prior),
+            previous_expiry=lambda: system.until,
         )
 
     async def set_hotwater(self, system_id, state, until=None):
@@ -176,7 +183,9 @@ class EvohomeHub(DataUpdateCoordinator[dict]):
         return await self._execute(
             "hotwater", system_id,
             lambda: dhw.set_state(state, until=expiry), system.location,
-            lambda: str(dhw.state) == state and str(dhw.mode) == expected_mode,
+            lambda prior: str(dhw.state) == state and str(dhw.mode) == expected_mode
+            and matches_override_expiry(dhw.until, expiry, previous=prior),
+            previous_expiry=lambda: dhw.until,
         )
 
     async def resume_hotwater(self, system_id):

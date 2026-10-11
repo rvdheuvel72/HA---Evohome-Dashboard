@@ -2,7 +2,7 @@
 
 A new, independent and user-friendly Evohome heating integration with a responsive touchscreen-style **Evohome** page in the Home Assistant sidebar.
 
-**Current release:** Phase 1 / v0.1.1 — source and CI validation; **not yet validated on a live Evohome controller**.
+**Current release:** Phase 1 / v0.1.2 — source and CI validation; **not yet validated on a live Evohome controller**.
 
 This project uses the Apache-2.0 licensed [evohome-async](https://github.com/zxdavb/evohome-async) Python transport library as a dependency; it does not include or reuse `colegates/evohome-control` implementation code.
 
@@ -90,3 +90,13 @@ The original code in this repository is MIT-licensed (see `LICENSE`). The separa
 **Phase 1:** an improved Evohome touchscreen experience in Home Assistant only.
 
 **Not now:** HomeBoard work schedules, household presence automation, RAMSES RF adapter and unsupported low-level installer controls.
+
+## Codex quality gate
+
+Before merging into main, all Codex P1/P2 findings must be fixed and resolved, and Codex must review the exact latest PR head. See [Merge policy](docs/MERGE_POLICY.md). A GitHub ruleset must be enabled to enforce the check; CI checks alone can be bypassed by privileged users.
+
+### v0.1.2 (review fixes)
+
+- Harden temporary-override expiry verification (zones, hot water, operating modes) against stale cloud values and minute truncation.
+- Add Codex P1/P2 review gate, with the privileged check isolated on GitHub-hosted infrastructure; other validation remains on self-hosted runners.
+- New merge policy requires completed exact-head Codex review and addressed P1/P2 findings before merge.

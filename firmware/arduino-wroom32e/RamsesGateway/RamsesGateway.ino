@@ -228,41 +228,51 @@ void radioTask(void*) {
 }
 
 void httpStatus() {
-  char json[480];
+  if (!authorized()) return;
+  char json[1050];
+  const String ip = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "";
+  const String apIp = recoveryApReady ? WiFi.softAPIP().toString() : "";
   snprintf(json, sizeof(json),
-           "{\"board\":\"ESP32-WROOM-32E\",\"mode\":\"receive_only\","
-           "\"radio_detected\":%s,\"radio_verified\":false,"
-           "\"cc1101_part\":%u,\"cc1101_version\":%u,"
+           "{\"version\":\"%s\",\"board\":\"ESP32-WROOM-32E\",\"mode\":\"receive_only\","
+           "\"radio_detected\":%s,\"radio_verified\":false,\"cc1101_part\":%u,\"cc1101_version\":%u,"
            "\"wifi_connected\":%s,\"mqtt_connected\":%s,\"time_synced\":%s,"
            "\"valid_frames\":%lu,\"rejected_frames\":%lu,\"dropped_frames\":%lu,"
+           "\"rf_uart_bytes\":%lu,\"rf_syncs\":%lu,\"radio_recalibrations\":%lu,"
+           "\"radio_recalibration_failures\":%lu,"
            "\"last_frame_uptime_ms\":%lu,\"last_rssi\":%u,"
-           "\"uptime_ms\":%lu,\"free_heap\":%lu,\"gateway_id\":\"%s\"}",
-           radioReady ? "true" : "false",
-           radio.part(), radio.version(),
+           "\"uptime_ms\":%lu,\"free_heap\":%lu,\"gateway_id\":\"%s\","
+           "\"ip\":\"%s\",\"ap_ip\":\"%s\",\"ap_ssid\":\"%s\",\"reset_reason\":\"%s\"}",
+           FW_VERSION,
+           radioReady ? "true" : "false", radio.part(), radio.version(),
            WiFi.status() == WL_CONNECTED ? "true" : "false",
            mqtt.connected() ? "true" : "false",
            timeSynchronized() ? "true" : "false",
            static_cast<unsigned long>(validFrames),
            static_cast<unsigned long>(rejectedFrames),
            static_cast<unsigned long>(droppedFrames),
+           static_cast<unsigned long>(rfUartBytes),
+           static_cast<unsigned long>(rfSyncs),
+           static_cast<unsigned long>(radioRxRecalibrations),
+           static_cast<unsigned long>(radioRxRecalibrationFailures),
            static_cast<unsigned long>(lastFrameMs), lastRssi,
            static_cast<unsigned long>(millis()),
-           static_cast<unsigned long>(ESP.getFreeHeap()), deviceId);
+           static_cast<unsigned long>(ESP.getFreeHeap()), deviceId,
+           ip.c_str(), apIp.c_str(), recoveryApReady ? recoveryApSsid : "",
+           resetReason());
   web.sendHeader("Cache-Control", "no-store");
   web.send(200, "application/json", json);
 }
 
 void httpPackets() {
-  // HGI lines contain only ASCII digits, uppercase letters, colon,
-  // dash and whitespace; preserve them as JSON strings.
+  if (!authorized()) return;
   String json = "{\"packets\":[";
   for (uint8_t i = 0; i < recentCount; ++i) {
     if (i) json += ',';
     const uint8_t slot = (recentNext + RING_SIZE - recentCount + i) % RING_SIZE;
     json += "{\"ts\":\"";
-    json += recent[slot].timestamp;
+    json += escapeJSON(recent[slot].timestamp);
     json += "\",\"msg\":\"";
-    json += recent[slot].message;
+    json += escapeJSON(recent[slot].message);
     json += "\"}";
   }
   json += "]}";
@@ -270,14 +280,58 @@ void httpPackets() {
   web.send(200, "application/json", json);
 }
 
+void httpDebugLogs() {
+  if (!authorized()) return;
+  const uint32_t cursor = static_cast<uint32_t>(strtoul(web.arg("since").c_str(), nullptr, 10));
+  const int maxValue = constrain(web.arg("level").toInt(), 0, 3);
+  const auto maxLevel = static_cast<GatewayDebug::Level>(web.hasArg("level") ? maxValue : 2);
+  web.sendHeader("Cache-Control", "no-store");
+  web.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  web.send(200, "application/json", "");
+  web.sendContent("{\"next\":" + String(diagnosticLog.newest()) + ",\"entries\":[");
+  bool first = true;
+  diagnosticLog.eachAfter(cursor, maxLevel, [&](const GatewayDebug::Entry& entry) {
+    String item;
+    item.reserve(240);
+    if (!first) item += ',';
+    first = false;
+    item += "{\"seq\":";
+    item += String(entry.sequence);
+    item += ",\"uptime_ms\":";
+    item += String(entry.uptimeMs);
+    item += ",\"level\":\"";
+    item += GatewayDebug::levelName(entry.level);
+    item += "\",\"message\":\"";
+    item += escapeJSON(entry.message);
+    item += "\"}";
+    web.sendContent(item);
+  });
+  web.sendContent("]}");
+  web.sendContent("");
+}
+
+void httpDebugDownload() {
+  if (!authorized()) return;
+  web.sendHeader("Cache-Control", "no-store");
+  web.sendHeader("Content-Disposition", "attachment; filename=ramses-gateway-debug.txt");
+  web.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  web.send(200, "text/plain", "");
+  web.sendContent("RAMSES Arduino Gateway " + String(FW_VERSION) + " / " + resetReason() + "\n");
+  diagnosticLog.eachAfter(0, GatewayDebug::TRACE, [&](const GatewayDebug::Entry& entry) {
+    String line = "[" + String(entry.uptimeMs) + "ms] ";
+    line += GatewayDebug::levelName(entry.level);
+    line += " ";
+    line += entry.message;
+    line += "\n";
+    web.sendContent(line);
+  });
+  web.sendContent("");
+}
+
 void httpIndex() {
-  web.send(200, "text/html",
-           "<!doctype html><html><head><meta name='viewport' content='width=device-width'>"
-           "<title>RAMSES II Gateway</title></head><body>"
-           "<h1>RAMSES II Gateway</h1><p>ESP32-WROOM-32E / CC1101 / receive-only</p>"
-           "<p><a href='/api/v1/status'>JSON status</a> | "
-           "<a href='/api/v1/packets'>Recent packets</a></p>"
-           "<p>Local-network prototype. No transmit endpoints.</p></body></html>");
+  if (!authorized()) return;
+  web.sendHeader("Cache-Control", "no-store");
+  web.send_P(200, "text/html", GW_DEBUG_PAGE);
 }
 
 void wifiConnect() {
@@ -288,7 +342,7 @@ void wifiConnect() {
   lastWifiAttempt = now;
   WiFi.disconnect(false);
   WiFi.begin(GW_WIFI_SSID, GW_WIFI_PASSWORD);
-  Serial.printf("# Wi-Fi connecting to %s\n", GW_WIFI_SSID);
+  recordLog(GatewayDebug::INFO, "Wi-Fi connection attempt");
 }
 
 void mqttConnect() {
@@ -305,9 +359,12 @@ void mqttConnect() {
   }
   if (ok) {
     mqtt.publish(availabilityTopic, "online", true);
-    Serial.printf("# MQTT connected, RX topic: %s\n", rxTopic);
+    recordLog(GatewayDebug::INFO, "MQTT connected");
+    Serial.printf("# MQTT RX topic: %s\n", rxTopic);
   } else {
-    Serial.printf("# MQTT connection failed state=%d\n", mqtt.state());
+    char errorText[96];
+    snprintf(errorText, sizeof(errorText), "MQTT connection failed, state=%d", mqtt.state());
+    recordLog(GatewayDebug::WARN, errorText);
   }
 }
 
@@ -325,6 +382,7 @@ void handlePacket(const PacketEvent& event) {
   recentNext = (recentNext + 1) % RING_SIZE;
   if (recentCount < RING_SIZE) ++recentCount;
   Serial.printf("# RX %s\n", event.hgi);
+  diagnosticLog.add(millis(), GatewayDebug::TRACE, event.hgi);
 
   // ramses_esp-compatible MQTT JSON. Refuse publishing stale/invalid timestamps.
   if (mqtt.connected() && timeSynchronized()) {

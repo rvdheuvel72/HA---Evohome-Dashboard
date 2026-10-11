@@ -2,7 +2,7 @@
 
 A new, independent and user-friendly Evohome heating integration with a responsive touchscreen-style **Evohome** page in the Home Assistant sidebar.
 
-**Current release:** Phase 1 / v0.1.2 — source and CI validation; **not yet validated on a live Evohome controller**.
+**Current release:** Phase 2 / v0.2.0 — source and CI validation; **not yet validated on a live Evohome controller**.
 
 This project uses the Apache-2.0 licensed [evohome-async](https://github.com/zxdavb/evohome-async) Python transport library as a dependency; it does not include or reuse `colegates/evohome-control` implementation code.
 
@@ -11,7 +11,12 @@ This project uses the Apache-2.0 licensed [evohome-async](https://github.com/zxd
 | Feature | Phase 1 |
 |---|---|
 | All zones, current / target temperatures | Implemented |
-| Native Home Assistant climate entities | Implemented |
+| Native Home Assistant climate entities with heat/frost-protection | Implemented in v0.2.0 |
+| System mode select (Auto, Eco, Away, Day Off, Heating Off when supported) | Implemented in v0.2.0 |
+| System-wide Heating Off switch | Implemented if controller supports it |
+| Individual zone frost-protection switches | Implemented in v0.2.0 |
+| Native zone override preset modes and schedule resume buttons | Implemented in v0.2.0 |
+| Cloud-exposed zone status, configuration, faults and temperatures as entities | Implemented in v0.2.0 |
 | Permanent / time-limited temperature adjustments | Implemented |
 | Resume native controller schedule | Implemented |
 | System quick modes (offered by controller) | Implemented |
@@ -43,7 +48,7 @@ The integration's **Configure** action provides temperature polling interval (de
 ### Safety and observability
 
 - Home Assistant stores OAuth access/refresh tokens in private `.storage`, separated by configuration entry. Never add these files to Git.
-- Pinned evohome-async 2.1.0 returns no communication-task handle. Control writes therefore poll Resideo for the requested state; schedule writes also guard against concurrent changes and verify the schedule by repeated live reads. A cloud GET confirmation is not the same as direct RF acknowledgement.
+- Pinned evohome-async 3.0.0 returns no communication-task handle. Control writes therefore poll Resideo for the requested state; schedule writes also guard against concurrent changes and verify the schedule by repeated live reads. A cloud GET confirmation is not the same as direct RF acknowledgement.
 - The Error log sidebar tab provides the last 80 diagnostic incidents, persisted across HA restarts. Only timestamp, operation, exception class and target identifier are saved.
 - If HA or Resideo becomes unavailable, Evohome retains its existing locally stored schedule. The frontend displays the last known data and connection health.
 - Installer-only settings (RF pairing, boiler tuning, Wi-Fi, factory reset and device diagnostics) are clearly displayed as **unavailable through verified TCC cloud capabilities**. They cannot honestly be made controllable without further reverse engineering and hardware validation.
@@ -63,7 +68,7 @@ A passing CI build **does not** mean end-to-end integration is verified. Before 
 
 ## Login issues
 
-Version 0.1.1 fixes an API mismatch in v0.1.0: `EvohomeClient.setup()` did not exist in the pinned `evohome-async==2.1.0`. It also corrects status refresh calls and classifies invalid credentials, Resideo HTTP 429 rate limiting, invalid cloud responses and network errors separately. HA logs record only exception class and HTTP status, never raw vendor response bodies or secrets.
+Version 0.1.1 fixes an API mismatch in v0.1.0: `EvohomeClient.setup()` did not exist in the pinned `evohome-async==3.0.0`. It also corrects status refresh calls and classifies invalid credentials, Resideo HTTP 429 rate limiting, invalid cloud responses and network errors separately. HA logs record only exception class and HTTP status, never raw vendor response bodies or secrets.
 
 **After upgrading in HACS, restart Home Assistant and retry adding the integration.** If Resideo rate-limits the account, wait before retrying; repeated submissions can extend the lockout.
 
@@ -100,3 +105,38 @@ Before merging into main, all Codex P1/P2 findings must be fixed and resolved, a
 - Harden temporary-override expiry verification (zones, hot water, operating modes) against stale cloud values and minute truncation.
 - Add Codex P1/P2 review gate, with the privileged check isolated on GitHub-hosted infrastructure; other validation remains on self-hosted runners.
 - New merge policy requires completed exact-head Codex review and addressed P1/P2 findings before merge.
+
+## v0.2.0: how to use the complete display
+
+The default Home Assistant **climate** pop-up remains the native HA thermostat.
+It does not contain the custom weekly schedule editor.
+
+After restart, click **Evohome** on Home Assistant's left sidebar to open
+the complete heating interface. It provides overview, individual rooms,
+**Schedules**, quick operating modes, zone settings and error history.
+
+You can also embed the full Evohome display into a Lovelace dashboard:
+
+1. HA Settings → Dashboards → Resources → Add resource.
+2. URL: `/api/evohome_dashboard/dashboard.js?v=0.2.0`.
+3. Resource type: **JavaScript module**.
+4. Add a manual card with:
+   ```yaml
+   type: custom:evohome-dashboard-card
+   ```
+5. Reload the browser and select **Schedules** in the card.
+
+From the ordinary HA entity views, use the **Operating mode** select
+on the Evohome controller device for quick actions and **Heating enabled**
+to enable Auto / Heating Off (if offered by your controller).
+Each zone offers native **OFF** (frost/minimum temperature) / **HEAT**
+(follow schedule), a preset selector for temporary/permanent overrides,
+a dedicated frost-protection switch, and a resume-schedule button.
+**OFF per zone is not a true power-off: Evohome maintains frost protection.**
+
+See [User guide](docs/USER_GUIDE.md) for the exact controls and limitations,
+and [Renovate setup](docs/RENOVATE.md) for required app authorization.
+
+Version 0.2.0 upgrades its Resideo client from 2.1.0 to **3.0.0**,
+including communication-task completion and state read-back.
+A clean compile or contract test does not replace live controller acceptance.

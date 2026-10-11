@@ -1,7 +1,6 @@
 """UI configuration for a single European Resideo TCC account.
 
-Use the public methods of pinned evohome-async v2.1.0. In that version there is
-no EvohomeClient.setup() method; initialization uses update(dont_update_status=True).
+Use the public methods of pinned evohome-async v3.0.0. In that version initialization uses EvohomeClient.setup() without polling status.
 """
 from __future__ import annotations
 
@@ -38,8 +37,8 @@ class EvohomeDashboardConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     async_get_clientsession(self.hass),
                 )
                 client = EvohomeClient(manager)
-                # evohome-async==2.1.0: update(...), NOT setup().
-                await client.update(dont_update_status=True)
+                # evohome-async==3.0.0: update(...), NOT setup().
+                await client.setup()
                 if not client.locations:
                     errors["base"] = "no_locations"
             except Exception as err:

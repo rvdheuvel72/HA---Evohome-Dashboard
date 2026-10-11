@@ -4,8 +4,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from evohomeasync2 import EvohomeClient
-from homeassistant.components import frontend, panel_custom, websocket_api
+from homeassistant.components import frontend, panel_custom
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.const import CONF_PASSWORD, CONF_SCAN_INTERVAL, CONF_USERNAME
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -15,7 +14,7 @@ from .hub import EvohomeHub
 from .websocket import register_commands
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = ["climate", "sensor"]
+PLATFORMS = ["climate","sensor","binary_sensor","select","switch","button"]
 
 
 async def async_setup(hass, config):
@@ -39,7 +38,7 @@ async def _setup_frontend(hass):
         hass,
         frontend_url_path=PANEL_PATH,
         webcomponent_name="evohome-dashboard-panel",
-        module_url=f"/api/{DOMAIN}/dashboard.js",
+        module_url=f"/api/{DOMAIN}/dashboard.js?v=0.2.0",
         sidebar_title="Evohome",
         sidebar_icon="mdi:home-thermometer",
         require_admin=True,

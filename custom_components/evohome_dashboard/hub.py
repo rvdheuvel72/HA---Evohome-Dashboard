@@ -141,13 +141,14 @@ class EvohomeHub(DataUpdateCoordinator[dict]):
         if abs((value / step) - round(value / step)) > 1e-6:
             raise ValueError("Unsupported temperature step")
         expiry = parse_until(until)
+        prior_expiry = zone.until
         expected_mode = "temporary_override" if expiry else "permanent_override"
         return await self._execute(
             "zone_temperature", zone_id,
             lambda: zone.set_temperature(value, until=expiry), zone.location,
             lambda: str(zone.mode) == expected_mode
             and abs(zone.target_heat_temperature - value) <= 1e-6
-            and matches_override_expiry(zone.until, expiry),
+            and matches_override_expiry(zone.until, expiry, previous=prior_expiry),
         )
 
     async def resume_zone(self, system_id, zone_id):
@@ -162,11 +163,12 @@ class EvohomeHub(DataUpdateCoordinator[dict]):
         if mode not in [str(item) for item in system.allowed_modes]:
             raise ValueError("System mode unsupported")
         expiry = parse_until(until)
+        prior_expiry = system.until
         return await self._execute(
             "system_mode", system_id,
             lambda: system.set_mode(mode, until=expiry), system.location,
             lambda: str(system.mode) == mode
-            and matches_override_expiry(system.until, expiry),
+            and matches_override_expiry(system.until, expiry, previous=prior_expiry),
         )
 
     async def set_hotwater(self, system_id, state, until=None):
@@ -175,12 +177,13 @@ class EvohomeHub(DataUpdateCoordinator[dict]):
         if dhw is None or state not in ("on", "off"):
             raise ValueError("Hot water unavailable or invalid state")
         expiry = parse_until(until)
+        prior_expiry = dhw.until
         expected_mode = "temporary_override" if expiry else "permanent_override"
         return await self._execute(
             "hotwater", system_id,
             lambda: dhw.set_state(state, until=expiry), system.location,
             lambda: str(dhw.state) == state and str(dhw.mode) == expected_mode
-            and matches_override_expiry(dhw.until, expiry),
+            and matches_override_expiry(dhw.until, expiry, previous=prior_expiry),
         )
 
     async def resume_hotwater(self, system_id):

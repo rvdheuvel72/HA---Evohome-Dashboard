@@ -119,11 +119,15 @@ class EvohomeHub(DataUpdateCoordinator[dict]):
         raise TimeoutError("The requested heating state was not confirmed by Resideo")
 
     async def _execute(self, operation, target, action, location, predicate, *, previous_expiry=None):
+        """Serialize, await the vendor comm task, and verify the reported state."""
         async with self._write_lock:
             try:
-                # Pinned 2.1.0 returns None for PUT helpers. No task.wait().
-                await action()
-                validator = (lambda: predicate(prior)) if previous_expiry else predicate
+                # Prior state must be sampled under the same lock as the PUT.
+                prior = previous_expiry() if previous_expiry is not None else None
+                task = await action()
+                async with asyncio.timeout(60):
+                    await task.wait()
+                validator = (lambda: predicate(prior)) if previous_expiry is not None else predicate
                 await self._wait_for_state(location, validator)
                 await self.async_request_refresh()
                 return {"ok": True, "verified": True}

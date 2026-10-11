@@ -9,7 +9,7 @@ from homeassistant.components import frontend, panel_custom, websocket_api
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.const import CONF_PASSWORD, CONF_SCAN_INTERVAL, CONF_USERNAME
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from .auth import StoredTokenManager
+from .auth import StoredTokenManager, token_cache_key
 from .const import DEFAULT_INTERVAL, DOMAIN, PANEL_PATH
 from .hub import EvohomeHub
 from .websocket import register_commands
@@ -50,7 +50,7 @@ async def _setup_frontend(hass):
 
 async def async_setup_entry(hass, entry):
     tokens = StoredTokenManager(
-        hass, entry.entry_id, entry.data[CONF_USERNAME], entry.data[CONF_PASSWORD],
+        hass, token_cache_key(entry.data[CONF_USERNAME]), entry.data[CONF_USERNAME], entry.data[CONF_PASSWORD],
         async_get_clientsession(hass),
     )
     hub = EvohomeHub(

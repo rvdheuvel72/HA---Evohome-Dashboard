@@ -2,6 +2,17 @@
 from __future__ import annotations
 
 from typing import Any
+from hashlib import sha256
+
+
+def token_cache_key(username: str) -> str:
+    """Account-scoped opaque cache key shared by config-flow and runtime.
+
+    Reusing the successful configuration-flow token avoids a second password
+    login and therefore avoids provoking the Resideo login rate limit.
+    """
+    return sha256(username.strip().lower().encode("utf-8")).hexdigest()[:32]
+
 from evohomeasync2.auth import AbstractTokenManager
 from homeassistant.helpers.storage import Store
 

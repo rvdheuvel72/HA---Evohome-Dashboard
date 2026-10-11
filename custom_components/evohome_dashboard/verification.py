@@ -1,26 +1,52 @@
-"""Compare requested Evohome override expirations with reported cloud state.
+"""Conservative verification for Evohome time-limited heating overrides.
 
-Never claim the new override was applied based only on a matching temperature
-or mode: the preceding temporary override may have a different end time.
-The cloud can remove sub-minute precision, so allow strictly less than 60 seconds. Deliberately
-DO NOT treat a different ten-minute slot as a successful write.
+A reported expiry is valid only if it equals the request or the controller's
+documented precision-reducing representations (seconds/minutes truncated).
+A time merely nearby, such as a later minute, is NOT evidence of success.
 """
 from __future__ import annotations
 
 from datetime import datetime, timezone
 
-MAX_EXPIRY_SKEW_SECONDS = 60
+_UNSET = object()
 
 
-def matches_override_expiry(actual: datetime | None, requested: datetime | None) -> bool:
-    """Strict comparison of optional TZ-aware end times, allowing seconds truncation."""
+def _utc(value: datetime) -> datetime | None:
+    if value.tzinfo is None or value.utcoffset() is None:
+        return None
+    return value.astimezone(timezone.utc)
+
+
+def matches_override_expiry(
+    actual: datetime | None,
+    requested: datetime | None,
+    *,
+    previous: datetime | None | object = _UNSET,
+) -> bool:
+    """Verify request, rejecting stale state when only duration was changed.
+
+    Resideo may return an ISO timestamp without fractions or seconds. The
+    accepted values are exactly the requested UTC time, floor to second, or
+    floor to minute. A previous observed expiry is never proof of a changed
+    expiry unless the request itself is identical to that value.
+    """
     if requested is None:
         return actual is None
     if actual is None:
         return False
-    if requested.tzinfo is None or requested.utcoffset() is None:
+    expected = _utc(requested)
+    observed = _utc(actual)
+    if expected is None or observed is None:
         return False
-    if actual.tzinfo is None or actual.utcoffset() is None:
+    candidates = {
+        expected,
+        expected.replace(microsecond=0),
+        expected.replace(second=0, microsecond=0),
+    }
+    if observed not in candidates:
         return False
-    delta = abs((actual.astimezone(timezone.utc) - requested.astimezone(timezone.utc)).total_seconds())
-    return delta < MAX_EXPIRY_SKEW_SECONDS
+    if previous is not _UNSET and previous is not None:
+        old = _utc(previous)
+        if old is not None and old == observed and old != expected:
+            return False
+    return True

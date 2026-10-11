@@ -8,7 +8,9 @@ Do not merge into main before:
 5. The self-hosted "Codex P1/P2 review gate" CI check is green.
 6. The exact final head SHA is verified again before merge, then post-merge CI is checked.
 
-CI gate implementation: scripts/check_codex_review.py checks GitHub review records, the Codex completed summary identifying the exact head SHA, and unresolved P1/P2 review threads (GraphQL). If Codex is unavailable, the review has not completed, a thread is unresolved, or GitHub permissions fail, the gate stays red. It will not automatically suppress or resolve findings.
+CI gate implementation: the pull_request_target workflow is loaded from the protected default branch, checks out only the trusted base commit, and runs scripts/check_codex_review.py from that base (never from PR source). GitHub review records, the Codex completed summary identifying the exact head SHA, and unresolved P1/P2 review threads (GraphQL). If Codex is unavailable, the review has not completed, a thread is unresolved, or GitHub permissions fail, the gate stays red. It will not automatically suppress or resolve findings.
+
+**Bootstrap limitation:** Because the trusted check workflow is being introduced by the current PR, it cannot run from main for that same PR until merged. The bootstrap merge must be manually checked: fully completed Codex review of the final head with zero outstanding P1/P2, plus green existing CI. Future PRs use the protected-base gate.
 
 **Enforcement requires GitHub repository rules**: Settings > Rules > Rulesets: target main, require PRs, disallow bypass, require status checks:
 - "Python contract and dashboard syntax"

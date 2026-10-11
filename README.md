@@ -1,12 +1,85 @@
 # Evohome Dashboard for Home Assistant
 
-Independent, HACS-installable Home Assistant integration and accessible dashboard for Honeywell Home / Resideo Evohome (European TCC systems).
+A new, independent and user-friendly Evohome heating integration with a responsive touchscreen-style **Evohome** page in the Home Assistant sidebar.
 
-**Status:** Phase 1 under development. Not yet validated on a live controller.
+**Current release:** Phase 1 / v0.1.0 — source and CI validation; **not yet validated on a live Evohome controller**.
 
-The project does **not** incorporate code from `colegates/evohome-control`. It uses the Apache-2.0 licensed `evohome-async` transport library used by Home Assistant's upstream Evohome integration.
+This project uses the Apache-2.0 licensed [evohome-async](https://github.com/zxdavb/evohome-async) Python transport library as a dependency; it does not include or reuse `colegates/evohome-control` implementation code.
 
-See `docs/ARCHITECTURE.md` and `docs/FEATURE_MATRIX.md`. The first release prioritizes everyday touchscreen replacement: heating zone controls, modes, schedules, hot water, user-friendly UI, diagnostics and a safe advanced-settings catalog. Installer-only device configuration cannot be remotely exposed until verified against supported APIs.
+## What is included
 
-## Security
-Do not paste or commit Evohome passwords, refresh tokens, traffic dumps with credentials, or Home Assistant access tokens.
+| Feature | Phase 1 |
+|---|---|
+| All zones, current / target temperatures | Implemented |
+| Native Home Assistant climate entities | Implemented |
+| Permanent / time-limited temperature adjustments | Implemented |
+| Resume native controller schedule | Implemented |
+| System quick modes (offered by controller) | Implemented |
+| Domestic hot water, if installed | Implemented |
+| Seven-day graphical schedule editor | Implemented |
+| Conflict prevention + schedule read-back | Implemented |
+| Settings, device capability inventory | Implemented |
+| Installer-only / hidden settings | **Informational only — cloud API access unverified** |
+| Persistent, redacted error log | Implemented |
+| HomeBoard integration / direct RF | Not in Phase 1 |
+
+## Install
+
+You need Home Assistant with HACS and a Honeywell/Resideo European Total Connect Comfort account.
+
+1. In **HACS → Custom repositories**, enter `https://github.com/rvdheuvel72/HA---Evohome-Dashboard` and select **Integration**. As this repository is currently private, your HACS/GitHub account must have access to it.
+2. Download **Evohome Dashboard** and restart Home Assistant.
+3. Open **Settings → Devices & services → Add integration → Evohome Dashboard**.
+4. Sign in using your European Total Connect Comfort account credentials.
+5. A new **Evohome** sidebar entry is registered for Home Assistant administrators.
+6. Start by checking measured temperatures and system mode. Test one zone override and resume; only then test schedule edits.
+
+**Avoid running the built-in `evohome` integration against the same Resideo account while testing.** Excessive independent logins can trigger Resideo rate limits. Account access requires the Resideo cloud and working Internet access.
+
+### Configuration
+
+The integration's **Configure** action provides temperature polling interval (default 180 seconds, minimum 60 seconds). Weekly schedules are fetched **on demand**, not on every polling cycle.
+
+### Safety and observability
+
+- Home Assistant stores OAuth access/refresh tokens in private `.storage`, separated by configuration entry. Never add these files to Git.
+- Control writes wait for the Resideo communication task to complete. Schedule writes also check for concurrent changes and verify the saved schedule by re-reading it.
+- The Error log sidebar tab provides the last 80 diagnostic incidents, persisted across HA restarts. Only timestamp, operation, exception class and target identifier are saved.
+- If HA or Resideo becomes unavailable, Evohome retains its existing locally stored schedule. The frontend displays the last known data and connection health.
+- Installer-only settings (RF pairing, boiler tuning, Wi-Fi, factory reset and device diagnostics) are clearly displayed as **unavailable through verified TCC cloud capabilities**. They cannot honestly be made controllable without further reverse engineering and hardware validation.
+
+### Hardware acceptance checklist
+
+A passing CI build **does not** mean end-to-end integration is verified. Before relying on the system:
+
+1. Check successful TCC sign-in and all expected zones are present.
+2. Confirm measured / target temperatures match physical touchscreen.
+3. Change one setpoint for one hour; wait for the physical Evohome display to update.
+4. Cancel override and verify Follow Schedule.
+5. Export or manually record the current weekly schedule before an edit.
+6. Edit one day, save, and compare resulting schedule on the physical display.
+7. Confirm quick actions and hot water only when your hardware supports them.
+8. Disconnect Internet briefly and check honest offline/error states; do not assume local control.
+
+## Development / CI
+
+CI deliberately uses **`[self-hosted, Linux, X64]`** runners. The workflow provisions Node 22, then executes Python compileall, pure schedule tests, JavaScript syntax checks and packaging-contract checks.
+
+```bash
+python3 -m compileall -q custom_components tests
+python3 -m unittest discover -s tests -v
+python3 scripts/validate_contract.py
+node --check custom_components/evohome_dashboard/frontend/dashboard.js
+```
+
+See [Architecture](docs/ARCHITECTURE.md) and [Feature matrix](docs/FEATURE_MATRIX.md).
+
+## Licensing
+
+The original code in this repository is MIT-licensed (see `LICENSE`). The separate `evohome-async` dependency is Apache-2.0 licensed.
+
+## Project boundaries
+
+**Phase 1:** an improved Evohome touchscreen experience in Home Assistant only.
+
+**Not now:** HomeBoard work schedules, household presence automation, RAMSES RF adapter and unsupported low-level installer controls.

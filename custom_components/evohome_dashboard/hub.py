@@ -17,6 +17,7 @@ from homeassistant.helpers.storage import Store
 from .model import snapshot
 from .schedules import digest, normalize, validate
 from .const import DOMAIN, MAX_ERRORS
+from .verification import matches_override_expiry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -145,7 +146,8 @@ class EvohomeHub(DataUpdateCoordinator[dict]):
             "zone_temperature", zone_id,
             lambda: zone.set_temperature(value, until=expiry), zone.location,
             lambda: str(zone.mode) == expected_mode
-            and abs(zone.target_heat_temperature - value) <= 1e-6,
+            and abs(zone.target_heat_temperature - value) <= 1e-6
+            and matches_override_expiry(zone.until, expiry),
         )
 
     async def resume_zone(self, system_id, zone_id):
@@ -163,7 +165,8 @@ class EvohomeHub(DataUpdateCoordinator[dict]):
         return await self._execute(
             "system_mode", system_id,
             lambda: system.set_mode(mode, until=expiry), system.location,
-            lambda: str(system.mode) == mode,
+            lambda: str(system.mode) == mode
+            and matches_override_expiry(system.until, expiry),
         )
 
     async def set_hotwater(self, system_id, state, until=None):
@@ -176,7 +179,8 @@ class EvohomeHub(DataUpdateCoordinator[dict]):
         return await self._execute(
             "hotwater", system_id,
             lambda: dhw.set_state(state, until=expiry), system.location,
-            lambda: str(dhw.state) == state and str(dhw.mode) == expected_mode,
+            lambda: str(dhw.state) == state and str(dhw.mode) == expected_mode
+            and matches_override_expiry(dhw.until, expiry),
         )
 
     async def resume_hotwater(self, system_id):

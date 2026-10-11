@@ -26,6 +26,11 @@ jobs:
           arduino-cli core update-index
           arduino-cli core install esp32:esp32@3.3.4
           arduino-cli lib install "PubSubClient@2.8"
+      - name: Test RAMSES receive decoder (host-native)
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer \
+            firmware/arduino-wroom32e/tests/test_codec.cpp -o /tmp/test-ramses-codec
+          /tmp/test-ramses-codec
       - name: Compile for ESP32-WROOM-32E
         run: |
           arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all firmware/arduino-wroom32e/RamsesGateway --output-dir "$RUNNER_TEMP/arduino-build"

@@ -26,11 +26,16 @@ async def _setup_frontend(hass):
     if hass.data.get(f"{DOMAIN}_ui_loaded"):
         return
     if not hass.data.get(f"{DOMAIN}_assets_loaded"):
-        resource = Path(__file__).parent / "frontend" / "dashboard.js"
+        assets = Path(__file__).parent / "frontend"
         await hass.http.async_register_static_paths([
             StaticPathConfig(
-                f"/api/{DOMAIN}/dashboard.js", str(resource), cache_headers=False,
-            )
+                f"/api/{DOMAIN}/dashboard.js",
+                str(assets / "dashboard.js"), cache_headers=False,
+            ),
+            StaticPathConfig(
+                f"/api/{DOMAIN}/dashboard-legacy.js",
+                str(assets / "dashboard-legacy.js"), cache_headers=False,
+            ),
         ])
         register_commands(hass)
         hass.data[f"{DOMAIN}_assets_loaded"] = True
@@ -38,7 +43,7 @@ async def _setup_frontend(hass):
         hass,
         frontend_url_path=PANEL_PATH,
         webcomponent_name="evohome-dashboard-panel",
-        module_url=f"/api/{DOMAIN}/dashboard.js?v=0.2.0",
+        module_url=f"/api/{DOMAIN}/dashboard.js?v=0.3.0",
         sidebar_title="Evohome",
         sidebar_icon="mdi:home-thermometer",
         require_admin=True,

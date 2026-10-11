@@ -104,6 +104,7 @@ QUOTA_NOTICE = "You have reached your Codex usage limits for code reviews."
 QUOTA_MAX_AGE = timedelta(hours=6)
 REQUIRED_CHECKS = (
     "Python contract and dashboard syntax",
+    "Independent HACS frontend package",
     "Pinned evohome-async runtime contract",
     "Home Assistant 2026.10 runtime imports",
 )

@@ -4,7 +4,7 @@
 
 Phase 1 is an original HACS integration and an administrator-only custom sidebar panel.
 It does not use or embed any source from `colegates/evohome-control`.
-Its transport uses the independently maintained, Apache-2.0 licensed `evohome-async==2.1.0` library (also used by the built-in HA Evohome integration). Resideo TCC v2 is cloud-only; local LAN control or RAMSES RF is **not** part of Phase 1.
+Its transport uses the independently maintained, Apache-2.0 licensed `evohome-async==3.0.0` library (also used by the built-in HA Evohome integration). Resideo TCC v2 is cloud-only; local LAN control or RAMSES RF is **not** part of Phase 1.
 
 ### Components
 
@@ -15,13 +15,21 @@ Its transport uses the independently maintained, Apache-2.0 licensed `evohome-as
 - `schedules.py`: pure constraints, normalized seven-day schedule validation and deterministic revision fingerprint.
 - `websocket.py`: HA-authenticated, administrator-only commands. All writes validated again server-side.
 - `climate.py` and `sensor.py`: native HA entities.
-- `frontend/dashboard.js`: no build system or third-party CDN; responsive custom HA sidebar panel.
+- `frontend/dashboard.js`: stable lightweight dynamic loader for the
+  independently distributed HACS frontend package, with browser-refresh
+  updates and fallback to frozen `dashboard-legacy.js`.
+- `frontend-package/dist/evohome-dashboard-ui.js`: independently installable
+  HACS Dashboard module, containing no Python/backend or account secrets.
+  Published in its own GitHub repository; HACS serves it via cache-free
+  `/hacsfiles/evohome-dashboard-ui/evohome-dashboard-ui.js`.
+- `scripts/package_frontend.py`: reproducible frontend-only HACS archive for
+  release to the second repository.
 
 ### Main UI journeys
 
 1. **Overview / Rooms** — zone temperatures and targets; permanent or time-limited override; clear and resume.
 2. **Quick Actions** — available system modes, resume via Auto; DHW on/off for 1h or resume.
-3. **Schedules** — request the live weekly schedule per room, edit switchpoints, copy days, save with conflict check; the pinned library has no comm-task handle, so successful cloud PUT acceptance is followed by bounded read-back verification.
+3. **Schedules** — request the live weekly schedule per room, edit switchpoints, copy days, save with conflict check; the v3 transport waits for a cloud communication task, then verifies read-back state.
 4. **Settings** — cloud connectivity and supported capability inventory. Installer-only features are read-only informational entries, not fake working controls.
 5. **Error log** — bounded history in HA private storage; records operation, target, time, exception type only. HA log records the same without secrets.
 
@@ -44,3 +52,11 @@ HomeBoard, work-shift automations, presence learning, local RAMSES RF, direct LA
 ## Validation limits
 
 Tests and CI validate source syntax, package layout and pure schedule operations. A real HA instance, cloud account, and live Evohome controller are required to validate runtime setup and physical temperature changes. Neither should be inferred from passing static/unit tests.
+
+### Operational restart boundary
+
+Frontend-only HACS Dashboard updates never reload the Python integration.
+The admin sidebar uses a stable JavaScript loader and a browser reload picks
+up UI releases; a missing frontend package loads the legacy bundled module.
+Backend Python/module/dependency changes still require HA Core restart.
+Changing frontend code in the backend bundle no longer ships UI upgrades.

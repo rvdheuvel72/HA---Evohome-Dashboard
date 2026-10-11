@@ -1,16 +1,18 @@
-# Using Evohome Dashboard 0.2.0
+# Using Evohome Dashboard 0.3.0 (split frontend/backend)
 
 ## Installation and upgrade
 
-1. Update **Evohome Dashboard** in HACS.
-2. Restart Home Assistant; do not keep both the built-in `evohome` integration
+1. Update **Evohome Dashboard backend 0.3.0** in HACS.
+2. Restart Home Assistant Core **once** for this Python backend upgrade; do not keep both the built-in `evohome` integration
    and this custom integration actively polling the same Resideo account
    while diagnosing login / rate limits.
 3. Check that the **Evohome** item appears on the HA left sidebar
    for an administrator.
 4. Navigate to **Evohome → Overview** to see all cloud-reported zones.
-5. For a regular Lovelace dashboard, register the JavaScript module resource
-   `/api/evohome_dashboard/dashboard.js?v=0.2.0` and add a manual card:
+5. After a separate `evohome-dashboard-ui` repository is published, install
+   the `Evohome Dashboard UI` HACS **Dashboard** package. Reload the browser,
+   not Home Assistant. For a regular Lovelace dashboard, register the module
+   `/hacsfiles/evohome-dashboard-ui/evohome-dashboard-ui.js` and add a manual card:
    ```yaml
    type: custom:evohome-dashboard-card
    ```
@@ -73,3 +75,17 @@ to schedule; test a single schedule edit and physical display readback;
 confirm whole-system Heating Off only if supported.
 
 **Never rely exclusively on untested software to protect pipes from freezing.**
+
+## Backend vs frontend upgrades
+
+- Python/backend v0.3.0 migration: one Home Assistant Core restart required.
+- After publishing/installation of the separate HACS Dashboard frontend:
+  UI/layout/schedule-editor updates → update frontend in HACS → hard refresh
+  browser (Ctrl+Shift+R); Home Assistant Core stays running.
+- The existing sidebar gracefully falls back to frozen v0.2 JavaScript if
+  the external package is missing. Any current `/api/evohome_dashboard/dashboard.js`
+  Lovelace resource remains valid as a compatibility loader.
+- Install the standalone frontend as a HACS **Dashboard**, not as a second
+  Python integration. No heating-device re-pairing is needed.
+
+For repository publication instructions see [Frontend migration](FRONTEND_MIGRATION.md).

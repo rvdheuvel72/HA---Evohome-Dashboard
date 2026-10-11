@@ -11,6 +11,7 @@ permissions:
   contents: read
   pull-requests: read
   issues: read
+  checks: read
 
 concurrency:
   group: evohome-codex-gate-${{ github.event.pull_request.number || github.event.issue.number || github.ref }}
@@ -21,17 +22,22 @@ jobs:
     name: Codex P1/P2 review gate
     if: >-
       (github.event_name == 'pull_request_target' && github.event.pull_request.draft == false) ||
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request != null)
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request != null &&
+       (github.event.comment.user.login == 'chatgpt-codex-connector[bot]' ||
+        github.event.comment.user.login == 'chatgpt-codex-connector'))
     # Privileged review check never shares persistent runners with PR-controlled tests.
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 19
     steps:
       - name: Check out trusted base branch only
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: main
           persist-credentials: false
-      - name: Verify Codex review and all unresolved P1/P2 threads
+      - name: Confirm trusted checker exists
+        shell: bash
+        run: test -f scripts/check_codex_review.py
+      - name: Verify Codex review, quota exception, CI and all P1/P2 threads
         env:
           GITHUB_TOKEN: ${{ github.token }}
         shell: bash

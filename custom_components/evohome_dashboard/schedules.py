@@ -23,6 +23,11 @@ def validate(schedule: object, *, limits: dict | None = None) -> list[dict]:
     resolution = float(limits.get("setpoint_value_resolution", 0.5))
     result = []
     seen = set()
+    raw_resolution = str(limits.get("timing_resolution", "00:10:00"))
+    chunks = raw_resolution.split(":")
+    tick_seconds = (int(chunks[-3]) * 3600 + int(chunks[-2]) * 60 + int(chunks[-1])) if len(chunks) >= 3 else 600
+    if tick_seconds <= 0:
+        raise ValueError("Invalid controller time resolution")
     for day in schedule:
         if not isinstance(day, dict) or set(day) != {"day_of_week", "switchpoints"}:
             raise ValueError("Invalid day format")
@@ -43,8 +48,8 @@ def validate(schedule: object, *, limits: dict | None = None) -> list[dict]:
                 moment = time.fromisoformat(value)
             except ValueError as err:
                 raise ValueError("Invalid time") from err
-            if moment.second or moment.microsecond:
-                raise ValueError("Switchpoints must be whole minutes")
+            if moment.second or moment.microsecond or ((moment.hour * 3600 + moment.minute * 60) % tick_seconds):
+                raise ValueError("Switchpoint time violates controller timing resolution")
             if previous is not None and moment <= previous:
                 raise ValueError("Switchpoints must be strictly ascending")
             previous = moment
@@ -52,7 +57,7 @@ def validate(schedule: object, *, limits: dict | None = None) -> list[dict]:
             if isinstance(temp, bool) or not isinstance(temp, (int, float)):
                 raise ValueError("Temperature must be numeric")
             temp = float(temp)
-            if not 5 <= temp <= 35 or round(temp / resolution) * resolution != temp:
+            if not 5 <= temp <= 35 or abs(round(temp / resolution) * resolution - temp) > 1e-6:
                 raise ValueError("Setpoint outside valid range or resolution")
             sorted_points.append({"time_of_day": moment.strftime("%H:%M:%S"), "heat_setpoint": temp})
         result.append({"day_of_week": name, "switchpoints": sorted_points})

@@ -24,3 +24,29 @@ The currently connected GitHub app has no branch-protection update capability. T
 PR #1 contained 3 P1 Codex findings (invalid setup API, invalid status poll method, incorrect schedule task wait), fixed via PR #2. PR #2 contained an unaddressed P2 finding after merge: expiry not verified during repeated temporary overrides. Follow-up branch fixes zone, hot-water and system-mode expiry checks, adds expiry tests, and ensures new PRs are blocked until Codex review completes.
 
 No Home Assistant instance or live controller was accessed by these tests.
+
+## Codex review quota exception (repository-owner authorized, 2026-10-11)
+
+Codex may post an authenticated bot comment saying its code-review quota is exhausted.
+The trusted-base gate may then pass **without a Codex review** only when all of
+these independently verified conditions hold:
+
+- A genuine `chatgpt-codex-connector[bot]` quota-exceeded comment was created
+  in the repository during the previous **six hours**. A PR author's text or
+  similar username cannot enable this exception. The six-hour window expires
+  automatically, returning to normal mandatory review.
+- The exact PR head has **all three** CI checks green: Python/dashboard syntax,
+  pinned `evohome-async` API contract, and Home Assistant runtime imports.
+  Failed, pending or missing checks cannot be bypassed.
+- There are zero blocking Codex P1/P2 review threads, including current-head
+  findings even if someone resolved the GitHub thread.
+- The PR is still open and the head SHA has not changed.
+
+This exception never automatically merges a PR; other build/review policies
+and manual approval remain applicable. No use of this exception can justify
+merging a failing Renovate major-update PR.
+
+The `issue_comment` trigger is needed because Codex edits its review summary.
+Only verified Codex bot comments execute the gate; PR author/maintainer comments
+cannot start extra review runs. A closed PR is ignored even for older queued
+Codex events.

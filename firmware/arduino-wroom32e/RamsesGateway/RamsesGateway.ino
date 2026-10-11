@@ -399,12 +399,17 @@ void handlePacket(const PacketEvent& event) {
 void setup() {
   Serial.begin(115200);
   delay(250);
-  Serial.println("\n# RAMSES II Arduino prototype 0.1.0 (RX ONLY)");
+  Serial.println("\n# RAMSES II Arduino prototype 0.2.0 (RX ONLY / WEB DEBUG)");
+  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.2.0");
+  char bootInfo[96];
+  snprintf(bootInfo, sizeof(bootInfo), "Reset reason: %s", resetReason());
+  recordLog(GatewayDebug::INFO, bootInfo);
   Serial.printf("# Core=%d MHz, flash=%lu bytes\n",
                 getCpuFrequencyMhz(), static_cast<unsigned long>(ESP.getFlashChipSize()));
   rxQueue = xQueueCreate(12, sizeof(PacketEvent));
-  if (rxQueue == nullptr) {
-    Serial.println("# ERROR: could not allocate RX queue");
+  debugQueue = xQueueCreate(DEBUG_QUEUE_SIZE, sizeof(DebugEvent));
+  if (rxQueue == nullptr || debugQueue == nullptr) {
+    recordLog(GatewayDebug::ERROR, "Could not allocate FreeRTOS queue");
     return;
   }
   const uint32_t serial = static_cast<uint32_t>(ESP.getEfuseMac() & 0xFFFFFFu);
@@ -415,22 +420,49 @@ void setup() {
   snprintf(rxTopic, sizeof(rxTopic), "%s/rx", baseTopic);
   snprintf(availabilityTopic, sizeof(availabilityTopic), "%s", baseTopic);
 
-  WiFi.mode(WIFI_STA);
+  if (strlen(GW_RECOVERY_AP_PASSWORD) >= 8) {
+    WiFi.mode(WIFI_AP_STA);
+    snprintf(recoveryApSsid, sizeof(recoveryApSsid), "RAMSES-Debug-%06X", serial);
+    recoveryApReady = WiFi.softAP(recoveryApSsid, GW_RECOVERY_AP_PASSWORD);
+    if (recoveryApReady) {
+      char apInfo[128];
+      snprintf(apInfo, sizeof(apInfo), "Recovery AP active: %s, IP %s",
+               recoveryApSsid, WiFi.softAPIP().toString().c_str());
+      recordLog(GatewayDebug::INFO, apInfo);
+    } else recordLog(GatewayDebug::WARN, "Recovery access point could not start");
+  } else {
+    WiFi.mode(WIFI_STA);
+    recordLog(GatewayDebug::INFO, "Recovery AP disabled (set GW_RECOVERY_AP_PASSWORD)");
+  }
   WiFi.setSleep(false);
   mqtt.setServer(GW_MQTT_HOST, GW_MQTT_PORT);
   mqtt.setBufferSize(512); // RX JSON can exceed PubSubClient's standard buffer size
   web.on("/", HTTP_GET, httpIndex);
   web.on("/api/v1/status", HTTP_GET, httpStatus);
   web.on("/api/v1/packets", HTTP_GET, httpPackets);
-  web.onNotFound([]() { web.send(404, "application/json", "{\"error\":\"not_found\"}"); });
+  web.on("/api/v1/debug/logs", HTTP_GET, httpDebugLogs);
+  web.on("/api/v1/debug/download", HTTP_GET, httpDebugDownload);
+  web.onNotFound([]() {
+    if (!authorized()) return;
+    web.send(404, "application/json", "{\"error\":\"not_found\"}");
+  });
   web.begin();
+  recordLog(GatewayDebug::INFO, "HTTP diagnostics ready on port 80");
   configTime(0, 0, "pool.ntp.org", "time.google.com");
   wifiConnect();
 
-  xTaskCreatePinnedToCore(radioTask, "ramses-rx", 6144, nullptr, 3, nullptr, 1);
+  const BaseType_t created = xTaskCreatePinnedToCore(radioTask, "ramses-rx", 6144, nullptr, 3, nullptr, 1);
+  if (created != pdPASS) recordLog(GatewayDebug::ERROR, "Could not start radio task");
 }
 
 void loop() {
+  // Only loop() touches diagnosticLog; radio task sends events through debugQueue.
+  DebugEvent debugEvent;
+  unsigned flushed = 0;
+  while (debugQueue && flushed < 12 && xQueueReceive(debugQueue, &debugEvent, 0) == pdTRUE) {
+    recordLog(debugEvent.level, debugEvent.line);
+    ++flushed;
+  }
   wifiConnect();
   mqttConnect();
   if (mqtt.connected()) mqtt.loop();
@@ -444,9 +476,28 @@ void loop() {
   }
   static uint32_t lastIpReport = 0;
   if (WiFi.status() == WL_CONNECTED && lastIpReport == 0) {
+    recordLog(GatewayDebug::INFO, "Wi-Fi connected");
     Serial.printf("# Web API: http://%s/api/v1/status\n", WiFi.localIP().toString().c_str());
     lastIpReport = millis() ? millis() : 1;
   }
-  if (WiFi.status() != WL_CONNECTED) lastIpReport = 0;
+  if (WiFi.status() != WL_CONNECTED && lastIpReport != 0) {
+    lastIpReport = 0;
+    recordLog(GatewayDebug::WARN, "Wi-Fi disconnected");
+  }
+  static bool wasMqttConnected = false;
+  const bool mqttNowConnected = mqtt.connected();
+  if (wasMqttConnected && !mqttNowConnected) recordLog(GatewayDebug::WARN, "MQTT disconnected");
+  wasMqttConnected = mqttNowConnected;
+  static uint32_t lastHeartbeat = 0;
+  if (millis() - lastHeartbeat >= HEARTBEAT_MS) {
+    lastHeartbeat = millis();
+    char heartbeat[130];
+    snprintf(heartbeat, sizeof(heartbeat), "HEARTBEAT CC1101=%s UART=%lu sync=%lu valid=%lu rejected=%lu heap=%lu",
+             radioReady ? "ok" : "missing",
+             static_cast<unsigned long>(rfUartBytes), static_cast<unsigned long>(rfSyncs),
+             static_cast<unsigned long>(validFrames), static_cast<unsigned long>(rejectedFrames),
+             static_cast<unsigned long>(ESP.getFreeHeap()));
+    recordLog(GatewayDebug::INFO, heartbeat);
+  }
   delay(2);
 }

@@ -16,6 +16,7 @@ def _hub(hass, entry_id):
 def register_commands(hass):
     """All operations are restricted to Home Assistant administrators."""
     for name, fields, method in (
+        ("entries", {}, "_entries"),
         ("status", {}, "_status"),
         ("errors", {}, "_errors"),
         ("refresh", {}, "_refresh"),
@@ -35,7 +36,7 @@ def register_commands(hass):
                           vol.Required("schedule"): list,
                           vol.Required("expected_version"): str}, "save_zone_schedule"),
     ):
-        schema = {vol.Required("type"): f"{DOMAIN}/{name}", vol.Required("entry_id"): str} | fields
+        schema = {vol.Required("type"): f"{DOMAIN}/{name}"} | ({} if name == "entries" else {vol.Required("entry_id"): str}) | fields
 
         @websocket_api.websocket_command(schema)
         @websocket_api.async_response
@@ -44,6 +45,9 @@ def register_commands(hass):
                 connection.send_error(msg["id"], "unauthorized", "Administrator access required")
                 return
             try:
+                if _method == "_entries":
+                    connection.send_result(msg["id"], {"entries": [{"entry_id": key} for key in hass.data.get(DOMAIN, {})]})
+                    return
                 hub = _hub(hass, msg["entry_id"])
                 if _method == "_status":
                     result = {

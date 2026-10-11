@@ -1,7 +1,7 @@
 name: Codex P1/P2 review gate
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
   pull_request_review:
@@ -24,10 +24,11 @@ jobs:
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 12
     steps:
-      - name: Check out current PR head
+      - name: Check out trusted base branch only
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
       - name: Verify Codex review and all unresolved P1/P2 threads
         env:
           GITHUB_TOKEN: ${{ github.token }}

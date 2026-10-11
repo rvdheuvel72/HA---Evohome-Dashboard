@@ -1,0 +1,29 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect Evohome",
+        "description": "Use your European Resideo Total Connect Comfort account.",
+        "data": {
+          "username": "Email address",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot reach Resideo",
+      "invalid_auth": "Authentication failed",
+      "unknown": "Unexpected error"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Polling settings",
+        "data": {
+          "scan_interval": "Temperature refresh (seconds)"
+        }
+      }
+    }
+  }
+}

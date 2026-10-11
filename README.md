@@ -2,7 +2,7 @@
 
 A new, independent and user-friendly Evohome heating integration with a responsive touchscreen-style **Evohome** page in the Home Assistant sidebar.
 
-**Current release:** Phase 1 / v0.1.0 — source and CI validation; **not yet validated on a live Evohome controller**.
+**Current release:** Phase 1 / v0.1.1 — source and CI validation; **not yet validated on a live Evohome controller**.
 
 This project uses the Apache-2.0 licensed [evohome-async](https://github.com/zxdavb/evohome-async) Python transport library as a dependency; it does not include or reuse `colegates/evohome-control` implementation code.
 
@@ -43,7 +43,7 @@ The integration's **Configure** action provides temperature polling interval (de
 ### Safety and observability
 
 - Home Assistant stores OAuth access/refresh tokens in private `.storage`, separated by configuration entry. Never add these files to Git.
-- Control writes wait for the Resideo communication task to complete. Schedule writes also check for concurrent changes and verify the saved schedule by re-reading it.
+- Pinned evohome-async 2.1.0 returns no communication-task handle. Control writes therefore poll Resideo for the requested state; schedule writes also guard against concurrent changes and verify the schedule by repeated live reads. A cloud GET confirmation is not the same as direct RF acknowledgement.
 - The Error log sidebar tab provides the last 80 diagnostic incidents, persisted across HA restarts. Only timestamp, operation, exception class and target identifier are saved.
 - If HA or Resideo becomes unavailable, Evohome retains its existing locally stored schedule. The frontend displays the last known data and connection health.
 - Installer-only settings (RF pairing, boiler tuning, Wi-Fi, factory reset and device diagnostics) are clearly displayed as **unavailable through verified TCC cloud capabilities**. They cannot honestly be made controllable without further reverse engineering and hardware validation.
@@ -61,6 +61,12 @@ A passing CI build **does not** mean end-to-end integration is verified. Before 
 7. Confirm quick actions and hot water only when your hardware supports them.
 8. Disconnect Internet briefly and check honest offline/error states; do not assume local control.
 
+## Login issues
+
+Version 0.1.1 fixes an API mismatch in v0.1.0: `EvohomeClient.setup()` did not exist in the pinned `evohome-async==2.1.0`. It also corrects status refresh calls and classifies invalid credentials, Resideo HTTP 429 rate limiting, invalid cloud responses and network errors separately. HA logs record only exception class and HTTP status, never raw vendor response bodies or secrets.
+
+**After upgrading in HACS, restart Home Assistant and retry adding the integration.** If Resideo rate-limits the account, wait before retrying; repeated submissions can extend the lockout.
+
 ## Development / CI
 
 CI deliberately uses **`[self-hosted, Linux, X64]`** runners. The workflow provisions Node 22, then executes Python compileall, pure schedule tests, JavaScript syntax checks and packaging-contract checks.
@@ -70,6 +76,7 @@ python3 -m compileall -q custom_components tests
 python3 -m unittest discover -s tests -v
 python3 scripts/validate_contract.py
 node --check custom_components/evohome_dashboard/frontend/dashboard.js
+python scripts/verify_library_api.py  # after installing evohome-async==2.1.0
 ```
 
 See [Architecture](docs/ARCHITECTURE.md) and [Feature matrix](docs/FEATURE_MATRIX.md).

@@ -10,7 +10,7 @@ Its transport uses the independently maintained, Apache-2.0 licensed `evohome-as
 
 - `config_flow.py`: login through the normal Home Assistant UI and adjustable poll interval.
 - `auth.py`: per-account private token cache using Home Assistant `Store`; never exposed to the frontend.
-- `hub.py`: HA `DataUpdateCoordinator` for status polling, command-task completion, schedule cache, optimistic edit conflict detection, cloud read-back verification, and error recorder.
+- `hub.py`: HA `DataUpdateCoordinator` for status polling, verified status polling, schedule cache, optimistic edit conflict detection, cloud read-back verification, and error recorder.
 - `model.py`: minimal, safe, browser-facing state. Never forward vendor raw bodies or auth tokens.
 - `schedules.py`: pure constraints, normalized seven-day schedule validation and deterministic revision fingerprint.
 - `websocket.py`: HA-authenticated, administrator-only commands. All writes validated again server-side.
@@ -21,7 +21,7 @@ Its transport uses the independently maintained, Apache-2.0 licensed `evohome-as
 
 1. **Overview / Rooms** — zone temperatures and targets; permanent or time-limited override; clear and resume.
 2. **Quick Actions** — available system modes, resume via Auto; DHW on/off for 1h or resume.
-3. **Schedules** — request the live weekly schedule per room, edit switchpoints, copy days, save with conflict check; a successful cloud PUT is not sufficient without comm-task confirmation and read-back.
+3. **Schedules** — request the live weekly schedule per room, edit switchpoints, copy days, save with conflict check; the pinned library has no comm-task handle, so successful cloud PUT acceptance is followed by bounded read-back verification.
 4. **Settings** — cloud connectivity and supported capability inventory. Installer-only features are read-only informational entries, not fake working controls.
 5. **Error log** — bounded history in HA private storage; records operation, target, time, exception type only. HA log records the same without secrets.
 
@@ -29,9 +29,10 @@ Its transport uses the independently maintained, Apache-2.0 licensed `evohome-as
 
 - The native Evohome controller keeps its last known schedule during HA/cloud outages.
 - The UI displays last synced and cloud health; cloud commands report failure rather than success without confirmation.
-- Schedule saves serialize writes per account, fetch a fresh copy, reject a stale fingerprint, write, wait, and verify via GET.
+- Schedule saves serialize writes per account, fetch a fresh copy, reject a stale fingerprint, write, and poll GET for matching state.
 - A rejected or unverified write never silently claims success; no automated retry of non-idempotent writes.
 - Polling intentionally excludes complete schedules; schedules load on request and are cached for 15 minutes.
+- Authentication errors are categorized without logging vendor messages. Configuration-flow and runtime share a private, hashed account token-cache key to avoid duplicate password logins.
 - Explicit user actions require administrator access; no independent exposed HomeBoard endpoint.
 - Secrets are never included in errors or diagnostics.
 - The physical controller's installer menus (RF pairing, boiler tuning, Wi-Fi/reset) have no confirmed control endpoint in the TCC API. No hidden-system modification is attempted. Future discovery must be capability-gated and opt-in.

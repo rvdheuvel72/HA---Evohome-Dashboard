@@ -42,3 +42,23 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/validate_contract.py
+
+  pinned-evohome-api:
+    name: Pinned evohome-async runtime contract
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Provision compatible Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - name: Install exactly pinned Resideo client
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install "evohome-async==2.1.0"
+      - name: Verify API signatures and used methods
+        shell: bash
+        run: python scripts/verify_library_api.py

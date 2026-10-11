@@ -23,6 +23,7 @@ def register_commands(hass):
         ("zone_set", {vol.Required("system_id"): str, vol.Required("zone_id"): str,
                       vol.Required("temperature"): vol.Coerce(float),
                       vol.Optional("until"): str}, "set_zone"),
+        ("zone_frost", {vol.Required("system_id"): str, vol.Required("zone_id"): str}, "set_zone_frost"),
         ("zone_resume", {vol.Required("system_id"): str,
                          vol.Required("zone_id"): str}, "resume_zone"),
         ("system_mode", {vol.Required("system_id"): str, vol.Required("mode"): str,

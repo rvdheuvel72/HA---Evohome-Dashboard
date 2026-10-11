@@ -76,4 +76,4 @@ def normalize(schedule: list[dict]) -> list[dict]:
                 "heat_setpoint": p.get("heat_setpoint", p.get("heatSetpoint")),
             } for p in points],
         })
-    return result
+    return sorted(result, key=lambda item: DAYS.index(item["day_of_week"]) if item["day_of_week"] in DAYS else 99)

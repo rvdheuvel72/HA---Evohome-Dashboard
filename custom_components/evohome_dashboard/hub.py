@@ -197,6 +197,8 @@ class EvohomeHub(DataUpdateCoordinator[dict]):
 def snapshot_limits(zone):
     caps = zone.schedule_capabilities or {}
     return {
+        "min_heat_setpoint": zone.min_heat_setpoint,
+        "max_heat_setpoint": zone.max_heat_setpoint,
         "min_switchpoints_per_day": caps.get("min_switchpoints_per_day", 1),
         "max_switchpoints_per_day": caps.get("max_switchpoints_per_day", 6),
         "setpoint_value_resolution": caps.get("setpoint_value_resolution", 0.5),

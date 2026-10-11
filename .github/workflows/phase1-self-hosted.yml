@@ -53,7 +53,7 @@ jobs:
       - name: Provision compatible Python
         uses: actions/setup-python@v7
         with:
-          python-version: '3.14'
+          python-version: '3.15'
       - name: Install exactly pinned Resideo client
         shell: bash
         run: |
@@ -73,7 +73,7 @@ jobs:
       - name: Provision Python 3.14
         uses: actions/setup-python@v7
         with:
-          python-version: '3.14'
+          python-version: '3.15'
       - name: Install Home Assistant and exact transport
         shell: bash
         run: |

@@ -74,6 +74,11 @@ def port(root):
         '  cJSON_Delete( json );\n}\n\n/*******************************************************************************\n * General command',
         '  cJSON_Delete( json );\n#endif\n}\n\n/*******************************************************************************\n * General command')
 
+    # ESP-IDF on classic ESP32 does not expose upstream master-level log API.
+    replace_once(root, "components/ramses-debug/debug_cmd.c",
+        "esp_log_set_level_master( level );",
+        'esp_log_level_set("*", level);')
+
     # Small read-only status API. Packet transport remains upstream MQTT.
     replace_once(root, "main/CMakeLists.txt",
         'SRCS main.c radio.c host.c platform.c',

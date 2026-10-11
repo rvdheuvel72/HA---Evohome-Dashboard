@@ -18,6 +18,13 @@ class GateTests(unittest.TestCase):
         self.assertTrue(gate.is_codex({'login': 'chatgpt-codex-connector'}))
         self.assertFalse(gate.is_codex({'login': 'chatgpt-codex-connector-attacker'}))
 
+    def test_current_head_finding_cannot_be_resolved_away(self):
+        current = {"body": "![P1 Badge] issue", "author": BOT, "originalCommit": {"oid": SHA}}
+        old = dict(current, originalCommit={"oid": "b"*40})
+        self.assertTrue(gate.finding_blocks({"isResolved": True}, current, SHA))
+        self.assertTrue(gate.finding_blocks({"isResolved": False}, old, SHA))
+        self.assertFalse(gate.finding_blocks({"isResolved": True}, old, SHA))
+
     def test_priority(self):
         self.assertTrue(gate.is_p12("![P2 Badge](https://img.shields.io/badge/P2-yellow)"))
         self.assertTrue(gate.is_p12("[P1] outage"))

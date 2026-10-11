@@ -53,13 +53,17 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Provision Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
       - name: Validate JavaScript and make frontend-only ZIP
         shell: bash
         run: |
           set -euo pipefail
           python3 scripts/package_frontend.py --output build/evohome-dashboard-ui.zip
           node --check frontend-package/dist/evohome-dashboard-ui.js
-          python3 -m unittest tests.test_frontend_split -v
+          python3 -m unittest discover -s tests -p test_frontend_split.py -v
       - name: Publish deployable HACS frontend artifact
         uses: actions/upload-artifact@v4
         with:

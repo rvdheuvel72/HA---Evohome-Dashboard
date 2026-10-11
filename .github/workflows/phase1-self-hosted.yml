@@ -62,3 +62,34 @@ jobs:
       - name: Verify API signatures and used methods
         shell: bash
         run: python scripts/verify_library_api.py
+
+  ha-runtime-import:
+    name: Home Assistant 2026.10 runtime imports
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Provision Python 3.14
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - name: Install Home Assistant and exact transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install "homeassistant>=2026.10,<2026.11" "evohome-async==3.0.0"
+      - name: Import every native HA platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from importlib import import_module
+          from custom_components.evohome_dashboard import PLATFORMS
+          expected = {"climate", "sensor", "binary_sensor", "select", "switch", "button"}
+          assert set(PLATFORMS) == expected, PLATFORMS
+          for platform in PLATFORMS:
+              mod = import_module("custom_components.evohome_dashboard." + platform)
+              assert callable(mod.async_setup_entry), platform
+          print("Native Home Assistant platform imports passed:", sorted(PLATFORMS))
+          PY

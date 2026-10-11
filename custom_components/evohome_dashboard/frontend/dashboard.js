@@ -115,7 +115,9 @@ class EvohomeDashboardPanel extends HTMLElement {
       const warning=(z.faults||[]).length > 0;
       return '<div class="card zone"><div class="zonehead"><div><h3>'+esc(z.name)+'</h3><span class="caption">'+esc(z.kind||"Heating zone")+'</span></div><span class="pill '+(warning?"error-pill":"")+'">'+esc(warning?"Attention":z.mode==="follow_schedule"?"Scheduled":"Override")+'</span></div>'+
        '<div class="temp">'+esc(z.current==null?"—":Number(z.current).toFixed(1))+'<small> °C</small></div>'+
-       '<div class="target"><span class="muted">Target <b style="color:#e9faf7">'+esc(z.target==null?"—":Number(z.target).toFixed(1))+'°</b></span><button class="btn small" data-action="edit-zone" data-system="'+esc(z.system_id)+'" data-zone="'+esc(z.id)+'">Adjust</button></div></div>';
+       '<div class="target"><span class="muted">Target <b style="color:#e9faf7">'+esc(z.target==null?"—":Number(z.target).toFixed(1))+'°</b></span>'+
+      '<div class="gridbuttons"><button class="btn small" data-action="edit-zone" data-system="'+esc(z.system_id)+'" data-zone="'+esc(z.id)+'">Adjust</button>'+
+      '<button class="btn small" data-action="zone-schedule" data-system="'+esc(z.system_id)+'" data-zone="'+esc(z.id)+'">Schedule</button></div></div></div>';
     }).join("");
   }
   nav() {
@@ -178,6 +180,10 @@ class EvohomeDashboardPanel extends HTMLElement {
       '<div class="setting"><div><strong>Transport</strong><div class="caption">Resideo TCC cloud. A local RF/LAN connection has not been verified.</div></div><span class="pill">Cloud</span></div></section>'+
       '<h2 style="margin:26px 0 13px">Advanced / hidden Evohome settings</h2>'+
       '<div class="warning">The Evohome touchscreen has installer-level controls. This API does not expose most of them. These entries are informational only; no experimental RF commands or undocumented writes are sent.</div>'+
+      '<h2 style="margin:26px 0 13px">Zone settings and capabilities</h2>'+
+      '<section class="card">'+this.zones().map(z=>'<div class="setting"><div><strong>'+esc(z.name)+'</strong><p class="caption">Setpoint range '+esc(z.minimum)+'–'+esc(z.maximum)+' °C · Step '+esc(z.step)+' °C · Mode '+esc(z.mode)+'</p>'+
+      '<p class="caption">Override until: '+esc(z.until||"Schedule / permanent")+' · '+esc((z.faults||[]).length)+' active fault(s)</p></div>'+
+      '<button class="btn small" data-action="zone-schedule" data-system="'+esc(z.system_id)+'" data-zone="'+esc(z.id)+'">Edit schedule</button></div>').join("")+'</section>'+
       '<section class="card">'+settings.map(s=>'<div class="setting"><div><strong>'+esc(s[0])+'</strong><p class="caption">'+esc(s[1])+'</p></div><span class="caption">'+esc(s[2])+'</span></div>').join("")+'</section>';
   }
   async loadErrors() {
@@ -196,7 +202,8 @@ class EvohomeDashboardPanel extends HTMLElement {
     return '<div class="overlay"><section class="modal" role="dialog" aria-modal="true" aria-label="Adjust heating"><h2>'+esc(z.name)+'</h2><p class="muted">Current '+esc(z.current)+'°C · Setpoint '+esc(z.target)+'°C</p>'+
       '<div class="form"><div class="field"><label for="setpoint">Target temperature</label><input id="setpoint" type="number" min="'+esc(z.minimum)+'" max="'+esc(z.maximum)+'" step="'+esc(z.step||0.5)+'" value="'+esc(z.target)+'"></div>'+
       '<div class="field"><label for="duration">Override duration</label><select id="duration"><option value="1">1 hour</option><option value="2">2 hours</option><option value="4">4 hours</option><option value="24">24 hours</option><option value="permanent">Until manually cancelled</option></select></div></div>'+
-      '<div class="gridbuttons"><button class="btn primary" data-action="confirm-zone">Apply temperature</button><button class="btn" data-action="resume-zone">Resume schedule</button><button class="btn" data-action="close-modal">Cancel</button></div>'+
+      '<div class="gridbuttons"><button class="btn primary" data-action="confirm-zone">Apply temperature</button><button class="btn warn" data-action="zone-frost">Frost protection (min °C)</button><button class="btn" data-action="resume-zone">Resume schedule</button><button class="btn" data-action="close-modal">Cancel</button></div>'+
+      '<div class="caption" style="margin-top:12px">Frost protection uses the zone minimum ('+esc(z.minimum)+'°C); it is not a physical RF shutoff.</div>'+
       '<p class="caption" style="margin-top:18px">Cloud writes may take several seconds to reach the controller.</p></section></div>';
   }
   draw() {
@@ -217,6 +224,21 @@ class EvohomeDashboardPanel extends HTMLElement {
     if(action==="refresh"){await this.command("refresh",{},"Cloud data refreshed");return;}
     if(action==="load-errors"){this.loadErrors();return;}
     if(action==="edit-zone"){this.modal={system:node.dataset.system,zone:node.dataset.zone};this.draw();return;}
+    if(action==="zone-schedule"){
+      this.tab="schedules";
+      this.scheduleSystem=node.dataset.system;this.scheduleZone=node.dataset.zone;
+      this.modal=null;this.schedule=null;this.draw();
+      try{this.schedule=await this.ws("schedule_get",{system_id:this.scheduleSystem,zone_id:this.scheduleZone});this.banner="";}
+      catch(e){this.banner="Schedule unavailable: "+(e.message||"See Error log");}
+      this.draw();return;
+    }
+    if(action==="zone-frost"){
+      const z=this.findZone(this.modal.system,this.modal.zone);
+      if(z && confirm("Set "+z.name+" to "+z.minimum+"°C frost protection?")){
+        await this.command("zone_frost",{system_id:this.modal.system,zone_id:this.modal.zone},"Zone set to frost protection");
+      }
+      return;
+    }
     if(action==="close-modal"){this.modal=null;this.draw();return;}
     if(action==="confirm-zone"){
       const temp=Number(this.shadowRoot.querySelector("#setpoint").value);
@@ -286,4 +308,31 @@ class EvohomeDashboardPanel extends HTMLElement {
     }
   }
 }
-customElements.define("evohome-dashboard-panel", EvohomeDashboardPanel);
+if(!customElements.get("evohome-dashboard-panel")) {
+  customElements.define("evohome-dashboard-panel", EvohomeDashboardPanel);
+}
+
+/* Lovelace embedding: add /api/evohome_dashboard/dashboard.js as a module
+ * resource; then create a manual card with type: custom:evohome-dashboard-card.
+ * Both panel and card use the exact same zone and schedule logic. */
+class EvohomeDashboardCard extends HTMLElement {
+  constructor() {
+    super();
+    this.panel=document.createElement("evohome-dashboard-panel");
+    this.append(this.panel);
+  }
+  set hass(value) { this.panel.hass = value; }
+  setConfig(config) {
+    if(config && config.type && config.type !== "custom:evohome-dashboard-card") {
+      throw new Error("Incorrect card type");
+    }
+  }
+  getCardSize() { return 6; }
+}
+if(!customElements.get("evohome-dashboard-card")) {
+  customElements.define("evohome-dashboard-card", EvohomeDashboardCard);
+}
+window.customCards = window.customCards || [];
+if(!window.customCards.some(x=>x.type==="evohome-dashboard-card")) {
+  window.customCards.push({type:"evohome-dashboard-card",name:"Evohome Dashboard",description:"Heating zones, schedules, modes and diagnostics"});
+}

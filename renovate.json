@@ -1,0 +1,62 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":disableAutomerge"
+  ],
+  "timezone": "Europe/Amsterdam",
+  "schedule": [
+    "after 2am and before 6am every weekday"
+  ],
+  "dependencyDashboard": true,
+  "prConcurrentLimit": 3,
+  "labels": [
+    "dependencies",
+    "renovate",
+    "needs-review"
+  ],
+  "rebaseWhen": "behind-base-branch",
+  "vulnerabilityAlerts": {
+    "enabled": true
+  },
+  "packageRules": [
+    {
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "addLabels": [
+        "breaking-change",
+        "manual-api-audit"
+      ],
+      "prPriority": -1
+    },
+    {
+      "matchManagers": [
+        "github-actions"
+      ],
+      "groupName": "GitHub Actions"
+    },
+    {
+      "matchPackageNames": [
+        "evohome-async"
+      ],
+      "addLabels": [
+        "resideo-transport",
+        "manual-api-audit"
+      ]
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^custom_components\\/evohome_dashboard\\/manifest\\.json$/"
+      ],
+      "matchStrings": [
+        "evohome-async==(?<currentValue>\\d+\\.\\d+\\.\\d+)"
+      ],
+      "depNameTemplate": "evohome-async",
+      "datasourceTemplate": "pypi"
+    }
+  ]
+}

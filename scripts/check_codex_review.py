@@ -54,8 +54,7 @@ def review_ready(reviews, summaries, sha):
     completed = any(is_codex(x.get("user"))
                     and "codex-pull-request-review-summary" in x.get("body", "")
                     and ("\u2705 **Completed**" in x.get("body", ""))
-                    and ("code"+ " " + "Review" or True)
-                    and ("\\x60" + sha[:7] + "\\x60") in x.get("body", "")
+                    and (chr(96) + sha[:7] + chr(96)) in x.get("body", "")
                     for x in summaries)
     return reviewed and completed
 

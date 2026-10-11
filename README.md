@@ -2,7 +2,7 @@
 
 A new, independent and user-friendly Evohome heating integration with a responsive touchscreen-style **Evohome** page in the Home Assistant sidebar.
 
-**Current release:** Phase 2 / v0.2.0 — source and CI validation; **not yet validated on a live Evohome controller**.
+**Current release:** Phase 3 / v0.3.0 — independent HACS frontend packaging — source and CI validation; **not yet validated on a live Evohome controller**.
 
 This project uses the Apache-2.0 licensed [evohome-async](https://github.com/zxdavb/evohome-async) Python transport library as a dependency; it does not include or reuse `colegates/evohome-control` implementation code.
 
@@ -32,7 +32,7 @@ This project uses the Apache-2.0 licensed [evohome-async](https://github.com/zxd
 
 You need Home Assistant with HACS and a Honeywell/Resideo European Total Connect Comfort account.
 
-1. In **HACS → Custom repositories**, enter `https://github.com/rvdheuvel72/HA---Evohome-Dashboard` and select **Integration**. As this repository is currently private, your HACS/GitHub account must have access to it.
+1. In **HACS → Custom repositories**, enter `https://github.com/rvdheuvel72/HA---Evohome-Dashboard` and select **Integration**. This repository is the Python integration backend.
 2. Download **Evohome Dashboard** and restart Home Assistant.
 3. Open **Settings → Devices & services → Add integration → Evohome Dashboard**.
 4. Sign in using your European Total Connect Comfort account credentials.
@@ -48,7 +48,7 @@ The integration's **Configure** action provides temperature polling interval (de
 ### Safety and observability
 
 - Home Assistant stores OAuth access/refresh tokens in private `.storage`, separated by configuration entry. Never add these files to Git.
-- Pinned evohome-async 3.0.0 returns no communication-task handle. Control writes therefore poll Resideo for the requested state; schedule writes also guard against concurrent changes and verify the schedule by repeated live reads. A cloud GET confirmation is not the same as direct RF acknowledgement.
+- evohome-async 3.0.0 provides communication-task completion. Control writes await task completion then poll Resideo for the requested state; schedule writes also guard against concurrent changes and verify the schedule by repeated live reads. A cloud GET confirmation is not the same as direct RF acknowledgement.
 - The Error log sidebar tab provides the last 80 diagnostic incidents, persisted across HA restarts. Only timestamp, operation, exception class and target identifier are saved.
 - If HA or Resideo becomes unavailable, Evohome retains its existing locally stored schedule. The frontend displays the last known data and connection health.
 - Installer-only settings (RF pairing, boiler tuning, Wi-Fi, factory reset and device diagnostics) are clearly displayed as **unavailable through verified TCC cloud capabilities**. They cannot honestly be made controllable without further reverse engineering and hardware validation.
@@ -68,20 +68,22 @@ A passing CI build **does not** mean end-to-end integration is verified. Before 
 
 ## Login issues
 
-Version 0.1.1 fixes an API mismatch in v0.1.0: `EvohomeClient.setup()` did not exist in the pinned `evohome-async==3.0.0`. It also corrects status refresh calls and classifies invalid credentials, Resideo HTTP 429 rate limiting, invalid cloud responses and network errors separately. HA logs record only exception class and HTTP status, never raw vendor response bodies or secrets.
+Version 0.1.1 fixed an API mismatch with its then-pinned `evohome-async==2.1.0`; version 0.2.0 moved to v3.0.0. It also corrects status refresh calls and classifies invalid credentials, Resideo HTTP 429 rate limiting, invalid cloud responses and network errors separately. HA logs record only exception class and HTTP status, never raw vendor response bodies or secrets.
 
 **After upgrading in HACS, restart Home Assistant and retry adding the integration.** If Resideo rate-limits the account, wait before retrying; repeated submissions can extend the lockout.
 
 ## Development / CI
 
-CI deliberately uses **`[self-hosted, Linux, X64]`** runners. The workflow provisions Node 22, then executes Python compileall, pure schedule tests, JavaScript syntax checks and packaging-contract checks.
+CI deliberately uses **`[self-hosted, Linux, X64]`** runners. The workflow provisions Node 24, then executes Python compileall, pure schedule tests, JavaScript syntax checks and packaging-contract checks.
 
 ```bash
 python3 -m compileall -q custom_components tests
 python3 -m unittest discover -s tests -v
 python3 scripts/validate_contract.py
 node --check custom_components/evohome_dashboard/frontend/dashboard.js
-python scripts/verify_library_api.py  # after installing evohome-async==2.1.0
+node --check frontend-package/dist/evohome-dashboard-ui.js
+python scripts/package_frontend.py
+python scripts/verify_library_api.py  # after installing evohome-async==3.0.0
 ```
 
 See [Architecture](docs/ARCHITECTURE.md) and [Feature matrix](docs/FEATURE_MATRIX.md).
@@ -118,7 +120,7 @@ the complete heating interface. It provides overview, individual rooms,
 You can also embed the full Evohome display into a Lovelace dashboard:
 
 1. HA Settings → Dashboards → Resources → Add resource.
-2. URL: `/api/evohome_dashboard/dashboard.js?v=0.2.0`.
+2. URL: `/hacsfiles/evohome-dashboard-ui/evohome-dashboard-ui.js` (once the separately packaged UI is installed).
 3. Resource type: **JavaScript module**.
 4. Add a manual card with:
    ```yaml
@@ -140,3 +142,46 @@ and [Renovate setup](docs/RENOVATE.md) for required app authorization.
 Version 0.2.0 upgrades its Resideo client from 2.1.0 to **3.0.0**,
 including communication-task completion and state read-back.
 A clean compile or contract test does not replace live controller acceptance.
+
+## v0.3.0: fewer Home Assistant restarts
+
+**Backend (this repo)** — Python integration, cloud API, sensors, secure HA
+WebSocket commands and panel registration. Update via HACS **Integration**.
+The update to backend v0.3.0 requires **one HA Core restart** so the new
+frontend loader is registered. Python/backend updates still require HA Core
+restart, not a host/system reboot.
+
+**Frontend (separate HACS Dashboard repo)** — independent JavaScript sidebar,
+room controls, schedule editor and Lovelace card. Its source and publishable
+HACS package are in [`frontend-package/`](frontend-package/) until the
+dedicated `rvdheuvel72/evohome-dashboard-ui` GitHub repository is created.
+Once published and installed via HACS **Dashboard**, future UI-only updates
+require **only a browser refresh**, not a HA Core restart. The HACS
+`/hacsfiles/` resource serves updates without caching.
+
+The backend loader at `/api/evohome_dashboard/dashboard.js?v=0.3.0` first
+loads `/hacsfiles/evohome-dashboard-ui/evohome-dashboard-ui.js`. If absent,
+it uses the **frozen v0.2 UI fallback** to avoid breaking old installations.
+No installation of the separate HACS package is forced during migration.
+
+### Publish the frontend independently
+
+The frontend GitHub repository does not exist until created by its owner.
+Create a public repository named **evohome-dashboard-ui** under
+`rvdheuvel72` and publish the **contents** of `frontend-package/` to
+its repository root. The built artifact in CI contains exactly these files:
+
+```
+hacs.json
+README.md
+LICENSE
+dist/evohome-dashboard-ui.js
+```
+
+The package can be built using
+`python3 scripts/package_frontend.py --output build/evohome-dashboard-ui.zip`.
+HACS then installs it as a **Dashboard** repository.
+
+See [Frontend migration](docs/FRONTEND_MIGRATION.md) for step-by-step upgrade
+instructions and the limitations. **The separate repository must be
+published before no-restart HACS UI updates become available.**

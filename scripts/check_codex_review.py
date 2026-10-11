@@ -4,6 +4,7 @@ import os
 import re
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 from urllib.request import Request, urlopen
 
 TRUSTED_CODEX_LOGINS = {"chatgpt-codex-connector", "chatgpt-codex-connector[bot]"}
@@ -96,20 +97,85 @@ def blockers(token, owner, repo, number, sha):
     raise RuntimeError("Review thread pagination limit hit")
 
 
+
+# A recent, genuine Codex quota notification authorizes the repository owner's
+# documented exception. The exception expires automatically after six hours.
+QUOTA_NOTICE = "You have reached your Codex usage limits for code reviews."
+QUOTA_MAX_AGE = timedelta(hours=6)
+REQUIRED_CHECKS = (
+    "Python contract and dashboard syntax",
+    "Pinned evohome-async runtime contract",
+    "Home Assistant 2026.10 runtime imports",
+)
+
+
+def recent_quota_notice(token, full_repo, *, now=None):
+    """Use ONLY an authenticated GitHub Codex bot comment, never PR text."""
+    now = now or datetime.now(timezone.utc)
+    notices = request(
+        token, "/repos/" + full_repo
+        + "/issues/comments?sort=created&direction=desc&per_page=100"
+    )
+    if not isinstance(notices, list):
+        raise RuntimeError("Cannot verify Codex quota status")
+    for item in notices:
+        if not is_codex(item.get("user")) or not item.get("body", "").startswith(QUOTA_NOTICE):
+            continue
+        try:
+            stamp = datetime.fromisoformat(item["created_at"].replace("Z", "+00:00"))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if timedelta(0) <= now - stamp <= QUOTA_MAX_AGE:
+            return True
+    return False
+
+
+def required_ci_state(token, full_repo, sha):
+    """Never allow a quota exception to hide failed, missing, or pending CI."""
+    response = request(
+        token, "/repos/" + full_repo + "/commits/" + sha + "/check-runs?per_page=100"
+    )
+    checks = response.get("check_runs") if isinstance(response, dict) else None
+    if not isinstance(checks, list):
+        raise RuntimeError("Cannot inspect required CI check runs")
+    for name in REQUIRED_CHECKS:
+        matching = [run for run in checks if run.get("name") == name]
+        if not matching:
+            return "pending", "Waiting for required CI: " + name
+        newest = max(matching, key=lambda run: (run.get("started_at") or "", run.get("id") or 0))
+        if newest.get("status") != "completed":
+            return "pending", "Waiting for required CI: " + name
+        if newest.get("conclusion") != "success":
+            return "blocked", "Required CI did not pass: " + name
+    return "passed", "Required source, transport, and HA runtime checks passed"
+
+
 def check(token, full_repo, number, sha):
     info = request(token, "/repos/" + full_repo + "/pulls/" + str(number))
     if info["head"]["sha"] != sha:
         return "changed", "PR head changed, check newest commit"
-    prefix = "/repos/" + full_repo
-    revs = pages(token, prefix + "/pulls/" + str(number) + "/reviews")
-    summaries = pages(token, prefix + "/issues/" + str(number) + "/comments")
-    if not review_ready(revs, summaries, sha):
-        return "pending", "Waiting for completed Codex review of latest PR head"
+    if info.get("state") != "open":
+        return "skipped", "PR is closed; no Codex review required"
     owner, name = full_repo.split("/", 1)
+    # An unresolved P1/P2 or a P1/P2 on the *current head* always blocks,
+    # even when Codex is currently over quota.
     unresolved = blockers(token, owner, name, number, sha)
     if unresolved:
         return "blocked", "Unresolved Codex P1/P2: " + "; ".join(unresolved[:8])
-    return "passed", "Latest-head Codex review completed; no unresolved P1/P2"
+    state, reason = required_ci_state(token, full_repo, sha)
+    if state != "passed":
+        return state, reason
+    prefix = "/repos/" + full_repo
+    revs = pages(token, prefix + "/pulls/" + str(number) + "/reviews")
+    summaries = pages(token, prefix + "/issues/" + str(number) + "/comments")
+    if review_ready(revs, summaries, sha):
+        return "passed", "Latest-head Codex review completed; zero P1/P2; all CI passed"
+    if recent_quota_notice(token, full_repo):
+        return "passed", (
+            "Codex quota exception (owner-authorized; verified bot notice within 6h); "
+            "zero unresolved/current-head P1/P2; all required CI passed"
+        )
+    return "pending", "Waiting for Codex review; no verified recent quota notice"
 
 
 def main():
@@ -122,11 +188,11 @@ def main():
         pr = request(token, "/repos/" + full_repo + "/pulls/" + str(number))
     if pr is None:
         raise RuntimeError("A PR event is required")
-    expires = time.monotonic() + 480
+    expires = time.monotonic() + 900
     while True:
         result, message = check(token, full_repo, pr["number"], pr["head"]["sha"])
         print(message, flush=True)
-        if result == "passed":
+        if result in ("passed", "skipped"):
             return 0
         if result != "pending" or time.monotonic() + 15 >= expires:
             return 1

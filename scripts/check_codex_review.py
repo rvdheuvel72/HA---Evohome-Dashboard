@@ -59,6 +59,14 @@ def review_ready(reviews, summaries, sha):
     return reviewed and completed
 
 
+def finding_blocks(thread, comment, sha):
+    """A current-head P1/P2 blocks regardless of thread resolution."""
+    if not is_codex(comment.get("author")) or not is_p12(comment.get("body", "")):
+        return False
+    original = (comment.get("originalCommit") or {}).get("oid")
+    return original is None or original == sha or not thread["isResolved"]
+
+
 def blockers(token, owner, repo, number, sha):
     query = """query($owner:String!,$repo:String!,$num:Int!,$cursor:String){
       repository(owner:$owner,name:$repo){pullRequest(number:$num){
@@ -80,10 +88,8 @@ def blockers(token, owner, repo, number, sha):
             if thread["comments"]["pageInfo"]["hasNextPage"]:
                 raise RuntimeError("Oversized review thread")
             for comment in thread["comments"]["nodes"]:
-                if is_codex(comment.get("author")) and is_p12(comment.get("body", "")):
-                    original = (comment.get("originalCommit") or {}).get("oid")
-                    if original is None or original == sha or not thread["isResolved"]:
-                        found.append(comment["body"].splitlines()[0][:150])
+                if finding_blocks(thread, comment, sha):
+                    found.append(comment["body"].splitlines()[0][:150])
         if not threads["pageInfo"]["hasNextPage"]:
             return found
         cursor = threads["pageInfo"]["endCursor"]

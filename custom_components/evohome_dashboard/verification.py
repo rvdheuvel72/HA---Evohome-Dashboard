@@ -2,14 +2,14 @@
 
 Never claim the new override was applied based only on a matching temperature
 or mode: the preceding temporary override may have a different end time.
-The cloud can remove sub-minute precision, so allow <= 59 seconds. Deliberately
+The cloud can remove sub-minute precision, so allow strictly less than 60 seconds. Deliberately
 DO NOT treat a different ten-minute slot as a successful write.
 """
 from __future__ import annotations
 
 from datetime import datetime, timezone
 
-MAX_EXPIRY_SKEW_SECONDS = 59
+MAX_EXPIRY_SKEW_SECONDS = 60
 
 
 def matches_override_expiry(actual: datetime | None, requested: datetime | None) -> bool:
@@ -23,4 +23,4 @@ def matches_override_expiry(actual: datetime | None, requested: datetime | None)
     if actual.tzinfo is None or actual.utcoffset() is None:
         return False
     delta = abs((actual.astimezone(timezone.utc) - requested.astimezone(timezone.utc)).total_seconds())
-    return delta <= MAX_EXPIRY_SKEW_SECONDS
+    return delta < MAX_EXPIRY_SKEW_SECONDS

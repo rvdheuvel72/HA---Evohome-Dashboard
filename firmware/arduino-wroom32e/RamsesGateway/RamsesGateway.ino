@@ -15,6 +15,9 @@
 #include <sys/time.h>
 #include "Cc1101Radio.h"
 #include "RamsesCodec.h"
+#include "GatewayDebug.h"
+#include "GatewayWebPage.h"
+#include <esp_system.h>
 
 #if __has_include("GatewaySecrets.h")
 #include "GatewaySecrets.h"
@@ -27,16 +30,34 @@
 #define GW_MQTT_PASSWORD ""
 #endif
 
+#ifndef GW_RECOVERY_AP_PASSWORD
+#define GW_RECOVERY_AP_PASSWORD ""
+#endif
+#ifndef GW_DEBUG_USER
+#define GW_DEBUG_USER ""
+#endif
+#ifndef GW_DEBUG_PASSWORD
+#define GW_DEBUG_PASSWORD ""
+#endif
+
 namespace {
 constexpr uint32_t WIFI_RETRY_MS = 15000;
 constexpr uint32_t MQTT_RETRY_MS = 10000;
 constexpr uint8_t RING_SIZE = 12;
 constexpr uint32_t RX_IDLE_TIMEOUT_MS = 250;
+constexpr uint32_t HEARTBEAT_MS = 15000;
+constexpr uint8_t DEBUG_QUEUE_SIZE = 16;
+constexpr char FW_VERSION[] = "0.2.0";
 
 struct PacketEvent {
   char hgi[256];
   uint32_t uptimeMs;
   uint8_t rssi;
+};
+struct DebugEvent {
+  char line[GatewayDebug::LINE_BYTES] = {};
+  uint32_t ms = 0;
+  GatewayDebug::Level level = GatewayDebug::INFO;
 };
 
 WebServer web(80);
@@ -45,6 +66,10 @@ PubSubClient mqtt(wifiClient);
 HardwareSerial rfUart(1);
 Cc1101Radio radio;
 QueueHandle_t rxQueue = nullptr;
+QueueHandle_t debugQueue = nullptr;
+GatewayDebug diagnosticLog;
+bool recoveryApReady = false;
+char recoveryApSsid[32] = {};
 
 volatile bool radioReady = false;
 volatile uint32_t validFrames = 0;
@@ -52,6 +77,10 @@ volatile uint32_t rejectedFrames = 0;
 volatile uint32_t droppedFrames = 0;
 volatile uint32_t lastFrameMs = 0;
 volatile uint8_t lastRssi = 0;
+volatile uint32_t rfUartBytes = 0;
+volatile uint32_t rfSyncs = 0;
+volatile uint32_t radioRxRecalibrations = 0;
+volatile uint32_t radioRxRecalibrationFailures = 0;
 
 char deviceId[12] = {};
 char baseTopic[64] = {};
@@ -67,6 +96,57 @@ struct HistoryItem {
 };
 HistoryItem recent[RING_SIZE];
 uint8_t recentNext = 0, recentCount = 0;
+
+void recordLog(GatewayDebug::Level level, const char* message) {
+  diagnosticLog.add(millis(), level, message);
+  Serial.printf("# [%lu] %s: %s\n",
+                static_cast<unsigned long>(millis()), GatewayDebug::levelName(level), message);
+}
+
+void radioLog(GatewayDebug::Level level, const char* message) {
+  if (!debugQueue) return;
+  DebugEvent event{};
+  event.ms = millis();
+  event.level = level;
+  snprintf(event.line, sizeof(event.line), "%s", message);
+  xQueueSend(debugQueue, &event, 0);
+}
+
+const char* resetReason() {
+  switch (esp_reset_reason()) {
+    case ESP_RST_POWERON: return "power_on";
+    case ESP_RST_EXT: return "external_reset";
+    case ESP_RST_SW: return "software_reset";
+    case ESP_RST_PANIC: return "panic";
+    case ESP_RST_INT_WDT: return "interrupt_watchdog";
+    case ESP_RST_TASK_WDT: return "task_watchdog";
+    case ESP_RST_WDT: return "watchdog";
+    case ESP_RST_DEEPSLEEP: return "deep_sleep";
+    case ESP_RST_BROWNOUT: return "brownout";
+    default: return "other";
+  }
+}
+
+bool authorized() {
+  if (!GW_DEBUG_USER[0] || !GW_DEBUG_PASSWORD[0]) return true;
+  if (web.authenticate(GW_DEBUG_USER, GW_DEBUG_PASSWORD)) return true;
+  web.requestAuthentication(BASIC_AUTH, "RAMSES Gateway Diagnostics");
+  return false;
+}
+
+String escapeJSON(const char* input) {
+  String out;
+  out.reserve(strlen(input) + 12);
+  for (const unsigned char* c = reinterpret_cast<const unsigned char*>(input); *c; ++c) {
+    if (*c == '"' || *c == '\\') {
+      out += '\\'; out += static_cast<char>(*c);
+    } else if (*c == '\n') out += "\\n";
+    else if (*c == '\r') out += "\\r";
+    else if (*c < 32) out += '?';
+    else out += static_cast<char>(*c);
+  }
+  return out;
+}
 
 bool timeSynchronized() {
   return time(nullptr) > 1600000000;
@@ -89,8 +169,11 @@ void radioTask(void*) {
   // CC1101 GDO2 is RX serial data. No UART TX pin assigned.
   rfUart.begin(38400, SERIAL_8N1, Cc1101Radio::GDO2, -1);
   radioReady = radio.begin();
-  Serial.printf("# CC1101: detected=%d part=0x%02X version=0x%02X\n",
-                radioReady ? 1 : 0, radio.part(), radio.version());
+  char radioInfo[130];
+  snprintf(radioInfo, sizeof(radioInfo), "CC1101 detected=%u PARTNUM=0x%02X VERSION=0x%02X",
+           radioReady ? 1 : 0, radio.part(), radio.version());
+  radioLog(radioReady ? GatewayDebug::INFO : GatewayDebug::ERROR, radioInfo);
+  Serial.printf("# %s\n", radioInfo);
   if (!radioReady) {
     while (true) vTaskDelay(pdMS_TO_TICKS(2000)); // Safe: no RF access
   }
@@ -102,9 +185,12 @@ void radioTask(void*) {
     while (rfUart.available() && processed < 512) {
       const uint8_t byteIn = static_cast<uint8_t>(rfUart.read());
       ++processed;
+      ++rfUartBytes;
       lastByteMs = millis();
       const bool wasReceiving = decoder.receiving();
-      if (decoder.feed(byteIn, message)) {
+      const bool decoded = decoder.feed(byteIn, message);
+      rfSyncs = decoder.syncCount();
+      if (decoded) {
         const uint8_t strength = radio.rssiMagnitude();
         PacketEvent packet = {};
         if (ramses::format(message, strength, packet.hgi, sizeof(packet.hgi))) {
@@ -129,7 +215,12 @@ void radioTask(void*) {
     }
     if (!decoder.receiving() && (now - lastCalibrationMs > 30000)) {
       // The upstream gateway also periodically re-enters RX to recalibrate.
-      radio.enterReceive();
+      const bool ok = radio.enterReceive();
+      if (ok) ++radioRxRecalibrations;
+      else {
+        ++radioRxRecalibrationFailures;
+        radioLog(GatewayDebug::WARN, "CC1101 periodic RX recalibration failed");
+      }
       lastCalibrationMs = now;
     }
     vTaskDelay(pdMS_TO_TICKS(1));

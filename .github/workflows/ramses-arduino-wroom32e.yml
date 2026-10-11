@@ -1,0 +1,44 @@
+name: Build RAMSES Arduino WROOM-32E
+on:
+  push:
+    paths:
+      - "firmware/arduino-wroom32e/**"
+      - ".github/workflows/ramses-arduino-wroom32e.yml"
+  pull_request:
+    paths:
+      - "firmware/arduino-wroom32e/**"
+      - ".github/workflows/ramses-arduino-wroom32e.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-arduino-cli@v2
+      - name: Install Espressif core and MQTT library
+        run: |
+          arduino-cli config init
+          arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32@3.3.4
+          arduino-cli lib install "PubSubClient@2.8"
+      - name: Test RAMSES receive decoder (host-native)
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer \
+            firmware/arduino-wroom32e/tests/test_codec.cpp -o /tmp/test-ramses-codec
+          /tmp/test-ramses-codec
+      - name: Compile for ESP32-WROOM-32E
+        run: |
+          arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all firmware/arduino-wroom32e/RamsesGateway --output-dir "$RUNNER_TEMP/arduino-build"
+      - name: Upload untested Arduino build
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ramses-arduino-wroom32e-UNTESTED
+          path: |
+            ${{ runner.temp }}/arduino-build/*.bin
+          if-no-files-found: error

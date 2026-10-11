@@ -23,6 +23,10 @@ class TestOverrideExpiry(unittest.TestCase):
     def test_subminute_truncation_is_accepted(self):
         self.assertTrue(expiry(t0, t0 + timedelta(seconds=35)))
 
+    def test_full_subminute_truncation_window(self):
+        self.assertTrue(expiry(t0, t0 + timedelta(seconds=59, milliseconds=999)))
+        self.assertFalse(expiry(t0, t0 + timedelta(seconds=60)))
+
     def test_different_minute_is_not_verification(self):
         self.assertFalse(expiry(t0, t0 + timedelta(minutes=2)))
 

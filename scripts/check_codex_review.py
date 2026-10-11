@@ -59,13 +59,13 @@ def review_ready(reviews, summaries, sha):
     return reviewed and completed
 
 
-def blockers(token, owner, repo, number):
+def blockers(token, owner, repo, number, sha):
     query = """query($owner:String!,$repo:String!,$num:Int!,$cursor:String){
       repository(owner:$owner,name:$repo){pullRequest(number:$num){
         reviewThreads(first:100,after:$cursor){
           pageInfo{hasNextPage endCursor}
           nodes{isResolved comments(first:100){pageInfo{hasNextPage}
-            nodes{body author{login}}}}
+            nodes{body author{login} originalCommit{oid}}}}
         }}}}"""
     found = []
     cursor = None
@@ -79,9 +79,10 @@ def blockers(token, owner, repo, number):
         for thread in threads["nodes"]:
             if thread["comments"]["pageInfo"]["hasNextPage"]:
                 raise RuntimeError("Oversized review thread")
-            if not thread["isResolved"]:
-                for comment in thread["comments"]["nodes"]:
-                    if is_codex(comment.get("author")) and is_p12(comment.get("body", "")):
+            for comment in thread["comments"]["nodes"]:
+                if is_codex(comment.get("author")) and is_p12(comment.get("body", "")):
+                    original = (comment.get("originalCommit") or {}).get("oid")
+                    if original is None or original == sha or not thread["isResolved"]:
                         found.append(comment["body"].splitlines()[0][:150])
         if not threads["pageInfo"]["hasNextPage"]:
             return found
@@ -99,7 +100,7 @@ def check(token, full_repo, number, sha):
     if not review_ready(revs, summaries, sha):
         return "pending", "Waiting for completed Codex review of latest PR head"
     owner, name = full_repo.split("/", 1)
-    unresolved = blockers(token, owner, name, number)
+    unresolved = blockers(token, owner, name, number, sha)
     if unresolved:
         return "blocked", "Unresolved Codex P1/P2: " + "; ".join(unresolved[:8])
     return "passed", "Latest-head Codex review completed; no unresolved P1/P2"
@@ -108,10 +109,13 @@ def check(token, full_repo, number, sha):
 def main():
     with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as stream:
         event = json.load(stream)
-    pr = event.get("pull_request")
-    if not pr:
-        raise RuntimeError("A PR event is required")
     token, full_repo = os.environ["GITHUB_TOKEN"], os.environ["GITHUB_REPOSITORY"]
+    pr = event.get("pull_request")
+    if pr is None and (event.get("issue") or {}).get("pull_request"):
+        number = event["issue"]["number"]
+        pr = request(token, "/repos/" + full_repo + "/pulls/" + str(number))
+    if pr is None:
+        raise RuntimeError("A PR event is required")
     expires = time.monotonic() + 480
     while True:
         result, message = check(token, full_repo, pr["number"], pr["head"]["sha"])

@@ -21,7 +21,8 @@ jobs:
   codex-review:
     name: Codex P1/P2 review gate
     if: github.event.pull_request.draft == false
-    runs-on: [self-hosted, Linux, X64]
+    # Privileged review check never shares persistent runners with PR-controlled tests.
+    runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
       - name: Check out trusted base branch only

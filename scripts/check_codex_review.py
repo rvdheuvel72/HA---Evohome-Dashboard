@@ -6,14 +6,14 @@ import sys
 import time
 from urllib.request import Request, urlopen
 
-CODER = "chatgpt-codex-connector"
+TRUSTED_CODEX_LOGINS = {"chatgpt-codex-connector", "chatgpt-codex-connector[bot]"}
 BLOCKER = re.compile(r"(?:!\[P[12] Badge\]|\[(?:P1|P2)\]|\bP[12] Badge\b)", re.I)
 COMPLETED = "\u2705 **Completed**"
 
 
 def is_codex(author):
     name = (author or {}).get("login", "").lower()
-    return name.startswith(CODER) or name == "codex[bot]"
+    return name in TRUSTED_CODEX_LOGINS
 
 
 def is_p12(body):

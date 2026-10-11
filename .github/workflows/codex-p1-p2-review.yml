@@ -1,0 +1,35 @@
+name: Codex P1/P2 review gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+  pull_request_review:
+    types: [submitted]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+concurrency:
+  group: evohome-codex-gate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  codex-review:
+    name: Codex P1/P2 review gate
+    if: github.event.pull_request.draft == false
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 12
+    steps:
+      - name: Check out current PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Verify Codex review and all unresolved P1/P2 threads
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: python3 scripts/check_codex_review.py

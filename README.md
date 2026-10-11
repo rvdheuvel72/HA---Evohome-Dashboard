@@ -90,3 +90,7 @@ The original code in this repository is MIT-licensed (see `LICENSE`). The separa
 **Phase 1:** an improved Evohome touchscreen experience in Home Assistant only.
 
 **Not now:** HomeBoard work schedules, household presence automation, RAMSES RF adapter and unsupported low-level installer controls.
+
+## Codex quality gate
+
+Before merging into main, all Codex P1/P2 findings must be fixed and resolved, and Codex must review the exact latest PR head. See [Merge policy](docs/MERGE_POLICY.md). A GitHub ruleset must be enabled to enforce the check; CI checks alone can be bypassed by privileged users.

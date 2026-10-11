@@ -62,7 +62,7 @@ int main() {
 
   // Truncation => failure even when checksum is internally correct.
   auto truncated = raw;
-  truncated.back() = 0x02; // claims 2 payload bytes, only 1 present
+  truncated[9] = 0x02; // change length: claims 2 payload bytes, only 1 present
   decoder.reset();
   frames = 0;
   for (const auto b : makeFrame(truncated)) if (decoder.feed(b, result)) ++frames;

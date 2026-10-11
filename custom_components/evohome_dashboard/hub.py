@@ -1,8 +1,8 @@
-"""Independent orchestration for the pinned evohome-async==2.1.0 client.
+"""Independent orchestration for the pinned evohome-async==3.0.0 client.
 
-Version 2.1.0 uses EvohomeClient.update() / Location.update() and returns
-None from PUT helpers (no vendor CommTask object). Check state after PUT
-rather than presenting API acceptance as physical confirmation.
+Version 3.0.0 uses EvohomeClient.setup(), Location.get_status() and
+returns CommTask objects from cloud writes. We wait for completion and then
+verify reported state after the comm task has succeeded.
 """
 from __future__ import annotations
 
@@ -62,14 +62,12 @@ class EvohomeHub(DataUpdateCoordinator[dict]):
         for event in (events or {}).get("events", []):
             if isinstance(event, dict):
                 self._errors.append(event)
-        # Pinned evohome-async 2.1.0 has NO .setup().
-        await self.client.update(dont_update_status=True)
+        await self.client.setup()
 
     async def _async_update_data(self):
         try:
-            # Pinned evohome-async 2.1.0: Location.update(), NOT .get_status().
-            # Fetch status only; schedules are fetched on demand.
-            await asyncio.gather(*(loc.update() for loc in self.client.locations))
+            # Fetch status only; schedules are loaded on demand.
+            await asyncio.gather(*(loc.get_status() for loc in self.client.locations))
             return snapshot(self.client)
         except Exception as exc:
             await self._record("poll_status", exc)
@@ -115,7 +113,7 @@ class EvohomeHub(DataUpdateCoordinator[dict]):
         for attempt in range(self.VERIFY_ATTEMPTS):
             if attempt:
                 await asyncio.sleep(self.VERIFY_INTERVAL)
-            await location.update()
+            await location.get_status()
             if predicate():
                 return
         raise TimeoutError("The requested heating state was not confirmed by Resideo")
@@ -227,8 +225,10 @@ class EvohomeHub(DataUpdateCoordinator[dict]):
                 validated = validate(schedule, limits=snapshot_limits(zone))
                 if digest(validated) == expected:
                     return {"ok": True, "unchanged": True}
-                # The 2.1.0 helper returns None. Confirm with repeated live GETs.
-                await zone.set_schedule(validated)
+                task = await zone.set_schedule(validated)
+                async with asyncio.timeout(60):
+                    await task.wait()
+                # Confirm with repeated live GETs, not only task completion.
                 for attempt in range(self.VERIFY_ATTEMPTS):
                     if attempt:
                         await asyncio.sleep(self.VERIFY_INTERVAL)

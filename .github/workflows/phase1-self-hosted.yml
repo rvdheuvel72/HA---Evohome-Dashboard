@@ -58,7 +58,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m pip install "evohome-async==2.1.0"
+          python -m pip install "evohome-async==3.0.0"
       - name: Verify API signatures and used methods
         shell: bash
         run: python scripts/verify_library_api.py

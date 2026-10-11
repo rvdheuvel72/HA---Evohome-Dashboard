@@ -1,6 +1,7 @@
 """Native HA zone thermostats including safe frost-protection semantics."""
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from homeassistant.components.climate import ClimateEntity, ClimateEntityFeature, HVACMode
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import DOMAIN
@@ -24,7 +25,8 @@ class EvoZone(CoordinatorEntity, ClimateEntity):
 
     _attr_temperature_unit = "°C"
     _attr_hvac_modes = [HVACMode.HEAT, HVACMode.OFF]
-    _attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE
+    _attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE | ClimateEntityFeature.PRESET_MODE
+    _attr_preset_modes = ["Follow schedule", "Temporary override (1h)", "Permanent override", "Frost protection"]
     _attr_has_entity_name = True
 
     def __init__(self, hub, system_id, zone_id):
@@ -83,6 +85,32 @@ class EvoZone(CoordinatorEntity, ClimateEntity):
         ) < FROST_EPSILON:
             return HVACMode.OFF
         return HVACMode.HEAT
+
+    @property
+    def preset_mode(self):
+        z = self._zone
+        if self.hvac_mode == HVACMode.OFF:
+            return "Frost protection"
+        if str(z.mode) == "follow_schedule":
+            return "Follow schedule"
+        if str(z.mode) == "temporary_override":
+            return "Temporary override (1h)"
+        return "Permanent override"
+
+    async def async_set_preset_mode(self, preset_mode):
+        if preset_mode == "Follow schedule":
+            await self.coordinator.resume_zone(self._system_id, self._zone_id)
+        elif preset_mode == "Frost protection":
+            await self.coordinator.set_zone_frost(self._system_id, self._zone_id)
+        elif preset_mode == "Temporary override (1h)":
+            await self.coordinator.set_zone(self._system_id, self._zone_id,
+                                            self._zone.target_heat_temperature,
+                                            until=(datetime.now(timezone.utc) + timedelta(hours=1)).isoformat())
+        elif preset_mode == "Permanent override":
+            await self.coordinator.set_zone(self._system_id, self._zone_id,
+                                            self._zone.target_heat_temperature)
+        else:
+            raise ValueError("Unknown preset")
 
     @property
     def extra_state_attributes(self):

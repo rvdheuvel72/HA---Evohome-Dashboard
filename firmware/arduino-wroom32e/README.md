@@ -2,6 +2,10 @@
 
 Standalone, receive-only Arduino IDE prototype for the 4 MB ESP32-WROOM-32E / NodeMCU-32, CC1101 868 MHz, Wi-Fi REST API and MQTT RX. **Not yet tested on physical hardware.**
 
+## Download the standalone Arduino IDE ZIP
+
+[RAMSES Arduino Gateway v0.1.0 release](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.1.0) — download the **RAMSES-Arduino-Gateway-v0.1.0-ESP32-WROOM-32E.zip** asset (not the repository source-code ZIP). Unzip it, then open `RamsesGateway/RamsesGateway.ino` in Arduino IDE. This is a separately tagged **prerelease** for the radio gateway, not the Home Assistant integration.
+
 ## Wiring (verify actual labels on CC1101 breakout)
 
 | CC1101 | NodeMCU-32 |

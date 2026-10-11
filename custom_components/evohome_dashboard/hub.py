@@ -1,4 +1,9 @@
-"""Independent orchestration: polls status, applies verified commands, records errors."""
+"""Independent orchestration for the pinned evohome-async==2.1.0 client.
+
+Version 2.1.0 uses EvohomeClient.update() / Location.update() and returns
+None from PUT helpers (no vendor CommTask object). Check state after PUT
+rather than presenting API acceptance as physical confirmation.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -32,7 +37,11 @@ def parse_until(value):
 
 
 class EvohomeHub(DataUpdateCoordinator[dict]):
-    """One location tree per account; mutate only through a serialized command gate."""
+    """One location tree per account and serialized control requests."""
+
+    # A Resideo PUT can be accepted before it is applied by the physical controller.
+    VERIFY_ATTEMPTS = 7
+    VERIFY_INTERVAL = 5.0
 
     def __init__(self, hass, entry_id, token_manager, interval):
         super().__init__(
@@ -52,12 +61,14 @@ class EvohomeHub(DataUpdateCoordinator[dict]):
         for event in (events or {}).get("events", []):
             if isinstance(event, dict):
                 self._errors.append(event)
-        await self.client.setup()
+        # Pinned evohome-async 2.1.0 has NO .setup().
+        await self.client.update(dont_update_status=True)
 
     async def _async_update_data(self):
         try:
-            # Status only; schedules are loaded on demand, avoiding polling N zones.
-            await asyncio.gather(*(loc.get_status() for loc in self.client.locations))
+            # Pinned evohome-async 2.1.0: Location.update(), NOT .get_status().
+            # Fetch status only; schedules are fetched on demand.
+            await asyncio.gather(*(loc.update() for loc in self.client.locations))
             return snapshot(self.client)
         except Exception as exc:
             await self._record("poll_status", exc)
@@ -71,7 +82,7 @@ class EvohomeHub(DataUpdateCoordinator[dict]):
             "target": str(target or "")[:40],
         }
         self._errors.appendleft(event)
-        # Do not log exception strings or raw requests: cloud errors may include secrets.
+        # Do not log vendor error text: it may contain sensitive request details.
         _LOGGER.error("Evohome %s failed (%s)", action, type(exception).__name__)
         try:
             await self._error_store.async_save({"events": list(self._errors)})
@@ -94,16 +105,28 @@ class EvohomeHub(DataUpdateCoordinator[dict]):
             raise ValueError("Unknown zone")
         return system.zone_by_id[zone_id]
 
-    async def _execute(self, operation, target, action):
+    async def _wait_for_state(self, location, predicate):
+        """Poll the physical device's reported state after accepted cloud PUT.
+
+        This is a state observation, not direct acknowledgement from device RF.
+        On failure, never tell the dashboard the command succeeded.
+        """
+        for attempt in range(self.VERIFY_ATTEMPTS):
+            if attempt:
+                await asyncio.sleep(self.VERIFY_INTERVAL)
+            await location.update()
+            if predicate():
+                return
+        raise TimeoutError("The requested heating state was not confirmed by Resideo")
+
+    async def _execute(self, operation, target, action, location, predicate):
         async with self._write_lock:
             try:
-                task = await action()
-                # TCC PUT is only acceptance; explicitly wait for completion.
-                if task is not None:
-                    async with asyncio.timeout(60):
-                        await task.wait()
+                # Pinned 2.1.0 returns None for PUT helpers. No task.wait().
+                await action()
+                await self._wait_for_state(location, predicate)
                 await self.async_request_refresh()
-                return {"ok": True}
+                return {"ok": True, "verified": True}
             except Exception as exc:
                 await self._record(operation, exc, target)
                 raise
@@ -112,43 +135,59 @@ class EvohomeHub(DataUpdateCoordinator[dict]):
         zone = self._zone(system_id, zone_id)
         value = float(temperature)
         step = float(zone.setpoint_capabilities.get("value_resolution", 0.5))
-        if not zone.min_heat_setpoint <= value <= zone.max_heat_setpoint:
+        if step <= 0 or not zone.min_heat_setpoint <= value <= zone.max_heat_setpoint:
             raise ValueError("Temperature out of range")
         if abs((value / step) - round(value / step)) > 1e-6:
             raise ValueError("Unsupported temperature step")
         expiry = parse_until(until)
+        expected_mode = "temporary_override" if expiry else "permanent_override"
         return await self._execute(
             "zone_temperature", zone_id,
-            lambda: zone.set_temperature(value, until=expiry),
+            lambda: zone.set_temperature(value, until=expiry), zone.location,
+            lambda: str(zone.mode) == expected_mode
+            and abs(zone.target_heat_temperature - value) <= 1e-6,
         )
 
     async def resume_zone(self, system_id, zone_id):
         zone = self._zone(system_id, zone_id)
-        return await self._execute("zone_resume", zone_id, zone.reset)
+        return await self._execute(
+            "zone_resume", zone_id, zone.reset, zone.location,
+            lambda: str(zone.mode) == "follow_schedule",
+        )
 
     async def set_system_mode(self, system_id, mode, until=None):
         system = self._system(system_id)
         if mode not in [str(item) for item in system.allowed_modes]:
             raise ValueError("System mode unsupported")
+        expiry = parse_until(until)
         return await self._execute(
             "system_mode", system_id,
-            lambda: system.set_mode(mode, until=parse_until(until)),
+            lambda: system.set_mode(mode, until=expiry), system.location,
+            lambda: str(system.mode) == mode,
         )
 
     async def set_hotwater(self, system_id, state, until=None):
         system = self._system(system_id)
-        if system.hotwater is None or state not in ("on", "off"):
+        dhw = system.hotwater
+        if dhw is None or state not in ("on", "off"):
             raise ValueError("Hot water unavailable or invalid state")
+        expiry = parse_until(until)
+        expected_mode = "temporary_override" if expiry else "permanent_override"
         return await self._execute(
             "hotwater", system_id,
-            lambda: system.hotwater.set_state(state, until=parse_until(until)),
+            lambda: dhw.set_state(state, until=expiry), system.location,
+            lambda: str(dhw.state) == state and str(dhw.mode) == expected_mode,
         )
 
     async def resume_hotwater(self, system_id):
         system = self._system(system_id)
-        if not system.hotwater:
+        dhw = system.hotwater
+        if not dhw:
             raise ValueError("No hot water device")
-        return await self._execute("hotwater_resume", system_id, system.hotwater.reset)
+        return await self._execute(
+            "hotwater_resume", system_id, dhw.reset, system.location,
+            lambda: str(dhw.mode) == "follow_schedule",
+        )
 
     async def get_zone_schedule(self, system_id, zone_id, *, force=False):
         zone = self._zone(system_id, zone_id)
@@ -181,14 +220,16 @@ class EvohomeHub(DataUpdateCoordinator[dict]):
                 validated = validate(schedule, limits=snapshot_limits(zone))
                 if digest(validated) == expected:
                     return {"ok": True, "unchanged": True}
-                task = await zone.set_schedule(validated)
-                async with asyncio.timeout(60):
-                    await task.wait()
-                confirmed = normalize(await zone.get_schedule())
-                if digest(confirmed) != digest(validated):
-                    raise ValueError("Controller schedule verification failed")
-                self._schedule_cache.pop(f"{system_id}:{zone_id}", None)
-                return {"ok": True, "version": digest(confirmed)}
+                # The 2.1.0 helper returns None. Confirm with repeated live GETs.
+                await zone.set_schedule(validated)
+                for attempt in range(self.VERIFY_ATTEMPTS):
+                    if attempt:
+                        await asyncio.sleep(self.VERIFY_INTERVAL)
+                    confirmed = normalize(await zone.get_schedule())
+                    if digest(confirmed) == digest(validated):
+                        self._schedule_cache.pop(f"{system_id}:{zone_id}", None)
+                        return {"ok": True, "verified": True, "version": digest(confirmed)}
+                raise TimeoutError("New schedule was not confirmed by Resideo")
             except Exception as exc:
                 await self._record("save_schedule", exc, zone_id)
                 raise

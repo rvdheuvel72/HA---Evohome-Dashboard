@@ -13,6 +13,11 @@ SHA = "a" * 40
 BOT = {"login": "chatgpt-codex-connector[bot]"}
 
 class GateTests(unittest.TestCase):
+    def test_only_exact_known_codex_identity(self):
+        self.assertTrue(gate.is_codex({'login': 'chatgpt-codex-connector[bot]'}))
+        self.assertTrue(gate.is_codex({'login': 'chatgpt-codex-connector'}))
+        self.assertFalse(gate.is_codex({'login': 'chatgpt-codex-connector-attacker'}))
+
     def test_priority(self):
         self.assertTrue(gate.is_p12("![P2 Badge](https://img.shields.io/badge/P2-yellow)"))
         self.assertTrue(gate.is_p12("[P1] outage"))

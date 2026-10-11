@@ -93,3 +93,4 @@ jobs:
               assert callable(mod.async_setup_entry), platform
           print("Native Home Assistant platform imports passed:", sorted(PLATFORMS))
           PY
+          python -m unittest discover -s tests_integration -v

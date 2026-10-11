@@ -26,12 +26,15 @@ async def async_setup(hass, config):
 async def _setup_frontend(hass):
     if hass.data.get(f"{DOMAIN}_ui_loaded"):
         return
-    resource = Path(__file__).parent / "frontend" / "dashboard.js"
-    await hass.http.async_register_static_paths([
-        StaticPathConfig(
-            f"/api/{DOMAIN}/dashboard.js", str(resource), cache_headers=False,
-        )
-    ])
+    if not hass.data.get(f"{DOMAIN}_assets_loaded"):
+        resource = Path(__file__).parent / "frontend" / "dashboard.js"
+        await hass.http.async_register_static_paths([
+            StaticPathConfig(
+                f"/api/{DOMAIN}/dashboard.js", str(resource), cache_headers=False,
+            )
+        ])
+        register_commands(hass)
+        hass.data[f"{DOMAIN}_assets_loaded"] = True
     await panel_custom.async_register_panel(
         hass,
         frontend_url_path=PANEL_PATH,
@@ -42,7 +45,6 @@ async def _setup_frontend(hass):
         require_admin=True,
         config={"domain": DOMAIN},
     )
-    register_commands(hass)
     hass.data[f"{DOMAIN}_ui_loaded"] = True
 
 

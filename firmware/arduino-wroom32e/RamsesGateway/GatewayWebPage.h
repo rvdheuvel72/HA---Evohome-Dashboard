@@ -51,7 +51,7 @@ set('errors',number(s.rejected_frames)+' rejected · '+number(s.dropped_frames)+
 set('bytes',number(s.rf_uart_bytes));
 set('sync',number(s.rf_syncs)+' synchronization sequences');
 set('network',(s.wifi_connected?'Wi-Fi up':'Wi-Fi down')+' / '+(s.mqtt_connected?'MQTT up':'MQTT down'));
-set('ip','Wi-Fi '+(s.ip||'—')+' · AP '+(s.ap_ip||'off'));
+set('ip','Host '+(s.hostname||'—')+' · mDNS '+(s.mdns_active?'active':'off')+' · Wi-Fi '+(s.ip||'—')+' · AP '+(s.ap_ip||'off'));
 set('heap',number(s.free_heap)+' B');
 set('uptime',Math.floor((s.uptime_ms||0)/1000)+' seconds up');
 set('health',s.radio_detected?(s.valid_frames?'Receiving':'Waiting for RF'):'Check radio');

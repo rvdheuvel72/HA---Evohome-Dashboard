@@ -42,9 +42,8 @@ inline bool resolve(const char* configured, uint32_t macSuffix,
     output[len] = '\0';
     return true; // Explicit configuration accepted
   }
-  const int written = snprintf(output, outputSize, "evohome-gateway-%06lx",
-                               static_cast<unsigned long>(macSuffix & 0xFFFFFFu));
-  return written > 0 && static_cast<size_t>(written) < outputSize
-         ? false : false; // False means the configured value was not accepted.
+  snprintf(output, outputSize, "evohome-gateway-%06lx",
+           static_cast<unsigned long>(macSuffix & 0xFFFFFFu));
+  return false; // Config missing/invalid; valid, unique fallback written.
 }
 } // namespace gateway_hostname

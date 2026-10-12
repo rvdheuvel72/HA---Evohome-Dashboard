@@ -65,7 +65,7 @@ jobs:
           node --check frontend-package/dist/evohome-dashboard-ui.js
           python3 -m unittest discover -s tests -p test_frontend_split.py -v
       - name: Publish deployable HACS frontend artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: evohome-dashboard-ui-hacs
           path: build/evohome-dashboard-ui.zip

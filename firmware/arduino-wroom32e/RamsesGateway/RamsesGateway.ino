@@ -17,6 +17,7 @@
 #include "RamsesCodec.h"
 #include "GatewayDebug.h"
 #include "GatewayWebPage.h"
+#include "GatewayDiscovery.h"
 #include <esp_system.h>
 
 #if __has_include("GatewaySecrets.h")
@@ -39,6 +40,9 @@
 #ifndef GW_DEBUG_PASSWORD
 #define GW_DEBUG_PASSWORD ""
 #endif
+#ifndef GW_MQTT_DISCOVERY
+#define GW_MQTT_DISCOVERY 1
+#endif
 
 namespace {
 constexpr uint32_t WIFI_RETRY_MS = 15000;
@@ -47,7 +51,8 @@ constexpr uint8_t RING_SIZE = 12;
 constexpr uint32_t RX_IDLE_TIMEOUT_MS = 250;
 constexpr uint32_t HEARTBEAT_MS = 15000;
 constexpr uint8_t DEBUG_QUEUE_SIZE = 16;
-constexpr char FW_VERSION[] = "0.2.0";
+constexpr char FW_VERSION[] = "0.3.0";
+constexpr uint32_t MQTT_STATE_INTERVAL_MS = 15000;
 
 struct PacketEvent {
   char hgi[256];
@@ -86,6 +91,8 @@ char deviceId[12] = {};
 char baseTopic[64] = {};
 char rxTopic[72] = {};
 char availabilityTopic[72] = {};
+char stateTopic[80] = {};
+uint32_t lastMqttStateMs = 0;
 uint32_t lastWifiAttempt = 0;
 uint32_t lastMqttAttempt = 0;
 
@@ -345,6 +352,52 @@ void wifiConnect() {
   recordLog(GatewayDebug::INFO, "Wi-Fi connection attempt");
 }
 
+// MQTT Discovery creates a gateway device, not Evohome heating zone entities.
+// Configuration and state retained so entities survive Home Assistant restarts.
+bool publishDiscovery() {
+  if (!mqtt.connected()) return false;
+  bool success = true;
+  for (size_t i = 0; i < gateway_discovery::ENTITY_COUNT; ++i) {
+    char topic[144];
+    char payload[1080];
+    if (!gateway_discovery::buildConfig(i, deviceId, baseTopic, FW_VERSION,
+                                         topic, sizeof(topic), payload, sizeof(payload))) {
+      recordLog(GatewayDebug::ERROR, "MQTT Discovery payload overflow");
+      return false;
+    }
+    if (!mqtt.publish(topic, payload, true)) {
+      char msg[96];
+      snprintf(msg, sizeof(msg), "MQTT Discovery publish failed, entity index=%u",
+               static_cast<unsigned>(i));
+      recordLog(GatewayDebug::WARN, msg);
+      success = false;
+    }
+    mqtt.loop(); // Allow broker traffic between retained config messages.
+    delay(2);
+  }
+  if (success) recordLog(GatewayDebug::INFO, "MQTT Discovery configurations published");
+  return success;
+}
+
+bool publishGatewayState() {
+  if (!mqtt.connected()) return false;
+  char state[448];
+  const int n = snprintf(state, sizeof(state),
+    "{\"radio_detected\":%s,\"valid_frames\":%lu,\"rejected_frames\":%lu,"
+    "\"dropped_frames\":%lu,\"rf_uart_bytes\":%lu,\"rf_syncs\":%lu,"
+    "\"free_heap\":%lu,\"uptime_seconds\":%lu}",
+    radioReady ? "true" : "false",
+    static_cast<unsigned long>(validFrames),
+    static_cast<unsigned long>(rejectedFrames),
+    static_cast<unsigned long>(droppedFrames),
+    static_cast<unsigned long>(rfUartBytes),
+    static_cast<unsigned long>(rfSyncs),
+    static_cast<unsigned long>(ESP.getFreeHeap()),
+    static_cast<unsigned long>(millis()/1000));
+  if (n <= 0 || static_cast<size_t>(n) >= sizeof(state)) return false;
+  return mqtt.publish(stateTopic, state, true);
+}
+
 void mqttConnect() {
   if (GW_MQTT_HOST[0] == '\0' || WiFi.status() != WL_CONNECTED || mqtt.connected()) return;
   const uint32_t now = millis();
@@ -358,7 +411,15 @@ void mqttConnect() {
     ok = mqtt.connect(deviceId, availabilityTopic, 1, true, "offline");
   }
   if (ok) {
+    // Publish state and retained discovery before reporting availability.
+    // A gateway with no CC1101 still registers as a device with radio=off.
+    const bool stateOk = publishGatewayState();
+    bool discoveryOk = true;
+    if (GW_MQTT_DISCOVERY) discoveryOk = publishDiscovery();
+    if (!stateOk) recordLog(GatewayDebug::WARN, "Initial MQTT state publish failed");
+    if (!discoveryOk) recordLog(GatewayDebug::WARN, "MQTT Discovery incomplete");
     mqtt.publish(availabilityTopic, "online", true);
+    lastMqttStateMs = millis();
     recordLog(GatewayDebug::INFO, "MQTT connected");
     Serial.printf("# MQTT RX topic: %s\n", rxTopic);
   } else {
@@ -399,8 +460,8 @@ void handlePacket(const PacketEvent& event) {
 void setup() {
   Serial.begin(115200);
   delay(250);
-  Serial.println("\n# RAMSES II Arduino prototype 0.2.0 (RX ONLY / WEB DEBUG)");
-  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.2.0");
+  Serial.println("\n# RAMSES II Arduino prototype 0.3.0 (RX ONLY / HA MQTT DISCOVERY)");
+  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.3.0");
   char bootInfo[96];
   snprintf(bootInfo, sizeof(bootInfo), "Reset reason: %s", resetReason());
   recordLog(GatewayDebug::INFO, bootInfo);
@@ -419,6 +480,7 @@ void setup() {
   snprintf(baseTopic, sizeof(baseTopic), "RAMSES/GATEWAY/%s", deviceId);
   snprintf(rxTopic, sizeof(rxTopic), "%s/rx", baseTopic);
   snprintf(availabilityTopic, sizeof(availabilityTopic), "%s", baseTopic);
+  snprintf(stateTopic, sizeof(stateTopic), "%s/status", baseTopic);
 
   if (strlen(GW_RECOVERY_AP_PASSWORD) >= 8) {
     WiFi.mode(WIFI_AP_STA);
@@ -436,7 +498,7 @@ void setup() {
   }
   WiFi.setSleep(false);
   mqtt.setServer(GW_MQTT_HOST, GW_MQTT_PORT);
-  mqtt.setBufferSize(512); // RX JSON can exceed PubSubClient's standard buffer size
+  mqtt.setBufferSize(1536); // Home Assistant Discovery configurations are larger than 512 bytes
   web.on("/", HTTP_GET, httpIndex);
   web.on("/api/v1/status", HTTP_GET, httpStatus);
   web.on("/api/v1/packets", HTTP_GET, httpPackets);
@@ -465,7 +527,14 @@ void loop() {
   }
   wifiConnect();
   mqttConnect();
-  if (mqtt.connected()) mqtt.loop();
+  if (mqtt.connected()) {
+    mqtt.loop();
+    if (millis() - lastMqttStateMs >= MQTT_STATE_INTERVAL_MS) {
+      lastMqttStateMs = millis();
+      if (!publishGatewayState())
+        recordLog(GatewayDebug::WARN, "MQTT state publish failed");
+    }
+  }
   web.handleClient();
 
   PacketEvent item;

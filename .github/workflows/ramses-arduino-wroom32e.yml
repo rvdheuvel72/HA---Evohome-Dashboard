@@ -58,6 +58,11 @@ jobs:
           assert len(seen) == 8
           print('Validated 8 MQTT Discovery JSON payloads')
           PY
+      - name: Test configurable DHCP/mDNS hostname helper
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer \
+            firmware/arduino-wroom32e/tests/test_hostname.cpp -o /tmp/test-ramses-hostname
+          /tmp/test-ramses-hostname
       - name: Compile for ESP32-WROOM-32E
         run: |
           arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all firmware/arduino-wroom32e/RamsesGateway --output-dir "$RUNNER_TEMP/arduino-build"

@@ -4,7 +4,7 @@ Standalone, receive-only Arduino IDE prototype for the 4 MB ESP32-WROOM-32E / No
 
 ## Download the standalone Arduino IDE ZIP
 
-[RAMSES Arduino Gateway v0.2.0 release](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.2.0) — download the **RAMSES-Arduino-Gateway-v0.2.0-ESP32-WROOM-32E.zip** asset (not the repository source-code ZIP). Unzip it, then open `RamsesGateway/RamsesGateway.ino` in Arduino IDE. This is a separately tagged **prerelease** for the radio gateway, not the Home Assistant integration.
+[RAMSES Arduino Gateway v0.3.0 release](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.3.0) — download the **RAMSES-Arduino-Gateway-v0.3.0-ESP32-WROOM-32E.zip** asset (not the repository source-code ZIP). Unzip it, then open `RamsesGateway/RamsesGateway.ino` in Arduino IDE. This is a separately tagged **prerelease** for the radio gateway, not the Home Assistant integration.
 
 ## Wiring (verify actual labels on CC1101 breakout)
 
@@ -72,7 +72,28 @@ Check the COM port selected in Tools > Port, set **115200 baud**, keep Serial Mo
 - GET /api/v1/status returns connection/radio/counter/health information.
 - GET /api/v1/packets returns up to 12 recent valid RAMSES II messages.
 
-There are NO write, pairing, transmit or heating-control endpoints. API is unauthenticated: trusted LAN use only; never port-forward it.
+There are NO write, pairing, transmit or heating-control endpoints. HTTP Basic authentication is optional; use a trusted LAN only and never port-forward it.
+
+## MQTT Discovery for Home Assistant (new in v0.3.0)
+
+With MQTT connected and Home Assistant MQTT Discovery enabled, the gateway automatically registers one device **RAMSES II Gateway**, containing eight diagnostic entities, even when the CC1101 is not connected:
+
+- CC1101 radio (binary)
+- Valid packets
+- Rejected frames
+- Dropped frames
+- RF UART bytes
+- RF syncs
+- Free memory
+- Uptime
+
+The device's **availability** is tracked using the existing topic `RAMSES/GATEWAY/18:NNNNNN` with retained `online` and LWT `offline`; no separate MQTT Discovery connection sensor is necessary. The diagnostic values are reported every 15 seconds to `RAMSES/GATEWAY/18:NNNNNN/status`, retained. Home Assistant entity configuration is retained under `homeassistant/<component>/ramses_gateway_18_NNNNNN/<slug>/config`, and automatically republished on reconnect.
+
+The identifier remains the same as in v0.2.0. These entities represent **gateway health**, not Evohome climate/zone devices. Native RF decoding and MQTT-based zone integration still require CC1101 hardware tests. The gateway remains strictly receive-only.
+
+To disable automatic discovery in a custom deployment, set `#define GW_MQTT_DISCOVERY 0` in `GatewaySecrets.h` before compiling (this does not delete already retained discovery configs from your broker).
+
+**Verify on Home Assistant:** Settings → Devices & Services → MQTT → Devices. If not shown, listen to both `homeassistant/#` and `RAMSES/GATEWAY/#`; confirm the broker is the same and MQTT discovery is enabled.
 
 ## MQTT
 

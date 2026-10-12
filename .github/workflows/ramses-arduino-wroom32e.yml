@@ -36,6 +36,28 @@ jobs:
           g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer \
             firmware/arduino-wroom32e/tests/test_debug.cpp -o /tmp/test-ramses-web-debug
           /tmp/test-ramses-web-debug
+      - name: Validate MQTT Discovery JSON against HA conventions
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer \
+            firmware/arduino-wroom32e/tests/test_discovery.cpp -o /tmp/test-ramses-discovery
+          /tmp/test-ramses-discovery > /tmp/ramses-discovery.jsonl
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          seen = set()
+          for line in Path('/tmp/ramses-discovery.jsonl').read_text().splitlines():
+              topic, payload = line.split('\t', 1)
+              cfg = json.loads(payload)
+              assert topic.endswith('/config')
+              assert topic not in seen
+              seen.add(topic)
+              assert cfg['state_topic'] == 'RAMSES/GATEWAY/18:447669/status'
+              assert cfg['availability_topic'] == 'RAMSES/GATEWAY/18:447669'
+              assert cfg['device']['identifiers'] == ['ramses_gateway_18_447669']
+              assert cfg['unique_id'].startswith('ramses_gateway_18_447669_')
+          assert len(seen) == 8
+          print('Validated 8 MQTT Discovery JSON payloads')
+          PY
       - name: Compile for ESP32-WROOM-32E
         run: |
           arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all firmware/arduino-wroom32e/RamsesGateway --output-dir "$RUNNER_TEMP/arduino-build"

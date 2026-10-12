@@ -4,7 +4,7 @@ Standalone, receive-only Arduino IDE prototype for the 4 MB ESP32-WROOM-32E / No
 
 ## Download the standalone Arduino IDE ZIP
 
-[RAMSES Arduino Gateway v0.3.0 release](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.3.0) — download the **RAMSES-Arduino-Gateway-v0.3.0-ESP32-WROOM-32E.zip** asset (not the repository source-code ZIP). Unzip it, then open `RamsesGateway/RamsesGateway.ino` in Arduino IDE. This is a separately tagged **prerelease** for the radio gateway, not the Home Assistant integration.
+[RAMSES Arduino Gateway v0.3.0 release](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.3.1) — download the **RAMSES-Arduino-Gateway-v0.3.1-ESP32-WROOM-32E.zip** asset (not the repository source-code ZIP). Unzip it, then open `RamsesGateway/RamsesGateway.ino` in Arduino IDE. This is a separately tagged **prerelease** for the radio gateway, not the Home Assistant integration.
 
 ## Wiring (verify actual labels on CC1101 breakout)
 
@@ -28,8 +28,25 @@ Standalone, receive-only Arduino IDE prototype for the 4 MB ESP32-WROOM-32E / No
 3. Install PubSubClient by Nick O'Leary (v2.8) in Library Manager.
 4. Open RamsesGateway/RamsesGateway.ino. Select ESP32 Dev Module, 4MB flash, 240MHz, and COM5 (if unchanged).
 5. Copy GatewaySecrets.example.h to GatewaySecrets.h in the sketch folder. Fill in Wi-Fi credentials and, optionally, an MQTT broker. The secrets file is gitignored. Without it, the sketch compiles but networking is disabled.
-6. Click Verify, then Upload, and open Serial Monitor at 115200 baud.
-7. Open **Tools > Serial Monitor** at 115200, press **EN** once while the monitor is already open, and watch for BOOT / CC1101 / HEARTBEAT messages. Verify radio_detected in the web interface, then monitor valid_frames with your Evohome nearby.
+6. Optionally set `#define GW_HOSTNAME "evohome-gateway"` in your private `GatewaySecrets.h`; see hostname notes below.
+7. Click Verify, then Upload, and open Serial Monitor at 115200 baud.
+8. Open **Tools > Serial Monitor** at 115200, press **EN** once while the monitor is already open, and watch for BOOT / CC1101 / HEARTBEAT messages. Verify radio_detected in the web interface, then monitor valid_frames with your Evohome nearby.
+
+## Configurable network hostname (new in v0.3.1)
+
+In `GatewaySecrets.h`, set the hostname you want your router to display:
+
+```cpp
+#define GW_HOSTNAME "evohome-gateway"
+```
+
+This sets the ESP32 **DHCP Wi-Fi hostname** before connecting to your router and advertises a local mDNS HTTP service, generally browsable as **http://evohome-gateway.local/** if your computer, phone and network support mDNS. DHCP client-name display depends on your router. mDNS requires local multicast UDP/5353, may not cross VLANs, and is independent of the Home Assistant MQTT broker.
+
+Use a single label of 1–63 ASCII letters, digits or hyphens, without a leading/trailing hyphen. Do not include spaces, underscores or `.local` in `GW_HOSTNAME`. Uppercase is normalized to lowercase. Empty, absent or invalid settings fall back to a unique `evohome-gateway-XXXXXX` suffix derived from the ESP32 hardware MAC.
+
+**Upgrading from v0.3.0:** Your existing private `GatewaySecrets.h` does not contain this new setting. Add the `GW_HOSTNAME` line yourself when copying credentials into the v0.3.1 sketch folder, then upload. The gateway displays its active name and mDNS responder state in the browser dashboard and `/api/v1/status`.
+
+mDNS responder startup is reported only after a successful Wi-Fi connection and retried after disconnects. It does not prove resolution from every client. Your device's MQTT identity and `RAMSES/GATEWAY/18:NNNNNN` topics stay unchanged.
 
 ## Browser-based diagnostics (new in v0.2.0)
 

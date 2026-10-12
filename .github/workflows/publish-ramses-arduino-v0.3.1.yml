@@ -1,0 +1,160 @@
+name: Publish RAMSES Arduino Gateway v0.3.1
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/publish-ramses-arduino-v0.3.1.yml"
+  pull_request:
+    paths:
+      - ".github/workflows/publish-ramses-arduino-v0.3.1.yml"
+      - "firmware/arduino-wroom32e/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-ramses-arduino-v0.3.1
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Package and publish dedicated Arduino release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Test the RAMSES decoder before packaging
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
+            -fno-omit-frame-pointer firmware/arduino-wroom32e/tests/test_codec.cpp \
+            -o /tmp/test-ramses-arduino
+          /tmp/test-ramses-arduino
+
+      - name: Test web diagnostic log buffer
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
+            -fno-omit-frame-pointer firmware/arduino-wroom32e/tests/test_debug.cpp \
+            -o /tmp/test-gateway-web
+          /tmp/test-gateway-web
+
+      - name: Test Home Assistant Discovery JSON
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
+            -fno-omit-frame-pointer firmware/arduino-wroom32e/tests/test_discovery.cpp \
+            -o /tmp/test-ramses-ha-discovery
+          /tmp/test-ramses-ha-discovery > /tmp/ramses-ha-discovery.jsonl
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          lines = Path('/tmp/ramses-ha-discovery.jsonl').read_text().splitlines()
+          assert len(lines) == 8
+          for line in lines:
+              topic, payload = line.split('\t', 1)
+              config = json.loads(payload)
+              assert topic.endswith('/config')
+              assert config['state_topic'] == 'RAMSES/GATEWAY/18:447669/status'
+              assert config['device']['identifiers'] == ['ramses_gateway_18_447669']
+          print('Home Assistant Discovery: 8 JSON configs verified')
+          PY
+
+      - name: Test hostname normalization and fallback
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
+            -fno-omit-frame-pointer firmware/arduino-wroom32e/tests/test_hostname.cpp \
+            -o /tmp/test-ramses-hostname
+          /tmp/test-ramses-hostname
+
+      - name: Set up Arduino CLI and verify ESP32 compilation
+        uses: arduino/setup-arduino-cli@v2
+      - name: Compile v0.3.1 for ESP32-WROOM-32E before release
+        run: |
+          arduino-cli config init
+          arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32@3.3.4
+          arduino-cli lib install "PubSubClient@2.8"
+          arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all firmware/arduino-wroom32e/RamsesGateway --output-dir "$RUNNER_TEMP/arduino-build"
+
+      - name: Build clean Arduino IDE source ZIP with SHA256
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile, ZIP_DEFLATED
+          import hashlib
+
+          src = Path("firmware/arduino-wroom32e")
+          sketch = src / "RamsesGateway"
+          required = [
+              "RamsesGateway.ino",
+              "Cc1101Radio.h",
+              "RamsesCodec.h",
+              "GatewaySecrets.example.h",
+              "GatewayDebug.h",
+              "GatewayWebPage.h",
+              "GatewayDiscovery.h",
+              "GatewayHostname.h",
+          ]
+          for file in required:
+              assert (sketch / file).is_file(), f"Missing sketch source: {file}"
+          assert not (sketch / "GatewaySecrets.h").exists(), "Refusing to release real Wi-Fi credentials"
+          assert (src / "README.md").is_file()
+          assert Path("LICENSE").is_file()
+
+          out = Path("dist")
+          out.mkdir(exist_ok=True)
+          zip_path = out / "RAMSES-Arduino-Gateway-v0.3.1-ESP32-WROOM-32E.zip"
+          with ZipFile(zip_path, "w", compression=ZIP_DEFLATED, compresslevel=9) as archive:
+              for name in required:
+                  archive.write(sketch / name, f"RamsesGateway/{name}")
+              archive.write(src / "README.md", "README.md")
+              archive.write("LICENSE", "LICENSE")
+
+          with ZipFile(zip_path) as archive:
+              actual = set(archive.namelist())
+              expected = {f"RamsesGateway/{x}" for x in required} | {"README.md", "LICENSE"}
+              assert actual == expected, f"Unexpected archive contents: {actual ^ expected}"
+              assert archive.testzip() is None, "ZIP integrity check failed"
+
+          digest = hashlib.sha256(zip_path.read_bytes()).hexdigest()
+          checksum = out / f"{zip_path.name}.sha256"
+          checksum.write_text(f"{digest}  {zip_path.name}\n")
+          print(f"Created: {zip_path} ({zip_path.stat().st_size} bytes)")
+          print(f"SHA256: {digest}")
+          PY
+
+      - name: Publish separate Arduino prerelease and downloadable ZIP
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          TAG="ramses-arduino-v0.3.1"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::notice::Release $TAG already exists. Skipping publication; nothing overwritten."
+          else
+            gh release create "$TAG" \
+              dist/RAMSES-Arduino-Gateway-v0.3.1-ESP32-WROOM-32E.zip \
+              dist/RAMSES-Arduino-Gateway-v0.3.1-ESP32-WROOM-32E.zip.sha256 \
+              --target "$GITHUB_SHA" \
+              --title "RAMSES Arduino Gateway v0.3.1 (ESP32-WROOM-32E)" \
+              --notes-file firmware/arduino-wroom32e/RELEASE_NOTES_v0.3.1.md \
+              --prerelease
+          fi
+
+      - name: Verify GitHub release and ZIP asset exist
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh release view ramses-arduino-v0.3.1 --json url,assets,isPrerelease \
+            --jq '{url, prerelease: .isPrerelease, assets: [.assets[].name]}'
+          gh release view ramses-arduino-v0.3.1 --json assets \
+            --jq '.assets[].name' | grep -Fx 'RAMSES-Arduino-Gateway-v0.3.1-ESP32-WROOM-32E.zip'

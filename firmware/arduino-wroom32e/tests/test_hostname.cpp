@@ -32,8 +32,6 @@ int main() {
   assert(gateway_hostname::isValid(maxName));
   assert(gateway_hostname::resolve(maxName, 0, result, sizeof(result)));
   assert(strlen(result) == 63);
-  maxName[63] = 'b';
-  maxName[64-1] = 'b'; // string now has no terminator; add one in a wider buffer below
   char oversized[65];
   memset(oversized, 'b', 64);
   oversized[64] = '\0';

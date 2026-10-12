@@ -10,6 +10,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WebServer.h>
+#include <ESPmDNS.h>
 #include <PubSubClient.h>
 #include <time.h>
 #include <sys/time.h>
@@ -18,6 +19,7 @@
 #include "GatewayDebug.h"
 #include "GatewayWebPage.h"
 #include "GatewayDiscovery.h"
+#include "GatewayHostname.h"
 #include <esp_system.h>
 
 #if __has_include("GatewaySecrets.h")
@@ -43,6 +45,9 @@
 #ifndef GW_MQTT_DISCOVERY
 #define GW_MQTT_DISCOVERY 1
 #endif
+#ifndef GW_HOSTNAME
+#define GW_HOSTNAME "" // Legacy secrets: auto-generated unique hostname
+#endif
 
 namespace {
 constexpr uint32_t WIFI_RETRY_MS = 15000;
@@ -51,7 +56,8 @@ constexpr uint8_t RING_SIZE = 12;
 constexpr uint32_t RX_IDLE_TIMEOUT_MS = 250;
 constexpr uint32_t HEARTBEAT_MS = 15000;
 constexpr uint8_t DEBUG_QUEUE_SIZE = 16;
-constexpr char FW_VERSION[] = "0.3.0";
+constexpr char FW_VERSION[] = "0.3.1";
+constexpr uint32_t MDNS_RETRY_MS = 15000;
 constexpr uint32_t MQTT_STATE_INTERVAL_MS = 15000;
 
 struct PacketEvent {
@@ -75,6 +81,9 @@ QueueHandle_t debugQueue = nullptr;
 GatewayDebug diagnosticLog;
 bool recoveryApReady = false;
 char recoveryApSsid[32] = {};
+char gatewayHostname[64] = {};
+bool mdnsReady = false;
+uint32_t lastMdnsAttempt = 0;
 
 volatile bool radioReady = false;
 volatile uint32_t validFrames = 0;
@@ -236,13 +245,14 @@ void radioTask(void*) {
 
 void httpStatus() {
   if (!authorized()) return;
-  char json[1050];
+  char json[1300];
   const String ip = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "";
   const String apIp = recoveryApReady ? WiFi.softAPIP().toString() : "";
   snprintf(json, sizeof(json),
            "{\"version\":\"%s\",\"board\":\"ESP32-WROOM-32E\",\"mode\":\"receive_only\","
            "\"radio_detected\":%s,\"radio_verified\":false,\"cc1101_part\":%u,\"cc1101_version\":%u,"
            "\"wifi_connected\":%s,\"mqtt_connected\":%s,\"time_synced\":%s,"
+           "\"hostname\":\"%s\",\"mdns_active\":%s,"
            "\"valid_frames\":%lu,\"rejected_frames\":%lu,\"dropped_frames\":%lu,"
            "\"rf_uart_bytes\":%lu,\"rf_syncs\":%lu,\"radio_recalibrations\":%lu,"
            "\"radio_recalibration_failures\":%lu,"
@@ -254,6 +264,7 @@ void httpStatus() {
            WiFi.status() == WL_CONNECTED ? "true" : "false",
            mqtt.connected() ? "true" : "false",
            timeSynchronized() ? "true" : "false",
+           gatewayHostname, mdnsReady ? "true" : "false",
            static_cast<unsigned long>(validFrames),
            static_cast<unsigned long>(rejectedFrames),
            static_cast<unsigned long>(droppedFrames),
@@ -339,6 +350,32 @@ void httpIndex() {
   if (!authorized()) return;
   web.sendHeader("Cache-Control", "no-store");
   web.send_P(200, "text/html", GW_DEBUG_PAGE);
+}
+
+// Advertise HTTP diagnostics on local networks that support multicast DNS.
+// mdnsReady reports local responder startup, not reachability from every client.
+void serviceMdns() {
+  if (WiFi.status() != WL_CONNECTED) {
+    if (mdnsReady) {
+      MDNS.end();
+      mdnsReady = false;
+      recordLog(GatewayDebug::WARN, "mDNS stopped on Wi-Fi disconnect");
+    }
+    return;
+  }
+  if (mdnsReady) return;
+  const uint32_t now = millis();
+  if (lastMdnsAttempt && now - lastMdnsAttempt < MDNS_RETRY_MS) return;
+  lastMdnsAttempt = now;
+  if (MDNS.begin(gatewayHostname)) {
+    MDNS.addService("http", "tcp", 80);
+    mdnsReady = true;
+    char message[110];
+    snprintf(message, sizeof(message), "mDNS ready: http://%s.local/", gatewayHostname);
+    recordLog(GatewayDebug::INFO, message);
+  } else {
+    recordLog(GatewayDebug::WARN, "mDNS startup failed; retrying after 15s");
+  }
 }
 
 void wifiConnect() {
@@ -460,8 +497,8 @@ void handlePacket(const PacketEvent& event) {
 void setup() {
   Serial.begin(115200);
   delay(250);
-  Serial.println("\n# RAMSES II Arduino prototype 0.3.0 (RX ONLY / HA MQTT DISCOVERY)");
-  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.3.0");
+  Serial.println("\n# RAMSES II Arduino prototype 0.3.1 (RX ONLY / HOSTNAME + mDNS)");
+  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.3.1");
   char bootInfo[96];
   snprintf(bootInfo, sizeof(bootInfo), "Reset reason: %s", resetReason());
   recordLog(GatewayDebug::INFO, bootInfo);
@@ -474,6 +511,12 @@ void setup() {
     return;
   }
   const uint32_t serial = static_cast<uint32_t>(ESP.getEfuseMac() & 0xFFFFFFu);
+  const bool configuredHostnameValid = gateway_hostname::resolve(GW_HOSTNAME, serial, gatewayHostname, sizeof(gatewayHostname));
+  if (!configuredHostnameValid && GW_HOSTNAME[0])
+    recordLog(GatewayDebug::WARN, "GW_HOSTNAME invalid: using generated evohome-gateway-XXXXXX");
+  char hostInfo[100];
+  snprintf(hostInfo, sizeof(hostInfo), "Gateway hostname: %s", gatewayHostname);
+  recordLog(GatewayDebug::INFO, hostInfo);
   unsigned id = serial % 999999u;
   if (id == 730u || id == 0) id += 1000u; // avoid reserved 18:000730 sentinel
   snprintf(deviceId, sizeof(deviceId), "18:%06u", id);
@@ -496,6 +539,9 @@ void setup() {
     WiFi.mode(WIFI_STA);
     recordLog(GatewayDebug::INFO, "Recovery AP disabled (set GW_RECOVERY_AP_PASSWORD)");
   }
+  // Must set DHCP hostname AFTER WiFi.mode and BEFORE WiFi.begin.
+  if (!WiFi.setHostname(gatewayHostname))
+    recordLog(GatewayDebug::WARN, "Could not set DHCP Wi-Fi hostname");
   WiFi.setSleep(false);
   mqtt.setServer(GW_MQTT_HOST, GW_MQTT_PORT);
   mqtt.setBufferSize(1536); // Home Assistant Discovery configurations are larger than 512 bytes
@@ -526,6 +572,7 @@ void loop() {
     ++flushed;
   }
   wifiConnect();
+  serviceMdns();
   mqttConnect();
   if (mqtt.connected()) {
     mqtt.loop();
@@ -547,6 +594,7 @@ void loop() {
   if (WiFi.status() == WL_CONNECTED && lastIpReport == 0) {
     recordLog(GatewayDebug::INFO, "Wi-Fi connected");
     Serial.printf("# Web API: http://%s/api/v1/status\n", WiFi.localIP().toString().c_str());
+    if (mdnsReady) Serial.printf("# Gateway URL: http://%s.local/\n", gatewayHostname);
     lastIpReport = millis() ? millis() : 1;
   }
   if (WiFi.status() != WL_CONNECTED && lastIpReport != 0) {

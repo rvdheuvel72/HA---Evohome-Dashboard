@@ -1,8 +1,19 @@
-// Copy to GatewaySecrets.h (gitignored). Do not commit credentials.
+// Copy to GatewaySecrets.h (gitignored); do not commit real credentials.
 #pragma once
 #define GW_WIFI_SSID "YOUR_WIFI_NAME"
 #define GW_WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
-#define GW_MQTT_HOST "192.168.1.2" // Optional: "" disables MQTT
+#define GW_MQTT_HOST "" // Optional; leave empty to disable MQTT
 #define GW_MQTT_PORT 1883
 #define GW_MQTT_USER ""
 #define GW_MQTT_PASSWORD ""
+
+// Strongly recommended: web diagnostics are accessible on your local network.
+// HTTP Basic authentication has no transport encryption: trusted LAN only.
+#define GW_DEBUG_USER "admin"
+#define GW_DEBUG_PASSWORD "CHANGE_TO_A_STRONG_PRIVATE_PASSWORD"
+
+// Optional independent WPA2 Wi-Fi recovery access point:
+// After setting a password of at least 8 characters, connect to the
+// RAMSES-Debug-XXXXXX Wi-Fi network and open http://192.168.4.1/.
+// Leave empty to disable access-point mode.
+#define GW_RECOVERY_AP_PASSWORD ""

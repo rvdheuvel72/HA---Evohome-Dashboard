@@ -100,6 +100,7 @@ class FrameDecoder {
     if (!active_) {
       sync_ = (sync_ << 8) | value;
       if (sync_ == 0x00335553u) {
+        ++syncCount_;
         active_ = true;
         size_ = 0;
         half_ = false;
@@ -132,6 +133,7 @@ class FrameDecoder {
 
   void reset() { active_ = false; half_ = false; size_ = 0; sync_ = 0; }
   bool receiving() const { return active_; }
+  uint32_t syncCount() const { return syncCount_; }
 
  private:
   static uint8_t nibble(uint8_t bits) {
@@ -148,6 +150,7 @@ class FrameDecoder {
   bool half_ = false;
   uint8_t pending_ = 0;
   uint32_t sync_ = 0;
+  uint32_t syncCount_ = 0;
   size_t size_ = 0;
   uint8_t raw_[80] = {};
 };

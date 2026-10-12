@@ -4,7 +4,7 @@ Standalone, receive-only Arduino IDE prototype for the 4 MB ESP32-WROOM-32E / No
 
 ## Download the standalone Arduino IDE ZIP
 
-[RAMSES Arduino Gateway v0.1.0 release](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.1.0) — download the **RAMSES-Arduino-Gateway-v0.1.0-ESP32-WROOM-32E.zip** asset (not the repository source-code ZIP). Unzip it, then open `RamsesGateway/RamsesGateway.ino` in Arduino IDE. This is a separately tagged **prerelease** for the radio gateway, not the Home Assistant integration.
+[RAMSES Arduino Gateway v0.2.0 release](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.2.0) — download the **RAMSES-Arduino-Gateway-v0.2.0-ESP32-WROOM-32E.zip** asset (not the repository source-code ZIP). Unzip it, then open `RamsesGateway/RamsesGateway.ino` in Arduino IDE. This is a separately tagged **prerelease** for the radio gateway, not the Home Assistant integration.
 
 ## Wiring (verify actual labels on CC1101 breakout)
 
@@ -29,7 +29,42 @@ Standalone, receive-only Arduino IDE prototype for the 4 MB ESP32-WROOM-32E / No
 4. Open RamsesGateway/RamsesGateway.ino. Select ESP32 Dev Module, 4MB flash, 240MHz, and COM5 (if unchanged).
 5. Copy GatewaySecrets.example.h to GatewaySecrets.h in the sketch folder. Fill in Wi-Fi credentials and, optionally, an MQTT broker. The secrets file is gitignored. Without it, the sketch compiles but networking is disabled.
 6. Click Verify, then Upload, and open Serial Monitor at 115200 baud.
-7. Confirm CC1101 detected = 1, Wi-Fi IP, API status, then monitor valid_frames with your Evohome nearby. Do not change Evohome settings for this test.
+7. Open **Tools > Serial Monitor** at 115200, press **EN** once while the monitor is already open, and watch for BOOT / CC1101 / HEARTBEAT messages. Verify radio_detected in the web interface, then monitor valid_frames with your Evohome nearby.
+
+## Browser-based diagnostics (new in v0.2.0)
+
+The ESP32 now hosts a self-contained web debug dashboard. **No JTAG, GDB or external server required**: use the Arduino **Upload** button rather than Start Debugging. The red LED on a NodeMCU board is normally a power indicator, not a failure indicator.
+
+- Visit **http://ESP32-IP/** (IP shown in Serial Monitor, your router's client list, or other LAN discovery).
+- View CC1101 SPI detection, chip PARTNUM/VERSION, UART byte count, synchronization count, valid/invalid packets, Wi-Fi/MQTT, uptime, free heap and last reset reason.
+- Diagnostic log refreshes every **2 seconds**, with severity selection and **Export log** (64 most recent entries).
+- API: **GET /api/v1/debug/logs?since=0&level=3** and **GET /api/v1/debug/download**.
+- A **heartbeat every 15 seconds** also appears in Serial Monitor after startup. A zero UART count means no bytes have reached the decoding task; it does not identify the root cause by itself.
+
+### Optional independent Wi-Fi recovery AP
+
+In `GatewaySecrets.h`, set a private WPA2 password with at least 8 characters:
+
+```cpp
+#define GW_RECOVERY_AP_PASSWORD "YOUR_UNIQUE_PRIVATE_PASSWORD"
+```
+
+After uploading, connect your laptop or phone to **RAMSES-Debug-XXXXXX** (unique suffix derived from the ESP32) and browse to **http://192.168.4.1/**. This access point operates alongside normal Wi-Fi and does not depend on an MQTT broker. Leave the password blank to disable it. **Do not use a publicly known default password.**
+
+### Web security
+
+The ESP32 web server is **HTTP only**, and should only be accessible from a trusted local network. Do not forward port 80 or expose it publicly. Optionally configure per-device HTTP Basic authentication in `GatewaySecrets.h`:
+
+```cpp
+#define GW_DEBUG_USER "admin"
+#define GW_DEBUG_PASSWORD "CHOOSE_A_DIFFERENT_STRONG_PASSWORD"
+```
+
+HTTP Basic authentication does **not encrypt** the connection; use a trusted LAN/AP. The firmware never includes the configured Wi-Fi, MQTT or authentication passwords in its diagnostic output. If either username or password is blank, authentication is disabled (not suitable for untrusted networks).
+
+### If the Serial Monitor is completely blank
+
+Check the COM port selected in Tools > Port, set **115200 baud**, keep Serial Monitor open, and press the **EN** button. If you see neither ROM boot messages nor the 15-second heartbeat, the ESP32 firmware's execution and serial connection remain **unverified**; check with a simple Arduino Serial print test before assuming a CC1101 problem.
 
 ## API
 

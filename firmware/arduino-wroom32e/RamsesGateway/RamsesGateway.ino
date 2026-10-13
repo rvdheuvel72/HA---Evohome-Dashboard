@@ -67,8 +67,8 @@
 #ifndef GW_OT_SOURCE_ID
 #define GW_OT_SOURCE_ID 0
 #endif
-#ifndef GW_OT_SCAN_ALL_128
-#define GW_OT_SCAN_ALL_128 0
+#ifndef GW_OT_SCAN_ALL_256
+#define GW_OT_SCAN_ALL_256 0
 #endif
 #ifndef GW_OT_AUTO_POLL
 #define GW_OT_AUTO_POLL 0

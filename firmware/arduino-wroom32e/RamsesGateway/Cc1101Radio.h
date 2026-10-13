@@ -43,7 +43,15 @@ class Cc1101Radio {
     if (!radio_frequency::evohomeTxFrequency(frequencyKhz_,moduleBand_)) return false;
     if (!strobe(0x36)) return false; // SIDLE
     if (!writeRegister(0x08, 0x32)) return false; // async serial (no packet FIFO)
-    return strobe(0x35); // STX
+    if (!strobe(0x35)) return false; // STX
+    // Wait for TX state before placing the 38.4k UART preamble on GDO0;
+    // otherwise the first symbols can be lost during PLL calibration.
+    const uint32_t started=millis();
+    while((status(0x35)&0x1fu)!=0x13u){
+      if(millis()-started>50){ strobe(0x36); enterReceive(); return false; }
+      delayMicroseconds(100);
+    }
+    return true;
   }
   bool endReadRequestTx() {
     if (!strobe(0x36)) return false; // SIDLE

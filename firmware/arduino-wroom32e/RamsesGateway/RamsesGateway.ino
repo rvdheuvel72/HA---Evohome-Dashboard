@@ -15,7 +15,6 @@
 #include <time.h>
 #include <sys/time.h>
 #include "Cc1101Radio.h"
-#include "OpenThermGateway.h"
 #include "RamsesCodec.h"
 #include "GatewayDebug.h"
 #include "GatewayWebPage.h"
@@ -74,6 +73,7 @@
 #ifndef GW_OT_AUTO_POLL
 #define GW_OT_AUTO_POLL 0
 #endif
+#include "OpenThermGateway.h"
 
 namespace {
 constexpr uint32_t WIFI_RETRY_MS = 15000;

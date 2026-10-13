@@ -18,7 +18,7 @@ inline bool makeRequest(uint32_t source18,uint32_t bridge10,uint8_t id,
                         uint8_t out[16],size_t& size){
   size=0;
   if (!out || !source18 || source18>=262143 || source18==730 ||
-      !bridge10 || bridge10>262143 || id>127) return false;
+      !bridge10 || bridge10>262143) return false;
   // Header 0x0C = verb RQ, addresses slots 0+1, no sequence parameters.
   out[0]=0x0c;
   putAddress(out+1,18,source18);

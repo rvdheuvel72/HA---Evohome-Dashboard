@@ -42,10 +42,10 @@
 #define GW_OT_ENABLE_RF_TX 0
 #define GW_OT_BRIDGE_ID 0
 #define GW_OT_SOURCE_ID 0
-// 0: curated read candidates; 1: request every OpenTherm ID 0..127.
+// 0: curated read candidates; 1: request every OpenTherm ID 0..255.
 // Some IDs are write-only/parameterized: a Read-Data reply of Unknown-DataId
 // does not prove the underlying boiler lacks the corresponding feature.
-#define GW_OT_SCAN_ALL_128 0
+#define GW_OT_SCAN_ALL_256 0
 // Disabled by default; after a completed scan, poll acknowledged, safe IDs
 // one at a time with a minimum 60s gap if enabled.
 #define GW_OT_AUTO_POLL 0

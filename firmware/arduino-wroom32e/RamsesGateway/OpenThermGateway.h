@@ -60,7 +60,7 @@ class OpenThermGateway {
                ot_readonly::Result& r,uint16_t& raw) {
     if(msg.opcode!=0x3220 || msg.messageType!=3 ||
        !(msg.addrMask&1) || rfType(msg.addresses[0])!=10 ||
-       rfId(msg.addresses[0])!=GW_OT_BRIDGE_ID ||
+       (GW_OT_BRIDGE_ID!=0 && rfId(msg.addresses[0])!=GW_OT_BRIDGE_ID) ||
        !ot_readonly::response(msg.payload,msg.length,id,r,raw))return false;
     // Only attribute scan results to our transaction when the reply
     // explicitly addresses the configured gateway RF identity.

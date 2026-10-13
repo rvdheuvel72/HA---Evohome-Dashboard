@@ -240,6 +240,7 @@ void radioTask(void*) {
       const bool decoded = decoder.feed(byteIn, message);
       rfSyncs = decoder.syncCount();
       if (decoded) {
+        otGateway.noteDevice(message);
         const uint8_t strength = radio.rssiMagnitude();
         PacketEvent packet = {};
         if (ramses::format(message, strength, packet.hgi, sizeof(packet.hgi))) {

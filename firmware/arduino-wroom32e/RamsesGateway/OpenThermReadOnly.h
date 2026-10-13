@@ -18,7 +18,7 @@ inline uint8_t parity(uint32_t v) {
 }
 // Wrapper: 00 + OpenTherm frame (P, message type, Data-ID, 16-bit value).
 inline bool request(uint16_t id, uint8_t out[5]) {
-  if (!out || id > 127) return false;
+  if (!out || id > 255) return false;
   // Zero data field. Message type is ALWAYS 000 (Read-Data).
   out[0]=0; out[1]=parity(static_cast<uint32_t>(id) << 16) ? 0x80 : 0;
   out[2]=static_cast<uint8_t>(id); out[3]=0; out[4]=0;
@@ -71,7 +71,7 @@ inline const char* label(uint8_t id) {
     default:return "unmapped";
   }
 }
-// All ID 0..127 can be inspected with zero-valued Read-Data requests,
+// All ID 0..255 can be inspected with zero-valued Read-Data requests,
 // but NOT all are read-eligible or meaningful with a zero data field.
 // Only values explicitly acknowledged by the observed bridge become poll candidates.
 // R8810A documented read candidates + extended diagnostics.

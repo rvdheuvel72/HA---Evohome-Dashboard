@@ -15,6 +15,7 @@
 #include <time.h>
 #include <sys/time.h>
 #include "Cc1101Radio.h"
+#include "OpenThermGateway.h"
 #include "RamsesCodec.h"
 #include "GatewayDebug.h"
 #include "GatewayWebPage.h"
@@ -48,6 +49,31 @@
 #ifndef GW_HOSTNAME
 #define GW_HOSTNAME "" // Legacy secrets: auto-generated unique hostname
 #endif
+// Frequency is chosen within the declared physical RF module band.
+// The default CC1101 module and Evohome both use 868.3 MHz.
+#ifndef GW_CC1101_FREQUENCY_KHZ
+#define GW_CC1101_FREQUENCY_KHZ 868300
+#endif
+#ifndef GW_CC1101_MODULE_BAND
+#define GW_CC1101_MODULE_BAND 868
+#endif
+// Experimental RF request transmission must be explicitly enabled,
+// with RF IDs manually obtained from valid RAMSES traffic.
+#ifndef GW_OT_ENABLE_RF_TX
+#define GW_OT_ENABLE_RF_TX 0
+#endif
+#ifndef GW_OT_BRIDGE_ID
+#define GW_OT_BRIDGE_ID 0
+#endif
+#ifndef GW_OT_SOURCE_ID
+#define GW_OT_SOURCE_ID 0
+#endif
+#ifndef GW_OT_SCAN_ALL_128
+#define GW_OT_SCAN_ALL_128 0
+#endif
+#ifndef GW_OT_AUTO_POLL
+#define GW_OT_AUTO_POLL 0
+#endif
 
 namespace {
 constexpr uint32_t WIFI_RETRY_MS = 15000;
@@ -56,7 +82,7 @@ constexpr uint8_t RING_SIZE = 12;
 constexpr uint32_t RX_IDLE_TIMEOUT_MS = 250;
 constexpr uint32_t HEARTBEAT_MS = 15000;
 constexpr uint8_t DEBUG_QUEUE_SIZE = 16;
-constexpr char FW_VERSION[] = "0.3.1";
+constexpr char FW_VERSION[] = "0.4.0-readonly-preview";
 constexpr uint32_t MDNS_RETRY_MS = 15000;
 constexpr uint32_t MQTT_STATE_INTERVAL_MS = 15000;
 
@@ -64,6 +90,10 @@ struct PacketEvent {
   char hgi[256];
   uint32_t uptimeMs;
   uint8_t rssi;
+  bool otValid=false;
+  uint8_t otId=0;
+  uint8_t otResult=0;
+  uint16_t otRaw=0;
 };
 struct DebugEvent {
   char line[GatewayDebug::LINE_BYTES] = {};
@@ -76,6 +106,7 @@ WiFiClient wifiClient;
 PubSubClient mqtt(wifiClient);
 HardwareSerial rfUart(1);
 Cc1101Radio radio;
+OpenThermGateway otGateway;
 QueueHandle_t rxQueue = nullptr;
 QueueHandle_t debugQueue = nullptr;
 GatewayDebug diagnosticLog;
@@ -182,9 +213,11 @@ void radioTask(void*) {
   ramses::FrameDecoder decoder;
   ramses::Message message;
   rfUart.setRxBufferSize(4096);
-  // CC1101 GDO2 is RX serial data. No UART TX pin assigned.
-  rfUart.begin(38400, SERIAL_8N1, Cc1101Radio::GDO2, -1);
-  radioReady = radio.begin();
+  // GDO2 receives async radio data; GDO0 is UART TX into CC1101 during STX.
+  // No RF TX is attempted unless explicit, constrained diagnostic gates pass.
+  rfUart.begin(38400, SERIAL_8N1, Cc1101Radio::GDO2, Cc1101Radio::GDO0);
+  radioReady = radio.begin(GW_CC1101_FREQUENCY_KHZ,GW_CC1101_MODULE_BAND);
+  if(radioReady)otGateway.begin();
   char radioInfo[130];
   snprintf(radioInfo, sizeof(radioInfo), "CC1101 detected=%u PARTNUM=0x%02X VERSION=0x%02X",
            radioReady ? 1 : 0, radio.part(), radio.version());
@@ -212,6 +245,15 @@ void radioTask(void*) {
         if (ramses::format(message, strength, packet.hgi, sizeof(packet.hgi))) {
           packet.uptimeMs = millis();
           packet.rssi = strength;
+          ot_readonly::Result otResult=ot_readonly::NOT_TESTED;
+          uint8_t otId=0;
+          uint16_t otRaw=0;
+          if(otGateway.observe(message,otId,otResult,otRaw)){
+            packet.otValid=true;
+            packet.otId=otId;
+            packet.otResult=otResult;
+            packet.otRaw=otRaw;
+          }
           ++validFrames;
           lastFrameMs = packet.uptimeMs;
           lastRssi = strength;
@@ -239,8 +281,33 @@ void radioTask(void*) {
       }
       lastCalibrationMs = now;
     }
+    otGateway.tick(radio,rfUart,decoder);
     vTaskDelay(pdMS_TO_TICKS(1));
   }
+}
+
+void httpOtProfile(){
+  if(!authorized())return;
+  otGateway.sendProfile(web);
+}
+void httpOtScan(){
+  if(!authorized())return;
+  // Never expose RF transmission on a gateway with anonymous HTTP
+  // or the documented example/default placeholder password.
+  if(!GW_DEBUG_USER[0] || !GW_DEBUG_PASSWORD[0] ||
+     strcmp(GW_DEBUG_PASSWORD,"CHANGE_TO_A_STRONG_PRIVATE_PASSWORD")==0){
+    web.send(403,"application/json","{\"error\":\"strong_web_auth_required\"}");
+    return;
+  }
+  if(!radioReady || !otGateway.transmitEnabled()){
+    web.send(409,"application/json","{\"error\":\"rf_tx_disabled_or_not_configured\"}");
+    return;
+  }
+  if(!otGateway.requestScan()){
+    web.send(409,"application/json","{\"error\":\"scan_already_active\"}");
+    return;
+  }
+  web.send(202,"application/json","{\"status\":\"queued\",\"mode\":\"read_only\"}");
 }
 
 void httpStatus() {
@@ -250,9 +317,9 @@ void httpStatus() {
   const String apIp = recoveryApReady ? WiFi.softAPIP().toString() : "";
   snprintf(json, sizeof(json),
            "{\"version\":\"%s\",\"board\":\"ESP32-WROOM-32E\",\"mode\":\"receive_only\","
-           "\"radio_detected\":%s,\"radio_verified\":false,\"cc1101_part\":%u,\"cc1101_version\":%u,"
+           "\"radio_detected\":%s,\"radio_verified\":%s,\"cc1101_part\":%u,\"cc1101_version\":%u,"
            "\"wifi_connected\":%s,\"mqtt_connected\":%s,\"time_synced\":%s,"
-           "\"hostname\":\"%s\",\"mdns_active\":%s,"
+           "\"hostname\":\"%s\",\"mdns_active\":%s,\"cc1101_frequency_khz\":%lu,\"cc1101_module_band\":%u,\"ot_tx_enabled\":%s,"
            "\"valid_frames\":%lu,\"rejected_frames\":%lu,\"dropped_frames\":%lu,"
            "\"rf_uart_bytes\":%lu,\"rf_syncs\":%lu,\"radio_recalibrations\":%lu,"
            "\"radio_recalibration_failures\":%lu,"
@@ -260,11 +327,15 @@ void httpStatus() {
            "\"uptime_ms\":%lu,\"free_heap\":%lu,\"gateway_id\":\"%s\","
            "\"ip\":\"%s\",\"ap_ip\":\"%s\",\"ap_ssid\":\"%s\",\"reset_reason\":\"%s\"}",
            FW_VERSION,
-           radioReady ? "true" : "false", radio.part(), radio.version(),
+           radioReady ? "true" : "false",
+           validFrames ? "true" : "false", radio.part(), radio.version(),
            WiFi.status() == WL_CONNECTED ? "true" : "false",
            mqtt.connected() ? "true" : "false",
            timeSynchronized() ? "true" : "false",
            gatewayHostname, mdnsReady ? "true" : "false",
+           static_cast<unsigned long>(radio.frequencyKhz()),
+           static_cast<unsigned>(radio.moduleBand()),
+           otGateway.transmitEnabled() ? "true" : "false",
            static_cast<unsigned long>(validFrames),
            static_cast<unsigned long>(rejectedFrames),
            static_cast<unsigned long>(droppedFrames),
@@ -480,6 +551,27 @@ void handlePacket(const PacketEvent& event) {
   recentNext = (recentNext + 1) % RING_SIZE;
   if (recentCount < RING_SIZE) ++recentCount;
   Serial.printf("# RX %s\n", event.hgi);
+  if(event.otValid && mqtt.connected() && timeSynchronized()){
+    char telemetry[240];
+    float v=0;
+    const bool isFixed=event.otResult==ot_readonly::READ_ACK &&
+      ot_readonly::fixedPoint(event.otId,event.otRaw,v);
+    if(isFixed)
+      snprintf(telemetry,sizeof(telemetry),
+        "{\"id\":%u,\"name\":\"%s\",\"status\":\"%s\",\"raw\":%u,\"value\":%.3f}",
+        event.otId,ot_readonly::label(event.otId),
+        ot_readonly::state(static_cast<ot_readonly::Result>(event.otResult)),
+        event.otRaw,static_cast<double>(v));
+    else
+      snprintf(telemetry,sizeof(telemetry),
+        "{\"id\":%u,\"name\":\"%s\",\"status\":\"%s\",\"raw\":%u,\"value\":null}",
+        event.otId,ot_readonly::label(event.otId),
+        ot_readonly::state(static_cast<ot_readonly::Result>(event.otResult)),
+        event.otRaw);
+    char topic[108];
+    snprintf(topic,sizeof(topic),"%s/opentherm/event",baseTopic);
+    mqtt.publish(topic,telemetry,false);
+  }
   diagnosticLog.add(millis(), GatewayDebug::TRACE, event.hgi);
 
   // ramses_esp-compatible MQTT JSON. Refuse publishing stale/invalid timestamps.
@@ -497,8 +589,8 @@ void handlePacket(const PacketEvent& event) {
 void setup() {
   Serial.begin(115200);
   delay(250);
-  Serial.println("\n# RAMSES II Arduino prototype 0.3.1 (RX ONLY / HOSTNAME + mDNS)");
-  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.3.1");
+  Serial.println("\n# RAMSES II Arduino prototype 0.4.0 (read-only OpenTherm discovery)");
+  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-preview");
   char bootInfo[96];
   snprintf(bootInfo, sizeof(bootInfo), "Reset reason: %s", resetReason());
   recordLog(GatewayDebug::INFO, bootInfo);
@@ -548,6 +640,8 @@ void setup() {
   web.on("/", HTTP_GET, httpIndex);
   web.on("/api/v1/status", HTTP_GET, httpStatus);
   web.on("/api/v1/packets", HTTP_GET, httpPackets);
+  web.on("/api/v1/opentherm/profile", HTTP_GET, httpOtProfile);
+  web.on("/api/v1/opentherm/scan", HTTP_POST, httpOtScan);
   web.on("/api/v1/debug/logs", HTTP_GET, httpDebugLogs);
   web.on("/api/v1/debug/download", HTTP_GET, httpDebugDownload);
   web.onNotFound([]() {

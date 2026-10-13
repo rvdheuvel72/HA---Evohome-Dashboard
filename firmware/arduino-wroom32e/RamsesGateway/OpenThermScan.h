@@ -8,23 +8,23 @@
 namespace ot_scan {
 static constexpr uint32_t PROBE_SPACING_MS=5000;
 static constexpr uint32_t REPLY_TIMEOUT_MS=1800;
-static constexpr uint8_t NONE=255;
+static constexpr uint16_t NONE=256;
 struct Scanner {
-  ot_readonly::Entry entries[128] = {};
+  ot_readonly::Entry entries[256] = {};
   bool active=false;
   bool completed=false;
   bool full=false;
-  uint8_t pending=NONE;
-  uint8_t next=0;
-  uint8_t attempted=0;
-  uint8_t acknowledged=0;
+  uint16_t pending=NONE;
+  uint16_t next=0;
+  uint16_t attempted=0;
+  uint16_t acknowledged=0;
   uint32_t deadline=0;
   uint32_t due=0;
   uint32_t completedAtMs=0;
   uint32_t bridgeId=0;
 
   void reset(uint32_t bridge,bool all,uint32_t now) {
-    for (size_t i=0;i<128;i++) entries[i]=ot_readonly::Entry{};
+    for (size_t i=0;i<256;i++) entries[i]=ot_readonly::Entry{};
     bridgeId=bridge;active=true;completed=false;full=all;
     pending=NONE;next=0;attempted=0;acknowledged=0;
     deadline=0;due=now;completedAtMs=0;
@@ -43,9 +43,9 @@ struct Scanner {
       due=now+PROBE_SPACING_MS;
     }
     if(static_cast<int32_t>(now-due)<0)return -1;
-    const size_t count=full?128:ot_readonly::DEFAULT_COUNT;
+    const size_t count=full?256:ot_readonly::DEFAULT_COUNT;
     if(next>=count){finish(now);return -1;}
-    const uint8_t id=full?next:ot_readonly::DEFAULT_IDS[next];
+    const uint8_t id=full?static_cast<uint8_t>(next):ot_readonly::DEFAULT_IDS[next];
     next++;
     pending=id;attempted++;
     deadline=now+REPLY_TIMEOUT_MS;

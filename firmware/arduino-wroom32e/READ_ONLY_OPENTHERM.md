@@ -35,8 +35,8 @@ are confirmed, set it to 1, together with:
 - GW_OT_SOURCE_ID: decimal digits from a legitimately unused 18:xxxxxx
   gateway RF address in range 1..262142 (except reserved 730).
   This is NOT the MQTT device ID.
-- GW_OT_SCAN_ALL_128: 0 probes the 28 curated Read-Data IDs; 1 scans
-  all numbers 0..127 (including IDs that are not meaningful as Read-Data).
+- GW_OT_SCAN_ALL_256: 0 probes the 28 curated Read-Data IDs; 1 scans
+  all numbers 0..255 (including IDs that are not meaningful as Read-Data).
 - GW_OT_AUTO_POLL: 0 by default, or 1 for optional compatibility-derived
   polling only after the profile has been populated.
 

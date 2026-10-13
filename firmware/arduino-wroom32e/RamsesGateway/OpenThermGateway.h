@@ -172,7 +172,19 @@ class OpenThermGateway {
           ot_readonly::state(e.result),e.raw,enabled?"true":"false");
       server.sendContent(line);
     }
-    server.sendContent("]}");
+    // Machine-readable configuration derived exclusively from observed
+    // Read-Ack replies. This is a recommendation, not blanket authorization
+    // to transmit: periodic polling is separately opt-in.
+    server.sendContent("],\"recommended_poll_ids\":[");
+    bool firstEligible=true;
+    for(unsigned i=0;i<256;i++) {
+      if(!copy.autoPoll(static_cast<uint8_t>(i)))continue;
+      if(!firstEligible)server.sendContent(",");
+      firstEligible=false;
+      server.sendContent(String(i));
+    }
+    server.sendContent("],\"auto_poll_enabled\":");
+    server.sendContent(GW_OT_AUTO_POLL==1?"true}":"false}");
     server.sendContent("");
   }
  private:

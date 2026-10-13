@@ -17,7 +17,7 @@ pre{font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:420px;
 .ok{color:#7be2a2}.bad{color:#ff9f9b}
 a{color:#a9d5ff}
 </style></head><body>
-<header><div><h1>RAMSES II Gateway</h1><small>ESP32-WROOM-32E · CC1101 · read-only diagnostics</small></div><span id="connection" class="muted">Connecting...</span></header>
+<header><div><h1>RAMSES II Gateway</h1><small>ESP32-WROOM-32E · CC1101 · read-only OpenTherm diagnostics</small></div><span id="connection" class="muted">Connecting...</span></header>
 <section class="grid">
 <div class="card">Radio / SPI<b id="radio">—</b><small id="chip"></small></div>
 <div class="card">RAMSES packets<b id="frames">—</b><small id="errors"></small></div>
@@ -26,13 +26,47 @@ a{color:#a9d5ff}
 <div class="card">Free memory<b id="heap">—</b><small id="uptime"></small></div>
 <div class="card">Receiver status<b id="health">—</b><small id="reset"></small></div>
 </section>
+<section class="panel"><h2>OpenTherm compatibility</h2>
+<p class="muted">A scan transmits ONLY 3220 Read-Data requests; no OpenTherm writes or Evohome overrides. Transmission is disabled by default and requires explicit firmware configuration and authenticated access. Do not initiate before validating RF wiring and identifying your own R8810A.</p>
+<div class="controls"><button id="ot-scan">Start read-only test</button>
+<a href="/api/v1/opentherm/profile" target="_blank">Export compatibility JSON</a>
+<span id="ot-state" class="muted">Loading...</span></div>
+<pre id="ot-results">No compatibility scan requested.</pre>
+</section>
 <section class="panel"><h2>Diagnostic log</h2>
 <div class="controls"><label>Severity <select id="level"><option value="2" selected>Info, warnings &amp; errors</option><option value="3">Include trace</option><option value="1">Warnings &amp; errors</option><option value="0">Errors only</option></select></label><button id="clear">Clear view</button><a href="/api/v1/debug/download" target="_blank">Export log</a><a href="/api/v1/status" target="_blank">JSON status</a></div>
 <pre id="logs" aria-live="polite">Waiting for gateway events...</pre>
 </section>
-<p class="muted">This page polls every 2 seconds. It does not control or transmit to Evohome. Keep the gateway on a trusted local network; do not expose HTTP port 80 to the Internet.</p>
+<p class="muted">This page polls every 2 seconds. RF read requests are transmitted ONLY after manual enabling of the explicitly guarded diagnostic mode; no setpoint or heating-control writes are available. Keep the gateway on a trusted local network; do not expose HTTP port 80 to the Internet.</p>
 <script>
 const el=id=>document.getElementById(id);
+async function otStatus(){
+ try{
+  const response=await fetch('/api/v1/opentherm/profile',{cache:'no-store'});
+  if(!response.ok)throw new Error('HTTP '+response.status);
+  const p=await response.json();
+  el('ot-scan').disabled=!p.rf_tx_enabled||p.scan_active||p.scan_pending;
+  set('ot-state',(p.scan_active?'Running':p.scan_completed?'Completed':'Not tested')+
+    ' · '+p.attempted+' attempts · '+p.read_ack+' Read-Ack · '+p.frequency_khz+' kHz'+
+    (p.rf_tx_enabled?'':' · RF TX disabled'));
+  const lines=(p.results||[]).map(x=>'ID '+String(x.id).padStart(3,' ')+
+    ' '+x.name.padEnd(25)+' '+x.result+
+    (x.value===null?'':' · '+x.value)+
+    (x.auto_poll?' · eligible for polling':''));
+  set('ot-results',lines.length?lines.join('\n'):'No OpenTherm replies recorded.');
+ }catch(e){set('ot-state','Profile unavailable: '+e.message)}
+}
+el('ot-scan').addEventListener('click',async()=>{
+ el('ot-scan').disabled=true;
+ try{
+  const r=await fetch('/api/v1/opentherm/scan',{method:'POST'});
+  const body=await r.json();
+  if(!r.ok)throw new Error(body.error||'HTTP '+r.status);
+  set('ot-state','Read-only scan queued');
+ }catch(e){set('ot-state','Cannot start: '+e.message)}
+ finally{otStatus()}
+});
+
 let cursor=0,lines=[],working=false;
 const number=n=>Number(n||0).toLocaleString('en-US');
 function set(id,value){el(id).textContent=value}
@@ -68,4 +102,5 @@ finally{working=false}
 el('clear').addEventListener('click',()=>{lines=[];set('logs','');cursor=0;poll()});
 el('level').addEventListener('change',()=>{lines=[];set('logs','');cursor=0;poll()});
 poll();setInterval(poll,2000);
+otStatus();setInterval(otStatus,5000);
 </script></body></html>)GWHTML";

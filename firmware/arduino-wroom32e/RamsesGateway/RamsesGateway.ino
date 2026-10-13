@@ -316,7 +316,7 @@ void httpStatus() {
   const String ip = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "";
   const String apIp = recoveryApReady ? WiFi.softAPIP().toString() : "";
   snprintf(json, sizeof(json),
-           "{\"version\":\"%s\",\"board\":\"ESP32-WROOM-32E\",\"mode\":\"receive_only\","
+           "{\"version\":\"%s\",\"board\":\"ESP32-WROOM-32E\",\"mode\":\"%s\","
            "\"radio_detected\":%s,\"radio_verified\":%s,\"cc1101_part\":%u,\"cc1101_version\":%u,"
            "\"wifi_connected\":%s,\"mqtt_connected\":%s,\"time_synced\":%s,"
            "\"hostname\":\"%s\",\"mdns_active\":%s,\"cc1101_frequency_khz\":%lu,\"cc1101_module_band\":%u,\"ot_tx_enabled\":%s,"
@@ -327,6 +327,7 @@ void httpStatus() {
            "\"uptime_ms\":%lu,\"free_heap\":%lu,\"gateway_id\":\"%s\","
            "\"ip\":\"%s\",\"ap_ip\":\"%s\",\"ap_ssid\":\"%s\",\"reset_reason\":\"%s\"}",
            FW_VERSION,
+           otGateway.transmitEnabled() ? "read_only_requests" : "receive_only",
            radioReady ? "true" : "false",
            validFrames ? "true" : "false", radio.part(), radio.version(),
            WiFi.status() == WL_CONNECTED ? "true" : "false",

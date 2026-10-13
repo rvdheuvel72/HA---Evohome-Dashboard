@@ -91,6 +91,16 @@ int main(){
   assert(scan.nextRequest(13800)==5);
   scan.accept(5,ot_readonly::UNKNOWN_ID,0,13850);
   assert(scan.entries[5].result==ot_readonly::UNKNOWN_ID);
+  ot_scan::Scanner fullScan;
+  uint32_t clockMs=100;
+  fullScan.reset(123456,true,clockMs);
+  for (unsigned index=0;index<256;index++) {
+    assert(fullScan.nextRequest(clockMs)==static_cast<int>(index));
+    assert(fullScan.accept(static_cast<uint8_t>(index),ot_readonly::UNKNOWN_ID,0,clockMs+1));
+    clockMs+=ot_scan::PROBE_SPACING_MS+2;
+  }
+  assert(fullScan.nextRequest(clockMs)==-1);
+  assert(fullScan.completed && fullScan.attempted==256);
   printf("OpenTherm read-only encoding, parity, state machine, frequency and RAMSES roundtrip PASS\n");
   return 0;
 }

@@ -24,3 +24,28 @@
 // RAMSES-Debug-XXXXXX Wi-Fi network and open http://192.168.4.1/.
 // Leave empty to disable access-point mode.
 #define GW_RECOVERY_AP_PASSWORD ""
+
+
+// CC1101 tuning; these fields describe the PHYSICAL RF module and antenna.
+ // The silicon supports multiple sub-GHz bands, but most modules are built
+ // for ONE specific band. Do NOT set another band merely because the chip can.
+ // Frequency in kHz. Evohome RAMSES II defaults to 868300 kHz.
+#define GW_CC1101_MODULE_BAND 868
+#define GW_CC1101_FREQUENCY_KHZ 868300
+
+// Experimental read-only R8810A compatibility probing. Disabled by default.
+// Enable ONLY after real RAMSES reception and identifying your bridge RF ID.
+// RF transmission = sending RQ/3220 Read-Data packets, NEVER boiler writes.
+// Exact bridge is 10:XXXXXX, e.g. 10:123456 -> enter integer 123456.
+// Choose a legitimate unused 18:XXXXXX virtual RF gateway address (1..262142;
+// 730 is reserved). This is NOT the MQTT device ID.
+#define GW_OT_ENABLE_RF_TX 0
+#define GW_OT_BRIDGE_ID 0
+#define GW_OT_SOURCE_ID 0
+// 0: curated read candidates; 1: request every OpenTherm ID 0..127.
+// Some IDs are write-only/parameterized: a Read-Data reply of Unknown-DataId
+// does not prove the underlying boiler lacks the corresponding feature.
+#define GW_OT_SCAN_ALL_128 0
+// Disabled by default; after a completed scan, poll acknowledged, safe IDs
+// one at a time with a minimum 60s gap if enabled.
+#define GW_OT_AUTO_POLL 0

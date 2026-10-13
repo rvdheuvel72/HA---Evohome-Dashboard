@@ -14,13 +14,22 @@
 
 class OpenThermGateway {
  public:
-  bool transmitEnabled() const {
+  bool transmitConfigured() const {
     return GW_OT_ENABLE_RF_TX == 1 &&
         GW_OT_BRIDGE_ID > 0 && GW_OT_BRIDGE_ID <= 262143 &&
         GW_OT_SOURCE_ID > 0 && GW_OT_SOURCE_ID < 262143 &&
         GW_OT_SOURCE_ID != 730 &&
         radio_frequency::evohomeTxFrequency(GW_CC1101_FREQUENCY_KHZ,
                                               GW_CC1101_MODULE_BAND);
+  }
+  bool transmitEnabled() const { return transmitConfigured() && bridgeSeen_; }
+  // Only RX-verified packets can establish the bridge identity. A configured
+  // RF address alone is not permission to transmit into a heating system.
+  void noteDevice(const ramses::Message& msg) {
+    if(GW_OT_BRIDGE_ID && (msg.addrMask&1) &&
+       rfType(msg.addresses[0])==10 &&
+       rfId(msg.addresses[0])==GW_OT_BRIDGE_ID)
+      bridgeSeen_=true;
   }
   void begin() {
     Preferences p;
@@ -176,6 +185,7 @@ class OpenThermGateway {
   portMUX_TYPE mutex_=portMUX_INITIALIZER_UNLOCKED;
   ot_scan::Scanner work_,published_;
   bool requested_=false;
+  volatile bool bridgeSeen_=false;
   bool wasCompleted_=false;
   uint32_t nextPolling_=0;
   uint32_t txFailures_=0;

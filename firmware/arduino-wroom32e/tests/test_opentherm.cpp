@@ -34,7 +34,9 @@ int main(){
   assert(memcmp(req,known,sizeof(req))==0);
   assert(ot_readonly::request(17,req));
   assert(req[1]==0 && req[2]==17);
-  assert(!ot_readonly::request(128,req));
+  assert(ot_readonly::request(128,req));
+  assert(ot_readonly::request(255,req));
+  assert(!ot_readonly::request(256,req));
   uint8_t rawMsg[16]={};
   size_t rawLength=0;
   assert(ramses_read::makeRequest(100001,123456,25,rawMsg,rawLength));

@@ -107,7 +107,13 @@ class OpenThermGateway {
       }
     }
   }
-  // Stream JSON instead of buffering up to 128 results in ESP32 heap.
+  bool copyProfile(ot_scan::Scanner& copy) {
+    portENTER_CRITICAL(&mutex_);
+    copy=published_;
+    portEXIT_CRITICAL(&mutex_);
+    return copy.completed;
+  }
+  // Stream JSON instead of buffering all tested IDs in ESP32 heap.
   void sendProfile(WebServer& server) {
     ot_scan::Scanner copy;
     portENTER_CRITICAL(&mutex_);

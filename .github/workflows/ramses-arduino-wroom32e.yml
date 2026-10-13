@@ -63,6 +63,11 @@ jobs:
           g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer \
             firmware/arduino-wroom32e/tests/test_hostname.cpp -o /tmp/test-ramses-hostname
           /tmp/test-ramses-hostname
+      - name: Test read-only OpenTherm and CC1101 frequency controls
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer \
+            firmware/arduino-wroom32e/tests/test_opentherm.cpp -o /tmp/test-ramses-opentherm
+          /tmp/test-ramses-opentherm
       - name: Compile for ESP32-WROOM-32E
         run: |
           arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all firmware/arduino-wroom32e/RamsesGateway --output-dir "$RUNNER_TEMP/arduino-build"

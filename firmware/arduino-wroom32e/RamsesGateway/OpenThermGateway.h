@@ -33,7 +33,7 @@ class OpenThermGateway {
           stored.frequency==GW_CC1101_FREQUENCY_KHZ) {
         work_.bridgeId=stored.bridgeId;
         work_.completed=true;
-        for (unsigned i=0;i<128;i++) {
+        for (unsigned i=0;i<256;i++) {
           const uint8_t state=stored.states[i];
           if(state>=ot_readonly::READ_ACK && state<=ot_readonly::TIMEOUT) {
             work_.entries[i].result=static_cast<ot_readonly::Result>(state);
@@ -78,7 +78,7 @@ class OpenThermGateway {
     portEXIT_CRITICAL(&mutex_);
     const uint32_t now=millis();
     if(start) {
-      work_.reset(GW_OT_BRIDGE_ID,GW_OT_SCAN_ALL_128==1,now);
+      work_.reset(GW_OT_BRIDGE_ID,GW_OT_SCAN_ALL_256==1,now);
       wasCompleted_=false;
       publishSnapshot();
     }
@@ -98,7 +98,7 @@ class OpenThermGateway {
     if(GW_OT_AUTO_POLL==1 && !work_.active && work_.completed &&
        static_cast<int32_t>(now-nextPolling_)>=0 && transmitEnabled()) {
       nextPolling_=now+60000; // at most one request per minute
-      for(unsigned attempts=0;attempts<128;attempts++){
+      for(unsigned attempts=0;attempts<256;attempts++){
         const uint8_t id=pollCursor_++;
         if(work_.autoPoll(id)){
           if(!transmit(radio,port,decoder,id))txFailures_++;
@@ -132,7 +132,7 @@ class OpenThermGateway {
       static_cast<unsigned long>(txFailures_));
     server.sendContent(header);
     bool first=true;
-    for (unsigned i=0;i<128;i++) {
+    for (unsigned i=0;i<256;i++) {
       if(copy.entries[i].result==ot_readonly::NOT_TESTED)continue;
       if(!first)server.sendContent(",");
       first=false;
@@ -163,8 +163,8 @@ class OpenThermGateway {
  private:
   struct Persist {
     uint32_t magic,bridgeId,frequency;
-    uint8_t states[128];
-    uint16_t raw[128];
+    uint8_t states[256];
+    uint16_t raw[256];
   };
   static constexpr uint32_t PROFILE_MAGIC=0x4f543034;
   portMUX_TYPE mutex_=portMUX_INITIALIZER_UNLOCKED;
@@ -189,7 +189,7 @@ class OpenThermGateway {
     data.magic=PROFILE_MAGIC;
     data.bridgeId=GW_OT_BRIDGE_ID;
     data.frequency=GW_CC1101_FREQUENCY_KHZ;
-    for(unsigned i=0;i<128;i++){
+    for(unsigned i=0;i<256;i++){
       data.states[i]=work_.entries[i].result;
       data.raw[i]=work_.entries[i].raw;
     }

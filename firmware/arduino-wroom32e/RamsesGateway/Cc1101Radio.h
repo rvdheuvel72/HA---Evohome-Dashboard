@@ -3,13 +3,18 @@
 #pragma once
 #include <Arduino.h>
 #include <SPI.h>
+#include "RadioFrequency.h"
 
 class Cc1101Radio {
  public:
   static constexpr uint8_t SCK = 18, MISO = 19, MOSI = 23, CS = 5;
   static constexpr uint8_t GDO0 = 26, GDO2 = 27;
 
-  bool begin() {
+  bool begin(uint32_t frequencyKhz=868300, uint16_t moduleBand=868) {
+    uint32_t synthesizer=0;
+    if (!radio_frequency::synth(frequencyKhz,moduleBand,synthesizer)) return false;
+    frequencyKhz_=frequencyKhz;
+    moduleBand_=moduleBand;
     pinMode(CS, OUTPUT);
     digitalWrite(CS, HIGH);
     pinMode(MISO, INPUT);
@@ -18,12 +23,32 @@ class Cc1101Radio {
     part_ = status(0x30);  // PARTNUM
     version_ = status(0x31); // VERSION
     if (part_ != 0x00 || version_ == 0x00 || version_ == 0xFF) return false;
-    for (uint8_t i = 0; i < sizeof(settings_); ++i) writeRegister(i, settings_[i]);
+    for (uint8_t i = 0; i < sizeof(settings_); ++i)
+      if (!writeRegister(i, settings_[i])) return false;
+    if (!writeRegister(0x0D, static_cast<uint8_t>(synthesizer >> 16)) ||
+        !writeRegister(0x0E, static_cast<uint8_t>(synthesizer >> 8)) ||
+        !writeRegister(0x0F, static_cast<uint8_t>(synthesizer))) return false;
     return enterReceive();
   }
 
   uint8_t part() const { return part_; }
   uint8_t version() const { return version_; }
+  uint32_t frequencyKhz() const { return frequencyKhz_; }
+  uint16_t moduleBand() const { return moduleBand_; }
+
+  // Caller MUST be the exclusive owner of radio and UART (radioTask).
+  // The GDO0 pin becomes a serial DATA INPUT to CC1101 during async TX.
+  // The transmit output is NOT independently hardware validated.
+  bool beginReadRequestTx() {
+    if (!radio_frequency::evohomeTxFrequency(frequencyKhz_,moduleBand_)) return false;
+    if (!strobe(0x36)) return false; // SIDLE
+    if (!writeRegister(0x08, 0x32)) return false; // async serial (no packet FIFO)
+    return strobe(0x35); // STX
+  }
+  bool endReadRequestTx() {
+    if (!strobe(0x36)) return false; // SIDLE
+    return enterReceive();
+  }
 
   bool enterReceive() {
     if (!strobe(0x36)) return false; // SIDLE
@@ -54,6 +79,8 @@ class Cc1101Radio {
       0x00,0x59,0x7F,0x3F,0x81,0x35,0x09
   };
   uint8_t part_ = 0xFF, version_ = 0xFF;
+  uint32_t frequencyKhz_ = 868300;
+  uint16_t moduleBand_ = 868;
 
   bool select() {
     SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE0));

@@ -13,6 +13,9 @@ on:
 
 permissions:
   contents: write
+  pull-requests: read
+  checks: read
+  issues: read
 
 concurrency:
   group: publish-ramses-arduino-v0.2.0
@@ -98,6 +101,12 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "::notice::Release $TAG already exists. Skipping publication; nothing overwritten."
           else
+            # Mandatory exact-source review check; never publish on CI alone.
+            python3 scripts/check_release_readiness.py
+            if gh api "repos/${GH_REPO}/git/ref/tags/${TAG}" >/dev/null 2>&1; then
+              echo "::error::Release tag ${TAG} already exists. Bump version instead of reusing a stale tag."
+              exit 1
+            fi
             gh release create "$TAG" \
               dist/RAMSES-Arduino-Gateway-v0.2.0-ESP32-WROOM-32E.zip \
               dist/RAMSES-Arduino-Gateway-v0.2.0-ESP32-WROOM-32E.zip.sha256 \

@@ -24,6 +24,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # For a release event GITHUB_REF is the release TAG. That tag may
+          # predate this administrative script, so use trusted main code.
+          ref: ${{ github.event.repository.default_branch }}
 
       - name: Test local timestamps and daylight saving behavior
         run: python3 -m unittest discover -s tests -p test_release_local_time.py -v

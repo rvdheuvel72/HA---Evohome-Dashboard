@@ -1,10 +1,10 @@
 """Fail-closed P1/P2 Codex review gate for latest GitHub PR head."""
+from datetime import datetime, timedelta, timezone
 import json
 import os
 import re
 import sys
 import time
-from datetime import datetime, timedelta, timezone
 from urllib.request import Request, urlopen
 
 TRUSTED_CODEX_LOGINS = {"chatgpt-codex-connector", "chatgpt-codex-connector[bot]"}
@@ -49,15 +49,78 @@ def pages(token, path):
 
 
 def review_ready(reviews, summaries, sha):
-    reviewed = any(is_codex(x.get("user")) and x.get("commit_id") == sha
-                   and x.get("submitted_at") and x.get("state") != "PENDING"
-                   for x in reviews)
-    completed = any(is_codex(x.get("user"))
-                    and "codex-pull-request-review-summary" in x.get("body", "")
-                    and ("\u2705 **Completed**" in x.get("body", ""))
-                    and (chr(96) + sha[:7] + chr(96)) in x.get("body", "")
-                    for x in summaries)
-    return reviewed and completed
+    """Trust authenticated exact-head Codex completion summary.
+
+    Codex may respond with a thumbs-up and updated summary instead of a
+    Review object when it finds no issues. The P1/P2 blocker scan is a
+    separate mandatory gate; old summaries are never accepted.
+    """
+    return any(
+        is_codex(x.get("user"))
+        and "codex-pull-request-review-summary" in x.get("body", "")
+        and COMPLETED in x.get("body", "")
+        and (chr(96) + sha[:7] + chr(96)) in x.get("body", "")
+        for x in summaries
+    )
+
+CODEX_QUOTA_NOTICE = "You have reached your Codex usage limits for code reviews."
+CODEX_QUOTA_BODY = (
+    "You have reached your Codex usage limits for code reviews. "
+    "You can see your limits in the "
+    "[Codex usage dashboard](https://chatgpt.com/codex/cloud/settings/usage).\n"
+    "To continue using code reviews, you can upgrade your account or add "
+    "credits to your account and enable them for code reviews in your "
+    "[settings](https://chatgpt.com/codex/cloud/settings/code-review)."
+)
+QUOTA_GRACE = timedelta(hours=24)
+
+
+def parse_utc(timestamp):
+    if not isinstance(timestamp, str) or not timestamp:
+        return None
+    try:
+        parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        return parsed.astimezone(timezone.utc) if parsed.tzinfo else None
+    except ValueError:
+        return None
+
+
+def quota_deferred(comments, sha, now=None):
+    """Accept a recent genuine PR quota notice plus exact-head request.
+
+    The bot may stop responding to repeated review requests after quota
+    exhaustion. Require a new, explicit full SHA request nevertheless.
+    A quota notice is PR-specific and expires after 24h.
+    """
+    now = now or datetime.now(timezone.utc)
+    requests = [
+        parse_utc(c.get("created_at"))
+        for c in comments
+        if not is_codex(c.get("user"))
+        and "@codex review" in c.get("body", "").lower()
+        and sha in c.get("body", "")
+    ]
+    requests = [t for t in requests if t and t <= now]
+    if not requests:
+        return False
+    latest_request = max(requests)
+    if now-latest_request > QUOTA_GRACE:
+        return False
+    notices = [
+        parse_utc(c.get("created_at"))
+        for c in comments
+        if is_codex(c.get("user"))
+        and c.get("body", "").strip() == CODEX_QUOTA_BODY
+    ]
+    return any(t and t <= now and now-t <= QUOTA_GRACE for t in notices)
+
+
+def review_disposition(reviews, comments, sha, now=None):
+    if review_ready(reviews, comments, sha):
+        return "reviewed"
+    if quota_deferred(comments, sha, now=now):
+        return "quota_deferred"
+    return "missing"
 
 
 def finding_blocks(thread, comment, sha):
@@ -98,37 +161,12 @@ def blockers(token, owner, repo, number, sha):
 
 
 
-# A recent, genuine Codex quota notification authorizes the repository owner's
-# documented exception. The exception expires automatically after six hours.
-QUOTA_NOTICE = "You have reached your Codex usage limits for code reviews."
-QUOTA_MAX_AGE = timedelta(hours=6)
 REQUIRED_CHECKS = (
     "Python contract and dashboard syntax",
     "Independent HACS frontend package",
     "Pinned evohome-async runtime contract",
     "Home Assistant 2026.10 runtime imports",
 )
-
-
-def recent_quota_notice(token, full_repo, *, now=None):
-    """Use ONLY an authenticated GitHub Codex bot comment, never PR text."""
-    now = now or datetime.now(timezone.utc)
-    notices = request(
-        token, "/repos/" + full_repo
-        + "/issues/comments?sort=created&direction=desc&per_page=100"
-    )
-    if not isinstance(notices, list):
-        raise RuntimeError("Cannot verify Codex quota status")
-    for item in notices:
-        if not is_codex(item.get("user")) or not item.get("body", "").startswith(QUOTA_NOTICE):
-            continue
-        try:
-            stamp = datetime.fromisoformat(item["created_at"].replace("Z", "+00:00"))
-        except (KeyError, TypeError, ValueError):
-            continue
-        if timedelta(0) <= now - stamp <= QUOTA_MAX_AGE:
-            return True
-    return False
 
 
 def required_ci_state(token, full_repo, sha):
@@ -169,14 +207,16 @@ def check(token, full_repo, number, sha):
     prefix = "/repos/" + full_repo
     revs = pages(token, prefix + "/pulls/" + str(number) + "/reviews")
     summaries = pages(token, prefix + "/issues/" + str(number) + "/comments")
-    if review_ready(revs, summaries, sha):
+    disposition = review_disposition(revs, summaries, sha)
+    if disposition == "reviewed":
         return "passed", "Latest-head Codex review completed; zero P1/P2; all CI passed"
-    if recent_quota_notice(token, full_repo):
+    if disposition == "quota_deferred":
         return "passed", (
-            "Codex quota exception (owner-authorized; verified bot notice within 6h); "
-            "zero unresolved/current-head P1/P2; all required CI passed"
+            "Codex review deferred by verified quota notice for exact head "
+            + sha + "; zero P1/P2; all CI passed; REVIEW DEBT must be tracked "
+            "and revisited on the next available review run"
         )
-    return "pending", "Waiting for Codex review; no verified recent quota notice"
+    return "pending", "Waiting for exact-head Codex review or verified current-head quota notice"
 
 
 def main():

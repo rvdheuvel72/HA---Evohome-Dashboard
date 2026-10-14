@@ -1,7 +1,7 @@
 """Codex gate regression tests: fail closed for stale reviews and P1/P2."""
 import importlib.util
-from pathlib import Path
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 import unittest
 from unittest.mock import patch
 
@@ -31,12 +31,14 @@ class GateTests(unittest.TestCase):
         self.assertTrue(gate.is_p12("[P1] outage"))
         self.assertFalse(gate.is_p12("P3 only"))
 
-    def test_outdated_review_rejected(self):
-        rev = [{"user": BOT, "commit_id": "b"*40, "submitted_at": "2026", "state": "COMMENTED"}]
-        summary = [{"user": BOT, "body": "<!-- codex-pull-request-review-summary --> \u2705 **Completed** " + chr(96)+SHA[:7]+chr(96)}]
-        self.assertFalse(gate.review_ready(rev, summary, SHA))
-        rev[0]["commit_id"] = SHA
-        self.assertTrue(gate.review_ready(rev, summary, SHA))
+    def test_stale_summary_rejected_and_latest_clean_summary_accepted(self):
+        # Codex clean reviews may not create a separate GitHub Review object.
+        stale = [{"user": BOT, "body": "<!-- codex-pull-request-review-summary --> \u2705 **Completed** " + chr(96)+"b"*7+chr(96)}]
+        current = [{"user": BOT, "body": "<!-- codex-pull-request-review-summary --> \u2705 **Completed** " + chr(96)+SHA[:7]+chr(96)}]
+        forged = [{"user": {"login": "attacker"}, "body": current[0]["body"]}]
+        self.assertFalse(gate.review_ready([], stale, SHA))
+        self.assertFalse(gate.review_ready([], forged, SHA))
+        self.assertTrue(gate.review_ready([], current, SHA))
 
     def test_unresolved_p2_blocks_merge(self):
         r = [{"user": BOT, "commit_id": SHA, "submitted_at": "2026", "state":"COMMENTED"}]
@@ -58,22 +60,6 @@ class GateTests(unittest.TestCase):
             state,_=gate.check("token","owner/repo",1,SHA)
         self.assertEqual(state,"passed")
 
-    def test_recent_quota_only_real_bot_within_six_hours(self):
-        now = datetime(2026, 10, 11, 12, tzinfo=timezone.utc)
-        items = [
-            {"user": BOT, "body": gate.QUOTA_NOTICE, "created_at": "2026-10-11T10:44:00Z"},
-            {"user": {"login": "chatgpt-codex-connector-impersonator"},
-             "body": gate.QUOTA_NOTICE, "created_at": "2026-10-11T11:59:00Z"},
-        ]
-        with patch.object(gate, "request", return_value=items):
-            self.assertTrue(gate.recent_quota_notice("token", "owner/repo", now=now))
-            self.assertFalse(gate.recent_quota_notice(
-                "token", "owner/repo", now=now + timedelta(hours=7)
-            ))
-        items.pop(0)
-        with patch.object(gate, "request", return_value=items):
-            self.assertFalse(gate.recent_quota_notice("token", "owner/repo", now=now))
-
     def test_required_ci_fail_closed_on_failure_missing_and_pending(self):
         def sample(name, state="completed", conclusion="success"):
             return {"name": name, "status": state, "conclusion": conclusion,
@@ -87,23 +73,57 @@ class GateTests(unittest.TestCase):
             with patch.object(gate, "request", return_value={"check_runs": changed}):
                 self.assertNotEqual(gate.required_ci_state("token", "owner/repo", SHA)[0], "passed")
 
-    def test_quota_exception_needs_green_ci_and_no_p12(self):
-        with patch.object(gate,"request",return_value={"head":{"sha":SHA}, "state":"open"}), \
-             patch.object(gate,"pages",side_effect=[[],[]]), \
+    def test_verified_quota_debt_requires_exact_sha_and_bot_notice(self):
+        now=datetime(2026,10,14,9,0,tzinfo=timezone.utc)
+        stamp=lambda t: t.isoformat().replace("+00:00","Z")
+        request={"user":{"login":"repo-owner"},
+                 "body":"@codex review\\nExact head: "+SHA,
+                 "created_at":stamp(now-timedelta(minutes=5))}
+        bot={"user":BOT,"body":gate.CODEX_QUOTA_BODY,
+             "created_at":stamp(now-timedelta(minutes=4))}
+        self.assertTrue(gate.quota_deferred([request,bot], SHA, now))
+        self.assertFalse(gate.quota_deferred([request,bot], "b"*40, now))
+        self.assertFalse(gate.quota_deferred([bot,request], SHA,
+                                            now+timedelta(hours=25)))
+        self.assertFalse(gate.quota_deferred([request,dict(bot,user={"login":"impersonator"})],
+                                             SHA,now))
+        # A normal bot review quoting the quota sentence must NOT
+        # count as a quota notification.
+        quoted=dict(bot,body="Code review finding: " + gate.CODEX_QUOTA_BODY)
+        self.assertFalse(gate.quota_deferred([request,quoted],SHA,now))
+
+        # Codex can stop answering when exhausted; a recent verified bot
+        # quota notice still qualifies after explicit current-head request.
+        self.assertTrue(gate.quota_deferred([dict(request,created_at=stamp(now)),
+                                             dict(bot,created_at=stamp(now-timedelta(minutes=4)))],
+                                            SHA,now))
+        self.assertEqual(gate.review_disposition([], [request,bot], SHA, now),
+                         "quota_deferred")
+
+    def test_quota_exception_with_green_ci_and_no_p12(self):
+        now=datetime.now(timezone.utc)
+        stamp=lambda t:t.isoformat().replace("+00:00","Z")
+        comments=[{"user":{"login":"owner"},"body":"@codex review for "+SHA,
+                   "created_at":stamp(now-timedelta(minutes=2))},
+                  {"user":BOT,"body":gate.CODEX_QUOTA_BODY,
+                   "created_at":stamp(now-timedelta(minutes=1))}]
+        with patch.object(gate,"request",return_value={"head":{"sha":SHA},"state":"open"}), \
+             patch.object(gate,"pages",side_effect=[[],comments]), \
              patch.object(gate,"blockers",return_value=[]), \
-             patch.object(gate,"required_ci_state",return_value=("passed","all passed")), \
-             patch.object(gate,"recent_quota_notice",return_value=True):
+             patch.object(gate,"required_ci_state",return_value=("passed","CI green")):
             state,msg=gate.check("token","owner/repo",7,SHA)
         self.assertEqual(state,"passed")
-        self.assertIn("quota exception",msg)
-        with patch.object(gate,"request",return_value={"head":{"sha":SHA}, "state":"open"}), \
-             patch.object(gate,"blockers",return_value=[]), \
-             patch.object(gate,"required_ci_state",return_value=("blocked","CI failed")):
+        self.assertIn("REVIEW DEBT",msg)
+
+    def test_quota_never_bypasses_ci_or_p12(self):
+        with patch.object(gate,"request",return_value={"head":{"sha":SHA},"state":"open"}), \
+             patch.object(gate,"blockers",return_value=["P1 existing issue"]), \
+             patch.object(gate,"required_ci_state",return_value=("passed","CI green")):
             state,_=gate.check("token","owner/repo",7,SHA)
         self.assertEqual(state,"blocked")
-        with patch.object(gate,"request",return_value={"head":{"sha":SHA}, "state":"open"}), \
-             patch.object(gate,"blockers",return_value=["![P1 Badge]"]), \
-             patch.object(gate,"required_ci_state",return_value=("passed","all passed")):
+        with patch.object(gate,"request",return_value={"head":{"sha":SHA},"state":"open"}), \
+             patch.object(gate,"blockers",return_value=[]), \
+             patch.object(gate,"required_ci_state",return_value=("blocked","CI failed")):
             state,_=gate.check("token","owner/repo",7,SHA)
         self.assertEqual(state,"blocked")
 

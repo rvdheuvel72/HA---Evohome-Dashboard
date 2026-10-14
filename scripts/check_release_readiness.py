@@ -60,7 +60,7 @@ def verify(token: str, full_repo: str, sha: str) -> list[int]:
 
 
 def main():
-    token = os.environ["GITHUB_TOKEN"]
+    token = os.environ.get("GITHUB_TOKEN") or os.environ["GH_TOKEN"]
     repo = os.environ["GITHUB_REPOSITORY"]
     sha = os.environ["GITHUB_SHA"]
     for pr in verify(token, repo, sha):

@@ -148,6 +148,13 @@ jobs:
             --notes-file firmware/arduino-wroom32e/RELEASE_NOTES_v0.4.0-beta.1.md \
             --prerelease
 
+      - name: Add published date in CET/CEST to beta description
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: python3 scripts/release_local_time.py --tag ramses-arduino-v0.4.0-beta.1
+
       - name: Verify release exists and has both downloads
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

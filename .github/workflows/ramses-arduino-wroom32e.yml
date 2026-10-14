@@ -71,11 +71,3 @@ jobs:
       - name: Compile for ESP32-WROOM-32E
         run: |
           arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all firmware/arduino-wroom32e/RamsesGateway --output-dir "$RUNNER_TEMP/arduino-build"
-      - name: Upload untested Arduino build
-        if: success()
-        uses: actions/upload-artifact@v7
-        with:
-          name: ramses-arduino-wroom32e-UNTESTED
-          path: |
-            ${{ runner.temp }}/arduino-build/*.bin
-          if-no-files-found: error

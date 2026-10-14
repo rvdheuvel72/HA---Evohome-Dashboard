@@ -2,13 +2,13 @@
 
 Do not merge into main before:
 1. All self-hosted build/unit/runtime-contract checks have passed on the latest PR head.
-2. Codex has completed its review of the latest PR head (not an earlier commit).
+2. Codex has reviewed the exact PR head, or an authentic recent Codex quota notice qualifies for the documented review-debt exception.
 3. Every Codex P1 or P2 finding, including findings on earlier PR commits, is **fixed, regression-tested and its review thread resolved**.
-4. After any fix commit, request a fresh Codex review on the new PR head. Use the PR comment "@codex review".
+4. After fixes, request review of the new head with `@codex review` and the **full 40-character head SHA**; record any quota-deferred review for the next run.
 5. The isolated GitHub-hosted "Codex P1/P2 review gate" check is green (build/runtime tests remain on self-hosted runners).
 6. The exact final head SHA is verified again before merge, then post-merge CI is checked.
 
-CI gate implementation: the pull_request_target workflow is loaded from the protected default branch, checks out only the trusted base commit, and runs scripts/check_codex_review.py from that base (never from PR source) on an isolated GitHub-hosted runner. We intentionally do not run this token-bearing check on persistent self-hosted runners used by PR-controlled validation jobs. GitHub review records, the Codex completed summary identifying the exact head SHA, and unresolved P1/P2 review threads (GraphQL). If Codex is unavailable, the review has not completed, a thread is unresolved, or GitHub permissions fail, the gate stays red. It will not automatically suppress or resolve findings.
+CI gate implementation: the pull_request_target workflow is loaded from the protected default branch, checks out only the trusted base commit, and runs scripts/check_codex_review.py from that base (never from PR source) on an isolated GitHub-hosted runner. We intentionally do not run this token-bearing check on persistent self-hosted runners used by PR-controlled validation jobs. GitHub review records, the Codex completed summary identifying the exact head SHA, and unresolved P1/P2 review threads (GraphQL). Only a verified recent Codex **quota notice** permits a deferred review, never an unresolved P1/P2, failed CI or GitHub API error. Findings are never automatically suppressed or resolved.
 
 **Bootstrap limitation:** Because the trusted check workflow is being introduced by the current PR, it cannot run from main for that same PR until merged. The bootstrap merge must be manually checked: fully completed Codex review of the final head with zero outstanding P1/P2, plus green existing CI. Future PRs use the protected-base gate.
 

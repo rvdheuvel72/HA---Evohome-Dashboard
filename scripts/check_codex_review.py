@@ -4,7 +4,6 @@ import os
 import re
 import sys
 import time
-from datetime import datetime, timedelta, timezone
 from urllib.request import Request, urlopen
 
 TRUSTED_CODEX_LOGINS = {"chatgpt-codex-connector", "chatgpt-codex-connector[bot]"}
@@ -98,37 +97,12 @@ def blockers(token, owner, repo, number, sha):
 
 
 
-# A recent, genuine Codex quota notification authorizes the repository owner's
-# documented exception. The exception expires automatically after six hours.
-QUOTA_NOTICE = "You have reached your Codex usage limits for code reviews."
-QUOTA_MAX_AGE = timedelta(hours=6)
 REQUIRED_CHECKS = (
     "Python contract and dashboard syntax",
     "Independent HACS frontend package",
     "Pinned evohome-async runtime contract",
     "Home Assistant 2026.10 runtime imports",
 )
-
-
-def recent_quota_notice(token, full_repo, *, now=None):
-    """Use ONLY an authenticated GitHub Codex bot comment, never PR text."""
-    now = now or datetime.now(timezone.utc)
-    notices = request(
-        token, "/repos/" + full_repo
-        + "/issues/comments?sort=created&direction=desc&per_page=100"
-    )
-    if not isinstance(notices, list):
-        raise RuntimeError("Cannot verify Codex quota status")
-    for item in notices:
-        if not is_codex(item.get("user")) or not item.get("body", "").startswith(QUOTA_NOTICE):
-            continue
-        try:
-            stamp = datetime.fromisoformat(item["created_at"].replace("Z", "+00:00"))
-        except (KeyError, TypeError, ValueError):
-            continue
-        if timedelta(0) <= now - stamp <= QUOTA_MAX_AGE:
-            return True
-    return False
 
 
 def required_ci_state(token, full_repo, sha):

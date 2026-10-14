@@ -25,28 +25,30 @@ PR #1 contained 3 P1 Codex findings (invalid setup API, invalid status poll meth
 
 No Home Assistant instance or live controller was accessed by these tests.
 
-## Codex review quota exception (repository-owner authorized, 2026-10-11)
+## Mandatory latest-head review — no quota exemption (2026-10-14)
 
-Codex may post an authenticated bot comment saying its code-review quota is exhausted.
-The trusted-base gate may then pass **without a Codex review** only when all of
-these independently verified conditions hold:
+A Codex quota notice does **not** waive the requirement for a completed,
+exact-final-head Codex review. The P1/P2 gate remains red until that review
+has finished, every identified P1/P2 is fixed, regression-tested, and
+resolved, and the required CI checks have passed on the same head commit.
 
-- A genuine `chatgpt-codex-connector[bot]` quota-exceeded comment was created
-  in the repository during the previous **six hours**. A PR author's text or
-  similar username cannot enable this exception. The six-hour window expires
-  automatically, returning to normal mandatory review.
-- The exact PR head has **all three** CI checks green: Python/dashboard syntax,
-  pinned `evohome-async` API contract, and Home Assistant runtime imports.
-  Failed, pending or missing checks cannot be bypassed.
-- There are zero blocking Codex P1/P2 review threads, including current-head
-  findings even if someone resolved the GitHub thread.
-- The PR is still open and the head SHA has not changed.
+Never merge just because source tests passed while review was still pending.
+Whenever a fix updates the PR head, request a new exact-head Codex review.
 
-This exception never automatically merges a PR; other build/review policies
-and manual approval remain applicable. No use of this exception can justify
-merging a failing Renovate major-update PR.
+## Mandatory release gate
 
-The `issue_comment` trigger is needed because Codex edits its review summary.
-Only verified Codex bot comments execute the gate; PR author/maintainer comments
-cannot start extra review runs. A closed PR is ignored even for older queued
-Codex events.
+Every beta/stable GitHub Release must be published from the protected
+default branch **after** merging reviewed source through a PR. The
+publisher runs `scripts/check_release_readiness.py` before `gh release
+create`; it looks up the merged PR associated with the exact published
+commit and checks the final PR head for: completed Codex review, clean
+P1/P2 findings, and required CI success. Missing data or errors fail closed.
+
+Build validation and GitHub Releases are separate stages. **Do not
+publish Actions artifacts as user-facing firmware downloads.**
+
+A release can still be triggered by an administrator if repository
+rulesets are absent. Configure Rulesets on main to require the exact-head
+Codex review gate, CI checks, and no bypass as described above. There is
+no GitHub repo-settings control exposed through the currently connected
+app, so code-only gates cannot guarantee branch protection.

@@ -29,8 +29,9 @@ and only for the 868 MHz module. Other frequency settings are RX-only.
 
 ## Configure (private GatewaySecrets.h)
 
-GW_OT_ENABLE_RF_TX = 0 by default. Only after RF hardware and reception
-are confirmed, set it to 1, together with:
+RF request transmission is disabled by default regardless of any obsolete
+GW_OT_ENABLE_RF_TX macro. After RF hardware and valid reception are
+confirmed, configure the following IDs using the web settings page:
 - GW_OT_BRIDGE_ID: decimal digits from the actual 10:xxxxxx bridge RF address.
 - GW_OT_SOURCE_ID: decimal digits from a legitimately unused 18:xxxxxx
   gateway RF address in range 1..262142 (except reserved 730).

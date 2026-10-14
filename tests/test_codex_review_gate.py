@@ -79,7 +79,7 @@ class GateTests(unittest.TestCase):
         request={"user":{"login":"repo-owner"},
                  "body":"@codex review\\nExact head: "+SHA,
                  "created_at":stamp(now-timedelta(minutes=5))}
-        bot={"user":BOT,"body":gate.CODEX_QUOTA_NOTICE,
+        bot={"user":BOT,"body":gate.CODEX_QUOTA_BODY,
              "created_at":stamp(now-timedelta(minutes=4))}
         self.assertTrue(gate.quota_deferred([request,bot], SHA, now))
         self.assertFalse(gate.quota_deferred([request,bot], "b"*40, now))
@@ -87,6 +87,11 @@ class GateTests(unittest.TestCase):
                                             now+timedelta(hours=25)))
         self.assertFalse(gate.quota_deferred([request,dict(bot,user={"login":"impersonator"})],
                                              SHA,now))
+        # A normal bot review quoting the quota sentence must NOT
+        # count as a quota notification.
+        quoted=dict(bot,body="Code review finding: " + gate.CODEX_QUOTA_BODY)
+        self.assertFalse(gate.quota_deferred([request,quoted],SHA,now))
+
         # Codex can stop answering when exhausted; a recent verified bot
         # quota notice still qualifies after explicit current-head request.
         self.assertTrue(gate.quota_deferred([dict(request,created_at=stamp(now)),
@@ -100,7 +105,7 @@ class GateTests(unittest.TestCase):
         stamp=lambda t:t.isoformat().replace("+00:00","Z")
         comments=[{"user":{"login":"owner"},"body":"@codex review for "+SHA,
                    "created_at":stamp(now-timedelta(minutes=2))},
-                  {"user":BOT,"body":gate.CODEX_QUOTA_NOTICE,
+                  {"user":BOT,"body":gate.CODEX_QUOTA_BODY,
                    "created_at":stamp(now-timedelta(minutes=1))}]
         with patch.object(gate,"request",return_value={"head":{"sha":SHA},"state":"open"}), \
              patch.object(gate,"pages",side_effect=[[],comments]), \

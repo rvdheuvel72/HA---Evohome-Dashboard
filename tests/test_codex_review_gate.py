@@ -100,22 +100,22 @@ class GateTests(unittest.TestCase):
                    "created_at":stamp(now-timedelta(minutes=2))},
                   {"user":BOT,"body":gate.CODEX_QUOTA_NOTICE,
                    "created_at":stamp(now-timedelta(minutes=1))}]
-        with patch.object(gate,"request",return_value={"head":{"sha":SHA},"state":"open"}), \\
-             patch.object(gate,"pages",side_effect=[[],comments]), \\
-             patch.object(gate,"blockers",return_value=[]), \\
+        with patch.object(gate,"request",return_value={"head":{"sha":SHA},"state":"open"}), \
+             patch.object(gate,"pages",side_effect=[[],comments]), \
+             patch.object(gate,"blockers",return_value=[]), \
              patch.object(gate,"required_ci_state",return_value=("passed","CI green")):
             state,msg=gate.check("token","owner/repo",7,SHA)
         self.assertEqual(state,"passed")
         self.assertIn("REVIEW DEBT",msg)
 
     def test_quota_never_bypasses_ci_or_p12(self):
-        with patch.object(gate,"request",return_value={"head":{"sha":SHA},"state":"open"}), \\
-             patch.object(gate,"blockers",return_value=["P1 existing issue"]), \\
+        with patch.object(gate,"request",return_value={"head":{"sha":SHA},"state":"open"}), \
+             patch.object(gate,"blockers",return_value=["P1 existing issue"]), \
              patch.object(gate,"required_ci_state",return_value=("passed","CI green")):
             state,_=gate.check("token","owner/repo",7,SHA)
         self.assertEqual(state,"blocked")
-        with patch.object(gate,"request",return_value={"head":{"sha":SHA},"state":"open"}), \\
-             patch.object(gate,"blockers",return_value=[]), \\
+        with patch.object(gate,"request",return_value={"head":{"sha":SHA},"state":"open"}), \
+             patch.object(gate,"blockers",return_value=[]), \
              patch.object(gate,"required_ci_state",return_value=("blocked","CI failed")):
             state,_=gate.check("token","owner/repo",7,SHA)
         self.assertEqual(state,"blocked")

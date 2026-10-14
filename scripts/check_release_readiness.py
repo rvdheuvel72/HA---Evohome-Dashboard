@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail closed: no GitHub Release without final-head Codex review and clean P1/P2.
+"""Fail closed except verified review-quota deferral; never bypass P1/P2 or CI.
 
 Publishers MUST run this on trusted main after merge, before creating a release.
 Using the commit-to-associated-pull-requests API ties approval to exact source.
@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import sys
 
-from check_codex_review import blockers, pages, request, required_ci_state, review_ready
+from check_codex_review import blockers, pages, request, required_ci_state, review_disposition
 
 
 def matching_merged_prs(prs, sha: str):
@@ -51,10 +51,18 @@ def verify(token: str, full_repo: str, sha: str) -> list[int]:
         prefix = f"/repos/{full_repo}"
         reviews = pages(token, prefix + f"/pulls/{number}/reviews")
         comments = pages(token, prefix + f"/issues/{number}/comments")
-        if not review_ready(reviews, comments, head):
+        disposition = review_disposition(reviews, comments, head)
+        if disposition == "missing":
             raise RuntimeError(
-                f"PR #{number} lacks completed Codex review of exact final head {head}"
+                f"PR #{number} has neither completed Codex review nor verified "
+                f"quota notice for exact final head {head}"
             )
+        if disposition == "quota_deferred":
+            # Publication is allowed under the user-approved quota exception,
+            # but missing review must be visible in both logs and release notes.
+            print(f"REVIEW DEBT: PR #{number} exact head {head} has an "
+                  "uncompleted Codex review (verified quota notice). "
+                  "Review on next available run.", flush=True)
         verified.append(number)
     return verified
 
@@ -64,8 +72,9 @@ def main():
     repo = os.environ["GITHUB_REPOSITORY"]
     sha = os.environ["GITHUB_SHA"]
     for pr in verify(token, repo, sha):
-        print(f"Release gate PASS: merged PR #{pr}, exact-head Codex, "
-              "no unaddressed P1/P2, required CI success", flush=True)
+        print(f"Release gate PASS: merged PR #{pr}; latest-head Codex "
+              "review completed OR exact-head quota deferral recorded; "
+              "zero unresolved P1/P2; required CI success", flush=True)
 
 
 if __name__ == "__main__":

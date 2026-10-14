@@ -9,6 +9,8 @@
 // To avoid collisions with multiple gateways, choose a different name per ESP32.
 // Blank or missing GW_HOSTNAME generates evohome-gateway-XXXXXX from hardware MAC.
 #define GW_HOSTNAME "evohome-gateway"
+// IANA-labelled timezone; mapped to safe POSIX rules for ESP32 incl. CET/CEST.
+#define GW_TIMEZONE "Europe/Amsterdam"
 #define GW_MQTT_HOST "" // Optional; leave empty to disable MQTT
 #define GW_MQTT_PORT 1883
 #define GW_MQTT_USER ""

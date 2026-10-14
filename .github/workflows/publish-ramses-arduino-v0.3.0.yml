@@ -119,6 +119,8 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "::notice::Release $TAG already exists. Skipping publication; nothing overwritten."
           else
+            # Mandatory exact-source review check; never publish on CI alone.
+            python3 scripts/check_release_readiness.py
             gh release create "$TAG" \
               dist/RAMSES-Arduino-Gateway-v0.3.0-ESP32-WROOM-32E.zip \
               dist/RAMSES-Arduino-Gateway-v0.3.0-ESP32-WROOM-32E.zip.sha256 \

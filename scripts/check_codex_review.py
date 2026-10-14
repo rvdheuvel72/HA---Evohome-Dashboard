@@ -64,6 +64,14 @@ def review_ready(reviews, summaries, sha):
     )
 
 CODEX_QUOTA_NOTICE = "You have reached your Codex usage limits for code reviews."
+CODEX_QUOTA_BODY = (
+    "You have reached your Codex usage limits for code reviews. "
+    "You can see your limits in the "
+    "[Codex usage dashboard](https://chatgpt.com/codex/cloud/settings/usage).\\n"
+    "To continue using code reviews, you can upgrade your account or add "
+    "credits to your account and enable them for code reviews in your "
+    "[settings](https://chatgpt.com/codex/cloud/settings/code-review)."
+)
 QUOTA_GRACE = timedelta(hours=24)
 
 
@@ -102,7 +110,7 @@ def quota_deferred(comments, sha, now=None):
         parse_utc(c.get("created_at"))
         for c in comments
         if is_codex(c.get("user"))
-        and CODEX_QUOTA_NOTICE in c.get("body", "")
+        and c.get("body", "").strip() == CODEX_QUOTA_BODY
     ]
     return any(t and t <= now and now-t <= QUOTA_GRACE for t in notices)
 

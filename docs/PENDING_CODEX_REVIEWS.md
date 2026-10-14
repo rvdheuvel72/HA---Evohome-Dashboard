@@ -6,6 +6,7 @@ Recorded 2026-10-14 at the user's request. Review quota messages were observed i
 | --- | --- | --- |
 | [#23](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/pull/23) | Release-date checking, CI gating, safe tags and release policy | Await next available Codex review of final SHA |
 | [#21](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/pull/21) | ESP32 RAMSES II/OpenTherm v0.4 firmware; NVS settings, CET/CEST, web UI | Await next available Codex review of final SHA |
+| [#24](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/pull/24) | v0.4.0-beta.2 release build, source packaging, current firmware version marking | Await next available Codex review of final SHA |
 
 ## Next run checklist
 

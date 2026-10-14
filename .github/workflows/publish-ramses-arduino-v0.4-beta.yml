@@ -1,4 +1,4 @@
-name: Release RAMSES Arduino v0.4.0 beta
+name: Release RAMSES Arduino v0.4.0 beta.2
 
 on:
   # A reviewed/merged push to main can publish the beta. The mandatory
@@ -73,6 +73,16 @@ jobs:
             firmware/arduino-wroom32e/RamsesGateway \
             --output-dir "$RUNNER_TEMP/arduino-build"
 
+      - name: Verify persistent configuration and DST regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -std=c++17 -Wall -Wextra -Werror \
+            -Ifirmware/arduino-wroom32e/tests/stubs \
+            firmware/arduino-wroom32e/tests/test_gateway_runtime_config.cpp \
+            -o /tmp/test-gateway-runtime
+          /tmp/test-gateway-runtime
+
       - name: Package complete Arduino IDE source and firmware binaries
         shell: bash
         run: |
@@ -94,7 +104,8 @@ jobs:
               'OpenThermGateway.h', 'OpenThermReadOnly.h',
               'OpenThermScan.h', 'RamsesReadRequest.h', 'RadioFrequency.h',
               'GatewayWebPage.h', 'GatewayHostname.h',
-              'GatewayDiscovery.h', 'GatewaySecrets.example.h',
+              'GatewayDiscovery.h', 'GatewayRuntimeConfig.h',
+              'GatewaySecrets.example.h',
               'GatewayDebug.h',
           }
           available = {p.name for p in sources}
@@ -104,12 +115,12 @@ jobs:
           if not binaries:
               raise SystemExit('No compiled ESP32 firmware binaries')
           docs = ['README.md', 'READ_ONLY_OPENTHERM.md',
-                  'RELEASE_NOTES_v0.4.0-beta.1.md']
+                  'RELEASE_NOTES_v0.4.0-beta.2.md']
           for name in docs:
               assert (root / name).is_file(), f'Missing {name}'
           out = Path('dist')
           out.mkdir(exist_ok=True)
-          name = 'RAMSES-Arduino-Gateway-v0.4.0-beta.1-ESP32-WROOM-32E.zip'
+          name = 'RAMSES-Arduino-Gateway-v0.4.0-beta.2-ESP32-WROOM-32E.zip'
           bundle = out / name
           with ZipFile(bundle, 'w', compression=ZIP_DEFLATED, compresslevel=9) as z:
               for p in sources:
@@ -144,8 +155,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAG="ramses-arduino-v0.4.0-beta.1"
-          FILE="RAMSES-Arduino-Gateway-v0.4.0-beta.1-ESP32-WROOM-32E.zip"
+          TAG="ramses-arduino-v0.4.0-beta.2"
+          FILE="RAMSES-Arduino-Gateway-v0.4.0-beta.2-ESP32-WROOM-32E.zip"
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "::error::Release $TAG already exists: do not overwrite an immutable beta. Bump beta number for another build."
             exit 1
@@ -157,8 +168,8 @@ jobs:
           gh release create "$TAG" \
             "dist/$FILE" "dist/$FILE.sha256" \
             --target "$GITHUB_SHA" \
-            --title "RAMSES Arduino Gateway v0.4.0-beta.1 (ESP32-WROOM-32E)" \
-            --notes-file firmware/arduino-wroom32e/RELEASE_NOTES_v0.4.0-beta.1.md \
+            --title "RAMSES Arduino Gateway v0.4.0-beta.2 (ESP32-WROOM-32E)" \
+            --notes-file firmware/arduino-wroom32e/RELEASE_NOTES_v0.4.0-beta.2.md \
             --prerelease
 
       - name: Add published date in CET/CEST to beta description
@@ -166,7 +177,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         shell: bash
-        run: python3 scripts/release_local_time.py --tag ramses-arduino-v0.4.0-beta.1
+        run: python3 scripts/release_local_time.py --tag ramses-arduino-v0.4.0-beta.2
 
       - name: Verify release exists and has both downloads
         env:
@@ -175,8 +186,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAG="ramses-arduino-v0.4.0-beta.1"
-          FILE="RAMSES-Arduino-Gateway-v0.4.0-beta.1-ESP32-WROOM-32E.zip"
+          TAG="ramses-arduino-v0.4.0-beta.2"
+          FILE="RAMSES-Arduino-Gateway-v0.4.0-beta.2-ESP32-WROOM-32E.zip"
           gh release view "$TAG" --json isPrerelease,assets \
             --jq '.isPrerelease == true' | grep -Fx true
           gh release view "$TAG" --json assets --jq '.assets[].name' | grep -Fx "$FILE"

@@ -35,7 +35,7 @@ class CheckReleaseReadinessTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "not an approved PR"):
                 gate.verify("secret", REPO, SHA)
 
-    @patch.object(gate, "review_ready", return_value=True)
+    @patch.object(gate, "review_disposition", return_value="reviewed")
     @patch.object(gate, "required_ci_state", return_value=("passed", "passed"))
     @patch.object(gate, "blockers", return_value=[])
     @patch.object(gate, "request")
@@ -53,9 +53,19 @@ class CheckReleaseReadinessTests(unittest.TestCase):
     def test_missing_codex_review_blocks(self, pages, request, blockers, ci):
         pages.side_effect = lambda token, path: ([pr()] if "/commits/" in path else [])
         request.return_value = pr()
-        with patch.object(gate, "review_ready", return_value=False):
-            with self.assertRaisesRegex(RuntimeError, "lacks completed Codex"):
+        with patch.object(gate, "review_disposition", return_value="missing"):
+            with self.assertRaisesRegex(RuntimeError, "neither completed Codex"):
                 gate.verify("secret", REPO, SHA)
+
+    @patch.object(gate, "review_disposition", return_value="quota_deferred")
+    @patch.object(gate, "required_ci_state", return_value=("passed", "passed"))
+    @patch.object(gate, "blockers", return_value=[])
+    @patch.object(gate, "request")
+    @patch.object(gate, "pages")
+    def test_verified_quota_debt_allows_release(self, pages, request, blockers, ci, review):
+        pages.side_effect = lambda token, path: ([pr()] if "/commits/" in path else [])
+        request.return_value = pr()
+        self.assertEqual(gate.verify("secret", REPO, SHA), [42])
 
     @patch.object(gate, "blockers", return_value=["P1 blocker"])
     @patch.object(gate, "request")

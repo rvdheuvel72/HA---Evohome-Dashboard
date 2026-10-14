@@ -73,6 +73,10 @@
 #ifndef GW_OT_AUTO_POLL
 #define GW_OT_AUTO_POLL 0
 #endif
+#ifndef GW_TIMEZONE
+#define GW_TIMEZONE "Europe/Amsterdam"
+#endif
+#include "GatewayRuntimeConfig.h"
 #include "OpenThermGateway.h"
 
 namespace {
@@ -107,6 +111,9 @@ PubSubClient mqtt(wifiClient);
 HardwareSerial rfUart(1);
 Cc1101Radio radio;
 OpenThermGateway otGateway;
+gw_config::Store configuration;
+uint32_t restartDueMs=0;
+uint32_t pendingBootMs=0;
 QueueHandle_t rxQueue = nullptr;
 QueueHandle_t debugQueue = nullptr;
 GatewayDebug diagnosticLog;
@@ -175,8 +182,8 @@ const char* resetReason() {
 }
 
 bool authorized() {
-  if (!GW_DEBUG_USER[0] || !GW_DEBUG_PASSWORD[0]) return true;
-  if (web.authenticate(GW_DEBUG_USER, GW_DEBUG_PASSWORD)) return true;
+  if (!configuration.current.webUser[0] || !configuration.current.webPassword[0]) return true;
+  if (web.authenticate(configuration.current.webUser, configuration.current.webPassword)) return true;
   web.requestAuthentication(BASIC_AUTH, "RAMSES Gateway Diagnostics");
   return false;
 }
@@ -216,7 +223,7 @@ void radioTask(void*) {
   // GDO2 receives async radio data; GDO0 is UART TX into CC1101 during STX.
   // No RF TX is attempted unless explicit, constrained diagnostic gates pass.
   rfUart.begin(38400, SERIAL_8N1, Cc1101Radio::GDO2, Cc1101Radio::GDO0);
-  radioReady = radio.begin(GW_CC1101_FREQUENCY_KHZ,GW_CC1101_MODULE_BAND);
+  radioReady = radio.begin(configuration.current.rfFrequencyKhz,GW_CC1101_MODULE_BAND);
   if(radioReady)otGateway.begin();
   char radioInfo[130];
   snprintf(radioInfo, sizeof(radioInfo), "CC1101 detected=%u PARTNUM=0x%02X VERSION=0x%02X",
@@ -313,7 +320,7 @@ void httpOtScan(){
 
 void httpStatus() {
   if (!authorized()) return;
-  char json[1300];
+  char json[1550];
   const String ip = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "";
   const String apIp = recoveryApReady ? WiFi.softAPIP().toString() : "";
   snprintf(json, sizeof(json),
@@ -371,6 +378,15 @@ void httpPackets() {
   web.send(200, "application/json", json);
 }
 
+// Wall clock for events before SNTP can be reconstructed after time sync.
+bool eventLocalTime(uint32_t uptimeMs,char* out,size_t capacity) {
+  if(!timeSynchronized() || !out || capacity<40)return false;
+  const uint32_t elapsed=millis()-uptimeMs;
+  const time_t instant=time(nullptr)-static_cast<time_t>(elapsed/1000u);
+  tm local={};
+  localtime_r(&instant,&local);
+  return strftime(out,capacity,"%Y-%m-%d %H:%M:%S %Z (%z)",&local)>0;
+}
 void httpDebugLogs() {
   if (!authorized()) return;
   const uint32_t cursor = static_cast<uint32_t>(strtoul(web.arg("since").c_str(), nullptr, 10));
@@ -390,6 +406,11 @@ void httpDebugLogs() {
     item += String(entry.sequence);
     item += ",\"uptime_ms\":";
     item += String(entry.uptimeMs);
+    item += ",\"timestamp\":";
+    char stamp[52]={};
+    if(eventLocalTime(entry.uptimeMs,stamp,sizeof(stamp)))
+      item += "\"" + escapeJSON(stamp) + "\"";
+    else item += "null";
     item += ",\"level\":\"";
     item += GatewayDebug::levelName(entry.level);
     item += "\",\"message\":\"";
@@ -409,7 +430,11 @@ void httpDebugDownload() {
   web.send(200, "text/plain", "");
   web.sendContent("RAMSES Arduino Gateway " + String(FW_VERSION) + " / " + resetReason() + "\n");
   diagnosticLog.eachAfter(0, GatewayDebug::TRACE, [&](const GatewayDebug::Entry& entry) {
-    String line = "[" + String(entry.uptimeMs) + "ms] ";
+    char stamp[52]={};
+    String line="[";
+    if(eventLocalTime(entry.uptimeMs,stamp,sizeof(stamp)))line+=stamp;
+    else line+="+"+String(entry.uptimeMs)+"ms (not synchronized)";
+    line+="] ";
     line += GatewayDebug::levelName(entry.level);
     line += " ";
     line += entry.message;
@@ -452,13 +477,13 @@ void serviceMdns() {
 }
 
 void wifiConnect() {
-  if (GW_WIFI_SSID[0] == '\0') return;
+  if (configuration.current.wifiSSID[0] == '\0') return;
   if (WiFi.status() == WL_CONNECTED) return;
   const uint32_t now = millis();
   if (lastWifiAttempt && now - lastWifiAttempt < WIFI_RETRY_MS) return;
   lastWifiAttempt = now;
   WiFi.disconnect(false);
-  WiFi.begin(GW_WIFI_SSID, GW_WIFI_PASSWORD);
+  WiFi.begin(configuration.current.wifiSSID, configuration.current.wifiPassword);
   recordLog(GatewayDebug::INFO, "Wi-Fi connection attempt");
 }
 
@@ -509,13 +534,13 @@ bool publishGatewayState() {
 }
 
 void mqttConnect() {
-  if (GW_MQTT_HOST[0] == '\0' || WiFi.status() != WL_CONNECTED || mqtt.connected()) return;
+  if (configuration.current.mqttHost[0] == '\0' || WiFi.status() != WL_CONNECTED || mqtt.connected()) return;
   const uint32_t now = millis();
   if (lastMqttAttempt && now - lastMqttAttempt < MQTT_RETRY_MS) return;
   lastMqttAttempt = now;
   bool ok;
-  if (GW_MQTT_USER[0] != '\0') {
-    ok = mqtt.connect(deviceId, GW_MQTT_USER, GW_MQTT_PASSWORD,
+  if (configuration.current.mqttUser[0] != '\0') {
+    ok = mqtt.connect(deviceId, configuration.current.mqttUser, configuration.current.mqttPassword,
                       availabilityTopic, 1, true, "offline");
   } else {
     ok = mqtt.connect(deviceId, availabilityTopic, 1, true, "offline");
@@ -605,8 +630,9 @@ void setup() {
     return;
   }
   const uint32_t serial = static_cast<uint32_t>(ESP.getEfuseMac() & 0xFFFFFFu);
-  const bool configuredHostnameValid = gateway_hostname::resolve(GW_HOSTNAME, serial, gatewayHostname, sizeof(gatewayHostname));
-  if (!configuredHostnameValid && GW_HOSTNAME[0])
+  configuration.begin(GW_CC1101_MODULE_BAND);
+  const bool configuredHostnameValid = gateway_hostname::resolve(configuration.current.hostname, serial, gatewayHostname, sizeof(gatewayHostname));
+  if (!configuredHostnameValid && configuration.current.hostname[0])
     recordLog(GatewayDebug::WARN, "GW_HOSTNAME invalid: using generated evohome-gateway-XXXXXX");
   char hostInfo[100];
   snprintf(hostInfo, sizeof(hostInfo), "Gateway hostname: %s", gatewayHostname);
@@ -619,10 +645,10 @@ void setup() {
   snprintf(availabilityTopic, sizeof(availabilityTopic), "%s", baseTopic);
   snprintf(stateTopic, sizeof(stateTopic), "%s/status", baseTopic);
 
-  if (strlen(GW_RECOVERY_AP_PASSWORD) >= 8) {
+  if (strlen(configuration.current.recoveryPassword) >= 8) {
     WiFi.mode(WIFI_AP_STA);
     snprintf(recoveryApSsid, sizeof(recoveryApSsid), "RAMSES-Debug-%06X", serial);
-    recoveryApReady = WiFi.softAP(recoveryApSsid, GW_RECOVERY_AP_PASSWORD);
+    recoveryApReady = WiFi.softAP(recoveryApSsid, configuration.current.recoveryPassword);
     if (recoveryApReady) {
       char apInfo[128];
       snprintf(apInfo, sizeof(apInfo), "Recovery AP active: %s, IP %s",
@@ -637,7 +663,7 @@ void setup() {
   if (!WiFi.setHostname(gatewayHostname))
     recordLog(GatewayDebug::WARN, "Could not set DHCP Wi-Fi hostname");
   WiFi.setSleep(false);
-  mqtt.setServer(GW_MQTT_HOST, GW_MQTT_PORT);
+  mqtt.setServer(configuration.current.mqttHost, configuration.current.mqttPort);
   mqtt.setBufferSize(1536); // Home Assistant Discovery configurations are larger than 512 bytes
   web.on("/", HTTP_GET, httpIndex);
   web.on("/api/v1/status", HTTP_GET, httpStatus);
@@ -652,7 +678,10 @@ void setup() {
   });
   web.begin();
   recordLog(GatewayDebug::INFO, "HTTP diagnostics ready on port 80");
+  setenv("TZ",gw_config::posixZone(configuration.current.timezone),1);
+  tzset();
   configTime(0, 0, "pool.ntp.org", "time.google.com");
+  pendingBootMs=millis();
   wifiConnect();
 
   const BaseType_t created = xTaskCreatePinnedToCore(radioTask, "ramses-rx", 6144, nullptr, 3, nullptr, 1);
@@ -679,6 +708,18 @@ void loop() {
     }
   }
   web.handleClient();
+  if(restartDueMs && static_cast<int32_t>(millis()-restartDueMs)>=0)ESP.restart();
+  if(configuration.pending) {
+    // Roll back staged credentials if Wi-Fi never reconnects after an edit.
+    if(WiFi.status()==WL_CONNECTED && millis()-pendingBootMs>=20000) {
+      if(configuration.confirm())recordLog(GatewayDebug::INFO,"Updated settings confirmed after Wi-Fi reconnection");
+    } else if(millis()-pendingBootMs>=90000) {
+      if(configuration.rollback(GW_CC1101_MODULE_BAND)) {
+        recordLog(GatewayDebug::ERROR,"Settings Wi-Fi test failed, restoring previous configuration");
+        delay(80);ESP.restart();
+      }
+    }
+  }
 
   PacketEvent item;
   unsigned handled = 0;

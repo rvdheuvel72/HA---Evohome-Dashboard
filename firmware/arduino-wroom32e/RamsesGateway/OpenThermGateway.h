@@ -10,25 +10,27 @@
 #include "OpenThermScan.h"
 #include "RamsesReadRequest.h"
 #include "Cc1101Radio.h"
+#include "GatewayRuntimeConfig.h"
 #include "RamsesCodec.h"
 
 class OpenThermGateway {
  public:
+  void configure(const gw_config::Settings* settings,uint16_t band){config_=settings;moduleBand_=band;}
   bool transmitConfigured() const {
-    return GW_OT_ENABLE_RF_TX == 1 &&
-        GW_OT_BRIDGE_ID > 0 && GW_OT_BRIDGE_ID <= 262143 &&
-        GW_OT_SOURCE_ID > 0 && GW_OT_SOURCE_ID < 262143 &&
-        GW_OT_SOURCE_ID != 730 &&
-        radio_frequency::evohomeTxFrequency(GW_CC1101_FREQUENCY_KHZ,
-                                              GW_CC1101_MODULE_BAND);
+    return config_ && config_->otTxEnabled == 1 &&
+        config_->otBridge > 0 && config_->otBridge <= 262143 &&
+        config_->otSource > 0 && config_->otSource < 262143 &&
+        config_->otSource != 730 &&
+        radio_frequency::evohomeTxFrequency(config_->rfFrequencyKhz,
+                                              moduleBand_);
   }
   bool transmitEnabled() const { return transmitConfigured() && bridgeSeen_; }
   // Only RX-verified packets can establish the bridge identity. A configured
   // RF address alone is not permission to transmit into a heating system.
   void noteDevice(const ramses::Message& msg) {
-    if(GW_OT_BRIDGE_ID && (msg.addrMask&1) &&
+    if(config_->otBridge && (msg.addrMask&1) &&
        rfType(msg.addresses[0])==10 &&
-       rfId(msg.addresses[0])==GW_OT_BRIDGE_ID)
+       rfId(msg.addresses[0])==config_->otBridge)
       bridgeSeen_=true;
   }
   void begin() {
@@ -38,8 +40,8 @@ class OpenThermGateway {
       if (p.getBytesLength("profile")==sizeof(stored) &&
           p.getBytes("profile",&stored,sizeof(stored))==sizeof(stored) &&
           stored.magic==PROFILE_MAGIC &&
-          stored.bridgeId==GW_OT_BRIDGE_ID &&
-          stored.frequency==GW_CC1101_FREQUENCY_KHZ) {
+          stored.bridgeId==config_->otBridge &&
+          stored.frequency==config_->rfFrequencyKhz) {
         work_.bridgeId=stored.bridgeId;
         work_.completed=true;
         for (unsigned i=0;i<256;i++) {
@@ -69,12 +71,12 @@ class OpenThermGateway {
                ot_readonly::Result& r,uint16_t& raw) {
     if(msg.opcode!=0x3220 || msg.messageType!=3 ||
        !(msg.addrMask&1) || rfType(msg.addresses[0])!=10 ||
-       (GW_OT_BRIDGE_ID!=0 && rfId(msg.addresses[0])!=GW_OT_BRIDGE_ID) ||
+       (config_->otBridge!=0 && rfId(msg.addresses[0])!=config_->otBridge) ||
        !ot_readonly::response(msg.payload,msg.length,id,r,raw))return false;
     // Only attribute scan results to our transaction when the reply
     // explicitly addresses the configured gateway RF identity.
     if((msg.addrMask&2) && rfType(msg.addresses[1])==18 &&
-       rfId(msg.addresses[1])==GW_OT_SOURCE_ID) {
+       rfId(msg.addresses[1])==config_->otSource) {
       if(work_.accept(id,r,raw,millis()))publishSnapshot();
     }
     return true; // Still valid passive RF telemetry from configured bridge.
@@ -87,7 +89,7 @@ class OpenThermGateway {
     portEXIT_CRITICAL(&mutex_);
     const uint32_t now=millis();
     if(start) {
-      work_.reset(GW_OT_BRIDGE_ID,GW_OT_SCAN_ALL_256==1,now);
+      work_.reset(config_->otBridge,config_ && config_->otScanAll==1,now);
       wasCompleted_=false;
       publishSnapshot();
     }
@@ -104,7 +106,7 @@ class OpenThermGateway {
       publishSnapshot();
     }
     // Normal polling is opt-in, derived ONLY from observed READ_ACK IDs.
-    if(GW_OT_AUTO_POLL==1 && !work_.active && work_.completed &&
+    if(config_ && config_->otAutoPoll==1 && !work_.active && work_.completed &&
        static_cast<int32_t>(now-nextPolling_)>=0 && transmitEnabled()) {
       nextPolling_=now+60000; // at most one request per minute
       for(unsigned attempts=0;attempts<256;attempts++){
@@ -138,9 +140,9 @@ class OpenThermGateway {
       "\"module_band\":%u,\"rf_tx_enabled\":%s,\"scan_active\":%s,"
       "\"scan_pending\":%s,\"scan_completed\":%s,\"full_scan\":%s,"
       "\"attempted\":%u,\"read_ack\":%u,\"tx_failures\":%lu,\"results\":[",
-      static_cast<unsigned long>(GW_OT_BRIDGE_ID),
-      static_cast<unsigned long>(GW_CC1101_FREQUENCY_KHZ),
-      static_cast<unsigned>(GW_CC1101_MODULE_BAND),
+      static_cast<unsigned long>(config_->otBridge),
+      static_cast<unsigned long>(config_->rfFrequencyKhz),
+      static_cast<unsigned>(moduleBand_),
       transmitEnabled()?"true":"false",copy.active?"true":"false",
       requestPending?"true":"false",copy.completed?"true":"false",
       copy.full?"true":"false",copy.attempted,copy.acknowledged,
@@ -184,7 +186,7 @@ class OpenThermGateway {
       server.sendContent(String(i));
     }
     server.sendContent("],\"auto_poll_enabled\":");
-    server.sendContent(GW_OT_AUTO_POLL==1?"true}":"false}");
+    server.sendContent(config_ && config_->otAutoPoll==1?"true}":"false}");
     server.sendContent("");
   }
  private:
@@ -194,6 +196,8 @@ class OpenThermGateway {
     uint16_t raw[256];
   };
   static constexpr uint32_t PROFILE_MAGIC=0x4f543034;
+  const gw_config::Settings* config_=nullptr;
+  uint16_t moduleBand_=868;
   portMUX_TYPE mutex_=portMUX_INITIALIZER_UNLOCKED;
   ot_scan::Scanner work_,published_;
   bool requested_=false;
@@ -215,8 +219,8 @@ class OpenThermGateway {
   void save() {
     Persist data={};
     data.magic=PROFILE_MAGIC;
-    data.bridgeId=GW_OT_BRIDGE_ID;
-    data.frequency=GW_CC1101_FREQUENCY_KHZ;
+    data.bridgeId=config_->otBridge;
+    data.frequency=config_->rfFrequencyKhz;
     for(unsigned i=0;i<256;i++){
       data.states[i]=work_.entries[i].result;
       data.raw[i]=work_.entries[i].raw;
@@ -231,7 +235,7 @@ class OpenThermGateway {
                 ramses::FrameDecoder& decoder,uint8_t id){
     if(!transmitEnabled())return false;
     uint8_t frame[16],wire[44];size_t used=0;
-    if(!ramses_read::makeRequest(GW_OT_SOURCE_ID,GW_OT_BRIDGE_ID,id,frame,used))
+    if(!ramses_read::makeRequest(config_->otSource,config_->otBridge,id,frame,used))
       return false;
     const size_t wireLen=ramses_read::encodeUART(frame,used,wire,sizeof(wire));
     if(!wireLen || wireLen!=44)return false;

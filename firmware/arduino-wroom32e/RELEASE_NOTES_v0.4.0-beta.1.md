@@ -1,5 +1,7 @@
 # RAMSES II Gateway v0.4.0-beta.1 — ESP32-WROOM-32E
 
+> **Review status:** Beta published with an outstanding retrospective Codex review due to reached usage limits. Known P1/P2 issues were addressed and build CI passed; the latest-commit review is **deferred, not approved**. See [outstanding review checklist](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/blob/main/docs/PENDING_CODEX_REVIEWS.md). Any later P1/P2 findings will be addressed in a follow-up release.
+
 **BETA / NOT VALIDATED ON PHYSICAL RADIO HARDWARE.** The firmware has been compiled and unit-tested, but the OpenTherm RF diagnostic-transmit path has not been tested with an actual CC1101, Honeywell R8810A and Intergas boiler.
 
 ## Included

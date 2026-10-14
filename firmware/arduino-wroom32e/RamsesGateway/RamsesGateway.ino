@@ -297,6 +297,12 @@ void httpOtProfile(){
 }
 void httpOtScan(){
   if(!authorized())return;
+  if(!web.hasHeader("X-Gateway-Config") ||
+     web.header("X-Gateway-Config")!="scan"){
+    web.send(403,"application/json",
+      "{\"error\":\"missing_same_origin_scan_header\"}");
+    return;
+  }
   // Never expose RF transmission on a gateway with anonymous HTTP
   // or the documented example/default placeholder password.
   if(!configuration.current.webUser[0] || strlen(configuration.current.webPassword)<12 ||

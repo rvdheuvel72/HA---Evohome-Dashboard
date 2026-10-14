@@ -318,6 +318,147 @@ void httpOtScan(){
   web.send(202,"application/json","{\"status\":\"queued\",\"mode\":\"read_only\"}");
 }
 
+// Cross-site HTML forms cannot set this custom request header; browsers do
+// not accept cross-origin credentialed writes without explicit CORS permission.
+bool settingsWriteAllowed(){
+  if (!configuration.current.webUser[0] ||
+      strlen(configuration.current.webPassword)<12 ||
+      strcmp(configuration.current.webPassword,
+             "CHANGE_TO_A_STRONG_PRIVATE_PASSWORD")==0) {
+    web.send(403,"application/json",
+      "{\"error\":\"configure_strong_web_auth_in_GatewaySecrets_first\"}");
+    return false;
+  }
+  if(!authorized())return false;
+  if(!web.hasHeader("X-Gateway-Config") ||
+     web.header("X-Gateway-Config")!="save") {
+    web.send(403,"application/json","{\"error\":\"missing_same_origin_settings_header\"}");
+    return false;
+  }
+  return true;
+}
+void httpConfigGet() {
+  if(!authorized())return;
+  const gw_config::Settings& cfg=configuration.current;
+  String result="{";
+  result+="\"hostname\":\""+escapeJSON(cfg.hostname)+"\",";
+  result+="\"wifi_ssid\":\""+escapeJSON(cfg.wifiSSID)+"\",";
+  result+="\"mqtt_host\":\""+escapeJSON(cfg.mqttHost)+"\",";
+  result+="\"mqtt_port\":"+String(cfg.mqttPort)+",";
+  result+="\"mqtt_user\":\""+escapeJSON(cfg.mqttUser)+"\",";
+  result+="\"timezone\":\""+escapeJSON(cfg.timezone)+"\",";
+  result+="\"rf_frequency_khz\":"+String(cfg.rfFrequencyKhz)+",";
+  result+="\"rf_module_band\":"+String(GW_CC1101_MODULE_BAND)+",";
+  result+="\"ot_bridge\":"+String(cfg.otBridge)+",";
+  result+="\"ot_source\":"+String(cfg.otSource)+",";
+  result+="\"ot_scan_all\":"+(cfg.otScanAll?String("true"):String("false"))+",";
+  result+="\"ot_auto_poll\":"+(cfg.otAutoPoll?String("true"):String("false"))+",";
+  result+="\"ot_tx_enabled\":"+(cfg.otTxEnabled?String("true"):String("false"))+",";
+  result+="\"recovery_ap_configured\":"+(cfg.recoveryPassword[0]?String("true"):String("false"))+",";
+  result+="\"web_auth_configured\":"+(cfg.webPassword[0]?String("true"):String("false"))+",";
+  result+="\"wifi_password_configured\":"+(cfg.wifiPassword[0]?String("true"):String("false"))+",";
+  result+="\"mqtt_password_configured\":"+(cfg.mqttPassword[0]?String("true"):String("false"))+",";
+  result+="\"nvs_pending\":"+(configuration.pending?String("true"):String("false"))+"}";
+  // Password values (WiFi, MQTT, web and recovery AP) are NEVER exposed.
+  web.sendHeader("Cache-Control","no-store");
+  web.send(200,"application/json",result);
+}
+bool readField(const char* key,char* dst,size_t cap,bool optional=false){
+  if(!web.hasArg(key))return optional;
+  const String value=web.arg(key);
+  if(!gw_config::safeText(value,cap))return false;
+  snprintf(dst,cap,"%s",value.c_str());
+  return true;
+}
+void httpConfigSave(){
+  if(!settingsWriteAllowed())return;
+  if(configuration.pending){
+    web.send(409,"application/json","{\"error\":\"previous_changes_waiting_for_wifi_confirmation\"}");
+    return;
+  }
+  gw_config::Settings staged=configuration.current;
+  bool ok=readField("hostname",staged.hostname,sizeof(staged.hostname)) &&
+          readField("wifi_ssid",staged.wifiSSID,sizeof(staged.wifiSSID)) &&
+          readField("mqtt_host",staged.mqttHost,sizeof(staged.mqttHost)) &&
+          readField("mqtt_user",staged.mqttUser,sizeof(staged.mqttUser)) &&
+          readField("timezone",staged.timezone,sizeof(staged.timezone)) &&
+          readField("web_user",staged.webUser,sizeof(staged.webUser),true);
+  if(!ok){
+    web.send(400,"application/json","{\"error\":\"missing_or_invalid_text_field\"}");
+    return;
+  }
+  // Empty password means retain existing secret. Clearing any secret requires
+  // an explicit dedicated control, never an unnoticed empty form field.
+  const struct {const char* key;char* value;size_t size;} passwords[]={
+    {"wifi_password",staged.wifiPassword,sizeof(staged.wifiPassword)},
+    {"mqtt_password",staged.mqttPassword,sizeof(staged.mqttPassword)},
+    {"web_password",staged.webPassword,sizeof(staged.webPassword)},
+    {"recovery_password",staged.recoveryPassword,sizeof(staged.recoveryPassword)}
+  };
+  for(const auto& field:passwords){
+    if(web.hasArg(field.key) && web.arg(field.key).length()){
+      if(!readField(field.key,field.value,field.size)){
+        web.send(400,"application/json","{\"error\":\"invalid_password_length_or_characters\"}");
+        return;
+      }
+    }
+  }
+  if(!web.hasArg("mqtt_port") || !web.hasArg("rf_frequency_khz") ||
+     !web.hasArg("ot_bridge") || !web.hasArg("ot_source")) {
+    web.send(400,"application/json","{\"error\":\"required_numeric_field_missing\"}");
+    return;
+  }
+  auto number=[](const String& text,unsigned long max,unsigned long& parsed)->bool {
+    if(text.isEmpty() || text.length()>9)return false;
+    for(size_t i=0;i<text.length();i++)
+      if(text[i]<'0'||text[i]>'9')return false;
+    parsed=strtoul(text.c_str(),nullptr,10);
+    return parsed<=max;
+  };
+  unsigned long value=0;
+  if(!number(web.arg("mqtt_port"),65535,value) || !value){
+    web.send(400,"application/json","{\"error\":\"mqtt_port_must_be_1_to_65535\"}");return;
+  }
+  staged.mqttPort=static_cast<uint16_t>(value);
+  if(!number(web.arg("rf_frequency_khz"),999999,value)){
+    web.send(400,"application/json","{\"error\":\"invalid_rf_frequency\"}");return;
+  }
+  staged.rfFrequencyKhz=value;
+  if(!number(web.arg("ot_bridge"),262143,value)){
+    web.send(400,"application/json","{\"error\":\"invalid_bridge_id\"}");return;
+  }
+  staged.otBridge=value;
+  if(!number(web.arg("ot_source"),262143,value)){
+    web.send(400,"application/json","{\"error\":\"invalid_source_id\"}");return;
+  }
+  staged.otSource=value;
+  staged.otScanAll=web.arg("ot_scan_all")=="1";
+  staged.otAutoPoll=web.arg("ot_auto_poll")=="1";
+  staged.otTxEnabled=web.arg("ot_tx_enabled")=="1";
+  if(staged.otTxEnabled && (!web.hasArg("rf_safety_confirm") ||
+      web.arg("rf_safety_confirm")!="1")){
+    web.send(400,"application/json","{\"error\":\"rf_read_request_safety_confirmation_required\"}");
+    return;
+  }
+  if(strlen(staged.webPassword)<12 || !staged.webUser[0] ||
+     strcmp(staged.webPassword,"CHANGE_TO_A_STRONG_PRIVATE_PASSWORD")==0){
+    web.send(400,"application/json","{\"error\":\"web_login_must_remain_secure\"}");
+    return;
+  }
+  if(!gw_config::validate(staged,GW_CC1101_MODULE_BAND)){
+    web.send(400,"application/json","{\"error\":\"invalid_settings_or_rf_band\"}");
+    return;
+  }
+  if(!configuration.stage(staged,GW_CC1101_MODULE_BAND)){
+    web.send(500,"application/json","{\"error\":\"nvs_save_failed\"}");
+    return;
+  }
+  recordLog(GatewayDebug::INFO,"Authenticated settings update saved; restarting gateway");
+  web.sendHeader("Cache-Control","no-store");
+  web.send(200,"application/json","{\"saved\":true,\"restart_in_seconds\":3}");
+  restartDueMs=millis()+3000;
+}
+
 void httpStatus() {
   if (!authorized()) return;
   char json[1550];
@@ -631,6 +772,7 @@ void setup() {
   }
   const uint32_t serial = static_cast<uint32_t>(ESP.getEfuseMac() & 0xFFFFFFu);
   configuration.begin(GW_CC1101_MODULE_BAND);
+  otGateway.configure(&configuration.current,GW_CC1101_MODULE_BAND);
   const bool configuredHostnameValid = gateway_hostname::resolve(configuration.current.hostname, serial, gatewayHostname, sizeof(gatewayHostname));
   if (!configuredHostnameValid && configuration.current.hostname[0])
     recordLog(GatewayDebug::WARN, "GW_HOSTNAME invalid: using generated evohome-gateway-XXXXXX");
@@ -667,6 +809,8 @@ void setup() {
   mqtt.setBufferSize(1536); // Home Assistant Discovery configurations are larger than 512 bytes
   web.on("/", HTTP_GET, httpIndex);
   web.on("/api/v1/status", HTTP_GET, httpStatus);
+  web.on("/api/v1/config", HTTP_GET, httpConfigGet);
+  web.on("/api/v1/config", HTTP_POST, httpConfigSave);
   web.on("/api/v1/packets", HTTP_GET, httpPackets);
   web.on("/api/v1/opentherm/profile", HTTP_GET, httpOtProfile);
   web.on("/api/v1/opentherm/scan", HTTP_POST, httpOtScan);
@@ -676,6 +820,8 @@ void setup() {
     if (!authorized()) return;
     web.send(404, "application/json", "{\"error\":\"not_found\"}");
   });
+  const char* configHeaders[]={"X-Gateway-Config"};
+  web.collectHeaders(configHeaders,1);
   web.begin();
   recordLog(GatewayDebug::INFO, "HTTP diagnostics ready on port 80");
   setenv("TZ",gw_config::posixZone(configuration.current.timezone),1);

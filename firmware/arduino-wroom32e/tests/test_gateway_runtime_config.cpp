@@ -8,6 +8,7 @@
 #define GW_HOSTNAME "evohome-gateway"
 #define GW_MQTT_HOST "192.0.2.8"
 #define GW_MQTT_PORT 1883
+#define GW_MQTT_DISCOVERY 1
 #define GW_MQTT_USER "broker"
 #define GW_MQTT_PASSWORD "not-a-real-password"
 #define GW_TIMEZONE "Europe/Amsterdam"
@@ -26,7 +27,8 @@ int main(){
   Settings defaultsConfig=defaults();
   assert(sealed(defaultsConfig,868));
   assert(strcmp(defaultsConfig.timezone,"Europe/Amsterdam")==0);
-  assert(defaultsConfig.otTxEnabled==0); // RF disabled on first boot.
+  assert(defaultsConfig.otTxEnabled==0);
+  assert(defaultsConfig.mqttDiscovery==1); // RF disabled on first boot.
   assert(std::strcmp(posixZone("Europe/Amsterdam"),
          "CET-1CEST,M3.5.0/2,M10.5.0/3")==0);
   assert(validTimeZone("Europe/Amsterdam") && !validTimeZone("Invalid/Zone"));
@@ -46,12 +48,16 @@ int main(){
   chosen.timezone[0]='X';
   assert(!validate(chosen,868));
   chosen=defaultsConfig;
+  chosen.mqttDiscovery=2;
+  assert(!validate(chosen,868));
+  chosen=defaultsConfig;
   Store store;store.begin(868);
   assert(!store.pending);
   Settings updated=store.current;
   copy(updated.hostname,sizeof(updated.hostname),"test-gateway");
   copy(updated.timezone,sizeof(updated.timezone),"UTC");
   updated.mqttPort=1884;
+  updated.mqttDiscovery=0;
   assert(store.stage(updated,868) && store.pending);
   Store pending;pending.begin(868);
   assert(pending.pending && strcmp(pending.current.hostname,"test-gateway")==0);
@@ -63,7 +69,8 @@ int main(){
   Store committed;committed.begin(868);
   assert(committed.pending && committed.confirm());
   Store persisted;persisted.begin(868);
-  assert(!persisted.pending && persisted.current.mqttPort==1884);
+  assert(!persisted.pending && persisted.current.mqttPort==1884 &&
+         persisted.current.mqttDiscovery==0);
   // Verify POSIX DST rules actually change local time.
   const char* zone=posixZone("Europe/Amsterdam");
   setenv("TZ",zone,1);tzset();

@@ -302,8 +302,8 @@ void httpOtScan(){
   if(!authorized())return;
   // Never expose RF transmission on a gateway with anonymous HTTP
   // or the documented example/default placeholder password.
-  if(!GW_DEBUG_USER[0] || !GW_DEBUG_PASSWORD[0] ||
-     strcmp(GW_DEBUG_PASSWORD,"CHANGE_TO_A_STRONG_PRIVATE_PASSWORD")==0){
+  if(!configuration.current.webUser[0] || strlen(configuration.current.webPassword)<12 ||
+     strcmp(configuration.current.webPassword,"CHANGE_TO_A_STRONG_PRIVATE_PASSWORD")==0){
     web.send(403,"application/json","{\"error\":\"strong_web_auth_required\"}");
     return;
   }

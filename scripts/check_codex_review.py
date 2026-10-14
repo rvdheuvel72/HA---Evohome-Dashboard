@@ -171,12 +171,7 @@ def check(token, full_repo, number, sha):
     summaries = pages(token, prefix + "/issues/" + str(number) + "/comments")
     if review_ready(revs, summaries, sha):
         return "passed", "Latest-head Codex review completed; zero P1/P2; all CI passed"
-    if recent_quota_notice(token, full_repo):
-        return "passed", (
-            "Codex quota exception (owner-authorized; verified bot notice within 6h); "
-            "zero unresolved/current-head P1/P2; all required CI passed"
-        )
-    return "pending", "Waiting for Codex review; no verified recent quota notice"
+    return "pending", "Waiting for exact-head Codex review; quota never bypasses mandatory review"
 
 
 def main():

@@ -41,7 +41,10 @@
 // Exact bridge is 10:XXXXXX, e.g. 10:123456 -> enter integer 123456.
 // Choose a legitimate unused 18:XXXXXX virtual RF gateway address (1..262142;
 // 730 is reserved). This is NOT the MQTT device ID.
-#define GW_OT_ENABLE_RF_TX 0
+// RF transmission is always OFF on a first flash. To enable a diagnostic
+// read-only scan later, use Gateway configuration in the authenticated web UI
+// and confirm the module is physically connected and the bridge ID observed.
+// A compile-time GW_OT_ENABLE_RF_TX define is intentionally NOT used.
 #define GW_OT_BRIDGE_ID 0
 #define GW_OT_SOURCE_ID 0
 // 0: curated read candidates; 1: request every OpenTherm ID 0..255.

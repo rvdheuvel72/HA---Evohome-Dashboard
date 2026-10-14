@@ -107,6 +107,13 @@ jobs:
               --prerelease
           fi
 
+      - name: Show publication time in Netherlands (CET/CEST)
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: python3 scripts/release_local_time.py --tag ramses-arduino-v0.2.0
+
       - name: Verify GitHub release and ZIP asset exist
         if: github.ref == 'refs/heads/main'
         env:

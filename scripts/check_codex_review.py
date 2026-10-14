@@ -96,6 +96,8 @@ def quota_deferred(comments, sha, now=None):
     if not requests:
         return False
     latest_request = max(requests)
+    if now-latest_request > QUOTA_GRACE:
+        return False
     notices = [
         parse_utc(c.get("created_at"))
         for c in comments

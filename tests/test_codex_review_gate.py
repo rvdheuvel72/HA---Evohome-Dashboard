@@ -30,12 +30,14 @@ class GateTests(unittest.TestCase):
         self.assertTrue(gate.is_p12("[P1] outage"))
         self.assertFalse(gate.is_p12("P3 only"))
 
-    def test_outdated_review_rejected(self):
-        rev = [{"user": BOT, "commit_id": "b"*40, "submitted_at": "2026", "state": "COMMENTED"}]
-        summary = [{"user": BOT, "body": "<!-- codex-pull-request-review-summary --> \u2705 **Completed** " + chr(96)+SHA[:7]+chr(96)}]
-        self.assertFalse(gate.review_ready(rev, summary, SHA))
-        rev[0]["commit_id"] = SHA
-        self.assertTrue(gate.review_ready(rev, summary, SHA))
+    def test_stale_summary_rejected_and_latest_clean_summary_accepted(self):
+        # Codex clean reviews may not create a separate GitHub Review object.
+        stale = [{"user": BOT, "body": "<!-- codex-pull-request-review-summary --> \u2705 **Completed** " + chr(96)+"b"*7+chr(96)}]
+        current = [{"user": BOT, "body": "<!-- codex-pull-request-review-summary --> \u2705 **Completed** " + chr(96)+SHA[:7]+chr(96)}]
+        forged = [{"user": {"login": "attacker"}, "body": current[0]["body"]}]
+        self.assertFalse(gate.review_ready([], stale, SHA))
+        self.assertFalse(gate.review_ready([], forged, SHA))
+        self.assertTrue(gate.review_ready([], current, SHA))
 
     def test_unresolved_p2_blocks_merge(self):
         r = [{"user": BOT, "commit_id": SHA, "submitted_at": "2026", "state":"COMMENTED"}]

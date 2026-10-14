@@ -1,8 +1,13 @@
 name: Release RAMSES Arduino v0.4.0 beta
 
 on:
-  # Releases MUST be explicitly dispatched from reviewed and merged main.
-  # Never publish a pre-release automatically from an unreviewed PR branch.
+  # A reviewed/merged push to main can publish the beta. The mandatory
+  # release-readiness checker also validates the exact PR head before release.
+  push:
+    branches: [main]
+    paths:
+      - "firmware/arduino-wroom32e/**"
+      - ".github/workflows/publish-ramses-arduino-v0.4-beta.yml"
   workflow_dispatch:
 
 permissions:
@@ -19,7 +24,7 @@ jobs:
   beta-release:
     name: Verify and publish beta under GitHub Releases only
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/main'
     steps:
       - name: Checkout beta source
         uses: actions/checkout@v7

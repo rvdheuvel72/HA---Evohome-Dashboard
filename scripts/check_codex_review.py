@@ -1,4 +1,5 @@
 """Fail-closed P1/P2 Codex review gate for latest GitHub PR head."""
+from datetime import datetime, timedelta, timezone
 import json
 import os
 import re
@@ -61,6 +62,57 @@ def review_ready(reviews, summaries, sha):
         and (chr(96) + sha[:7] + chr(96)) in x.get("body", "")
         for x in summaries
     )
+
+CODEX_QUOTA_NOTICE = "You have reached your Codex usage limits for code reviews."
+QUOTA_GRACE = timedelta(hours=24)
+
+
+def parse_utc(timestamp):
+    if not isinstance(timestamp, str) or not timestamp:
+        return None
+    try:
+        parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        return parsed.astimezone(timezone.utc) if parsed.tzinfo else None
+    except ValueError:
+        return None
+
+
+def quota_deferred(comments, sha, now=None):
+    """Authorize a temporary review debt only for a witnessed exact-head request.
+
+    A real Codex quota notice must follow a user-authored @codex review
+    request that explicitly names the full 40-char PR head SHA. Old or
+    fabricated quota messages never waive reviews on a changed head.
+    """
+    now = now or datetime.now(timezone.utc)
+    requests = [
+        parse_utc(c.get("created_at"))
+        for c in comments
+        if not is_codex(c.get("user"))
+        and "@codex review" in c.get("body", "").lower()
+        and sha in c.get("body", "")
+    ]
+    requests = [t for t in requests if t and t <= now]
+    if not requests:
+        return False
+    latest_request = max(requests)
+    notices = [
+        parse_utc(c.get("created_at"))
+        for c in comments
+        if is_codex(c.get("user"))
+        and CODEX_QUOTA_NOTICE in c.get("body", "")
+    ]
+    return any(t and latest_request <= t <= now
+               and now - t <= QUOTA_GRACE for t in notices)
+
+
+def review_disposition(reviews, comments, sha, now=None):
+    if review_ready(reviews, comments, sha):
+        return "reviewed"
+    if quota_deferred(comments, sha, now=now):
+        return "quota_deferred"
+    return "missing"
+
 
 def finding_blocks(thread, comment, sha):
     """A current-head P1/P2 blocks regardless of thread resolution."""
@@ -146,9 +198,16 @@ def check(token, full_repo, number, sha):
     prefix = "/repos/" + full_repo
     revs = pages(token, prefix + "/pulls/" + str(number) + "/reviews")
     summaries = pages(token, prefix + "/issues/" + str(number) + "/comments")
-    if review_ready(revs, summaries, sha):
+    disposition = review_disposition(revs, summaries, sha)
+    if disposition == "reviewed":
         return "passed", "Latest-head Codex review completed; zero P1/P2; all CI passed"
-    return "pending", "Waiting for exact-head Codex review; quota never bypasses mandatory review"
+    if disposition == "quota_deferred":
+        return "passed", (
+            "Codex review deferred by verified quota notice for exact head "
+            + sha + "; zero P1/P2; all CI passed; REVIEW DEBT must be tracked "
+            "and revisited on the next available review run"
+        )
+    return "pending", "Waiting for exact-head Codex review or verified current-head quota notice"
 
 
 def main():

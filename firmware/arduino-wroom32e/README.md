@@ -152,3 +152,38 @@ This project is independent of the existing HA Evohome integration; the heating 
 ## Licensing and provenance
 
 Receiver radio values and frame/Manc​hester decoding rules were adapted from Peter Price's IndaloTech/ramses_esp: https://github.com/IndaloTech/ramses_esp . Review upstream licensing and secure permission where required before redistributing derived firmware.
+
+## Persistent configuration and timestamps (v0.4 beta)
+
+Set `GW_TIMEZONE "Europe/Amsterdam"` in private `GatewaySecrets.h`
+(default). The diagnostic log and exported text log display local dates,
+including CET/CEST daylight-saving time automatically. The underlying
+RAMSES/MQTT radio timestamps remain ISO-8601 UTC for interoperability.
+Before SNTP synchronizes, event timestamps show `clock waiting for NTP`
+rather than a fabricated calendar date; buffered earlier events receive
+reconstructed wall-clock timestamps after synchronization.
+
+The browser's **Gateway configuration** panel changes the settings *after*
+flashing. Values are validated, committed as a sealed NVS record, and then
+used as overrides to compiled `GatewaySecrets.h` defaults on every boot.
+The browser cannot rewrite the compiled header. Wi-Fi, MQTT, DHCP hostname,
+timezone, web login, recovery AP password, CC1101 frequency and read-only
+OpenTherm diagnostic settings are supported. The physical CC1101 module's
+declared hardware band remains a compile-time restriction. A new frequency
+is applied by a controlled restart (not a live SPI reprogramming).
+
+Passwords are never included in GET responses, and empty password inputs
+keep the existing values. Save requires **existing** HTTP Basic login with
+a strong password (12+ characters), a same-origin custom header, and a
+trusted local network. HTTP is not TLS encrypted; do not publish port 80
+on the Internet. After a Wi-Fi credential edit, the device waits up to
+90 seconds for a successful connection; otherwise it restores the last
+known-good NVS configuration and restarts. A configured WPA2 recovery
+AP provides an additional fallback.
+
+The RF radio may remain **physically disconnected**: the configuration,
+timestamps, Wi-Fi and MQTT all continue to work. RF diagnostic-transmission
+remains off by default and additionally requires an explicitly confirmed
+radio, actual received bridge identity, 868.3 MHz matching hardware, and
+valid RF addresses. No boiler write commands are available.
+

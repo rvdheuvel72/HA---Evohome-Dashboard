@@ -89,8 +89,10 @@ inline const char* state(Result r) {
 inline bool fixedPoint(uint8_t id, uint16_t raw, float& value) {
   switch(id){
     case 17:case 18:case 19:case 25:case 26:case 27:
-    case 28:case 33:case 56:case 57:
+    case 28:case 56:case 57:
       value=static_cast<int16_t>(raw)/256.0f;return true;
+    case 33: // Exhaust temperature is OpenTherm s16, NOT f8.8.
+      value=static_cast<int16_t>(raw);return true;
     default:return false;
   }
 }

@@ -13,6 +13,9 @@ on:
 
 permissions:
   contents: write
+  pull-requests: read
+  checks: read
+  issues: read
 
 concurrency:
   group: publish-ramses-arduino-v0.1.0
@@ -89,6 +92,7 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "::notice::Release $TAG already exists. Skipping publication; nothing overwritten."
           else
+            python3 scripts/check_release_readiness.py
             gh release create "$TAG" \
               dist/RAMSES-Arduino-Gateway-v0.1.0-ESP32-WROOM-32E.zip \
               dist/RAMSES-Arduino-Gateway-v0.1.0-ESP32-WROOM-32E.zip.sha256 \
@@ -97,6 +101,13 @@ jobs:
               --notes-file firmware/arduino-wroom32e/RELEASE_NOTES_v0.1.0.md \
               --prerelease
           fi
+
+      - name: Add publication timestamp to v0.1.0 release notes
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: python3 scripts/release_local_time.py --tag ramses-arduino-v0.1.0
 
       - name: Verify GitHub release and ZIP asset exist
         if: github.ref == 'refs/heads/main'

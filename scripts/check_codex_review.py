@@ -67,7 +67,7 @@ CODEX_QUOTA_NOTICE = "You have reached your Codex usage limits for code reviews.
 CODEX_QUOTA_BODY = (
     "You have reached your Codex usage limits for code reviews. "
     "You can see your limits in the "
-    "[Codex usage dashboard](https://chatgpt.com/codex/cloud/settings/usage).\\n"
+    "[Codex usage dashboard](https://chatgpt.com/codex/cloud/settings/usage).\n"
     "To continue using code reviews, you can upgrade your account or add "
     "credits to your account and enable them for code reviews in your "
     "[settings](https://chatgpt.com/codex/cloud/settings/code-review)."

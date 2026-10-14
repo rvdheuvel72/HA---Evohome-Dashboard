@@ -68,6 +68,13 @@ jobs:
           g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer \
             firmware/arduino-wroom32e/tests/test_opentherm.cpp -o /tmp/test-ramses-opentherm
           /tmp/test-ramses-opentherm
+      - name: Test persistent gateway settings and CET/CEST timestamps
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer \
+            -Ifirmware/arduino-wroom32e/tests/stubs \
+            firmware/arduino-wroom32e/tests/test_gateway_runtime_config.cpp \
+            -o /tmp/test-ramses-runtime-settings
+          /tmp/test-ramses-runtime-settings
       - name: Compile for ESP32-WROOM-32E
         run: |
           arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all firmware/arduino-wroom32e/RamsesGateway --output-dir "$RUNNER_TEMP/arduino-build"

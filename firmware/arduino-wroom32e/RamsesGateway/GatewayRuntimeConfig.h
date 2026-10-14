@@ -157,8 +157,10 @@ class Store {
     Preferences p;
     if(!p.begin("gw-settings",false))return false;
     bool ok=p.putBytes("previous",&current,sizeof(current))==sizeof(current);
-    if(ok)ok=p.putBytes("config",&toSave,sizeof(toSave))==sizeof(toSave);
+    // Write pending BEFORE the candidate config. If power fails between
+    // writes, we recover from previous instead of trusting new credentials.
     if(ok)ok=p.putBool("pending",true);
+    if(ok)ok=p.putBytes("config",&toSave,sizeof(toSave))==sizeof(toSave);
     p.end();
     if(ok)pending=true;
     return ok;

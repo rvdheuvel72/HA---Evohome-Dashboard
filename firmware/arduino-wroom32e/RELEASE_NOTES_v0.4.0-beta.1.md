@@ -11,6 +11,22 @@
 - Automatic recommendation of safe read polling IDs from observed `Read-Ack` responses.
 - Browser diagnostic scan and JSON export: `/api/v1/opentherm/profile`.
 
+## New gateway configuration and diagnostic timestamps
+
+- Readable absolute date and time for every diagnostic-log entry, with
+  configurable timezone and CET/CEST daylight-saving changes.
+- Edit Wi-Fi, MQTT, hostname, timezone, recovery AP password, web login,
+  CC1101 tuning and guarded OpenTherm read-only settings in the web interface.
+- Settings saved to ESP32 NVS, so further changes do **not** require Arduino
+  recompilation. The compiled GatewaySecrets.h supplies initial defaults only.
+- Wi-Fi changes are staged and rolled back automatically if the new network
+  remains unavailable for 90 seconds.
+- Password fields are write-only (not returned by the API); saves require
+  strong existing web authentication and a same-origin request header.
+- The CC1101 may be physically disconnected: the gateway and configuration
+  page work without it. RF scanning stays disabled until a real bridge and
+  correctly wired radio are confirmed.
+
 ## Safety
 RF transmission is **disabled by default**. A proper 868 MHz CC1101 module, an observed RF bridge, non-conflicting virtual gateway ID, explicit configuration and HTTP authentication are required. **No OpenTherm Write-Data, RAMSES W, boiler resets, pairing or heating control** is implemented.
 

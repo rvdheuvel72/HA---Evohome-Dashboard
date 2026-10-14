@@ -58,9 +58,6 @@
 #endif
 // Experimental RF request transmission must be explicitly enabled,
 // with RF IDs manually obtained from valid RAMSES traffic.
-#ifndef GW_OT_ENABLE_RF_TX
-#define GW_OT_ENABLE_RF_TX 0
-#endif
 #ifndef GW_OT_BRIDGE_ID
 #define GW_OT_BRIDGE_ID 0
 #endif

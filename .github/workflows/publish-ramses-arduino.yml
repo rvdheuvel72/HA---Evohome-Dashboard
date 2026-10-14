@@ -93,6 +93,12 @@ jobs:
             echo "::notice::Release $TAG already exists. Skipping publication; nothing overwritten."
           else
             python3 scripts/check_release_readiness.py
+            # Tag may outlive a deleted release. Never republish an old tag
+            # whose ref could still point to an unreviewed historic commit.
+            if gh api "repos/${GH_REPO}/git/ref/tags/${TAG}" >/dev/null 2>&1; then
+              echo "::error::Release tag ${TAG} already exists. Bump the release version."
+              exit 1
+            fi
             gh release create "$TAG" \
               dist/RAMSES-Arduino-Gateway-v0.1.0-ESP32-WROOM-32E.zip \
               dist/RAMSES-Arduino-Gateway-v0.1.0-ESP32-WROOM-32E.zip.sha256 \

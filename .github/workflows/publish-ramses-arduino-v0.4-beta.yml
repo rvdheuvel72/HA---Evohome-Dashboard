@@ -1,16 +1,15 @@
 name: Release RAMSES Arduino v0.4.0 beta
 
 on:
-  push:
-    branches:
-      - feat/ramses-readonly-opentherm-discovery-frequency
-    paths:
-      - "firmware/arduino-wroom32e/**"
-      - ".github/workflows/publish-ramses-arduino-v0.4-beta.yml"
-      - ".github/workflows/ramses-arduino-wroom32e.yml"
+  # Releases MUST be explicitly dispatched from reviewed and merged main.
+  # Never publish a pre-release automatically from an unreviewed PR branch.
+  workflow_dispatch:
 
 permissions:
   contents: write
+  pull-requests: read
+  checks: read
+  issues: read
 
 concurrency:
   group: ramses-arduino-beta-release
@@ -20,6 +19,7 @@ jobs:
   beta-release:
     name: Verify and publish beta under GitHub Releases only
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
     if: github.event_name == 'push'
     steps:
       - name: Checkout beta source
@@ -127,6 +127,11 @@ jobs:
           (out / f'{name}.sha256').write_text(f'{checksum}  {name}\n')
           print('SHA256:', checksum)
           PY
+
+      - name: Verify merged source has exact-head Codex review and no P1/P2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/check_release_readiness.py
 
       - name: Publish GitHub Releases beta assets (no Actions artifacts)
         env:

@@ -19,8 +19,7 @@ jobs:
   beta-release:
     name: Verify and publish beta under GitHub Releases only
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    if: github.event_name == 'push'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
     steps:
       - name: Checkout beta source
         uses: actions/checkout@v7

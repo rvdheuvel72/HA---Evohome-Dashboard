@@ -349,6 +349,7 @@ void httpConfigGet() {
   result+="\"wifi_ssid\":\""+escapeJSON(cfg.wifiSSID)+"\",";
   result+="\"mqtt_host\":\""+escapeJSON(cfg.mqttHost)+"\",";
   result+="\"mqtt_port\":"+String(cfg.mqttPort)+",";
+  result+="\"mqtt_discovery\":"+(cfg.mqttDiscovery?String("true"):String("false"))+",";
   result+="\"mqtt_user\":\""+escapeJSON(cfg.mqttUser)+"\",";
   result+="\"timezone\":\""+escapeJSON(cfg.timezone)+"\",";
   result+="\"rf_frequency_khz\":"+String(cfg.rfFrequencyKhz)+",";
@@ -438,12 +439,16 @@ void httpConfigSave(){
   staged.otSource=value;
   staged.otScanAll=web.arg("ot_scan_all")=="1";
   staged.otAutoPoll=web.arg("ot_auto_poll")=="1";
+  staged.mqttDiscovery=web.arg("mqtt_discovery")=="1";
   staged.otTxEnabled=web.arg("ot_tx_enabled")=="1";
   if(staged.otTxEnabled && (!web.hasArg("rf_safety_confirm") ||
       web.arg("rf_safety_confirm")!="1")){
     web.send(400,"application/json","{\"error\":\"rf_read_request_safety_confirmation_required\"}");
     return;
   }
+  if(web.arg("clear_wifi_password")=="1")staged.wifiPassword[0]=0;
+  if(web.arg("clear_mqtt_password")=="1")staged.mqttPassword[0]=0;
+  if(web.arg("clear_recovery_password")=="1")staged.recoveryPassword[0]=0;
   if(strlen(staged.webPassword)<12 || !staged.webUser[0] ||
      strcmp(staged.webPassword,"CHANGE_TO_A_STRONG_PRIVATE_PASSWORD")==0){
     web.send(400,"application/json","{\"error\":\"web_login_must_remain_secure\"}");
@@ -695,7 +700,7 @@ void mqttConnect() {
     // A gateway with no CC1101 still registers as a device with radio=off.
     const bool stateOk = publishGatewayState();
     bool discoveryOk = true;
-    if (GW_MQTT_DISCOVERY) discoveryOk = publishDiscovery();
+    if (configuration.current.mqttDiscovery) discoveryOk = publishDiscovery();
     if (!stateOk) recordLog(GatewayDebug::WARN, "Initial MQTT state publish failed");
     if (!discoveryOk) recordLog(GatewayDebug::WARN, "MQTT Discovery incomplete");
     mqtt.publish(availabilityTopic, "online", true);

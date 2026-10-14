@@ -1,0 +1,45 @@
+name: Stamp GitHub release dates in CET / CEST
+
+on:
+  release:
+    types: [published]
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/stamp-release-local-time.yml"
+      - "scripts/release_local_time.py"
+      - "tests/test_release_local_time.py"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: localize-github-releases
+  cancel-in-progress: false
+
+jobs:
+  stamp-releases:
+    name: Show Netherlands date in GitHub Release descriptions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Test local timestamps and daylight saving behavior
+        run: python3 -m unittest discover -s tests -p test_release_local_time.py -v
+
+      - name: Update published GitHub release descriptions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "release" ] && [ -n "$RELEASE_TAG" ]; then
+            python3 scripts/release_local_time.py --tag "$RELEASE_TAG"
+          else
+            # First main-branch run also backfills all older releases.
+            python3 scripts/release_local_time.py --all
+          fi

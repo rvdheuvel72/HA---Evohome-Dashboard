@@ -25,30 +25,26 @@ PR #1 contained 3 P1 Codex findings (invalid setup API, invalid status poll meth
 
 No Home Assistant instance or live controller was accessed by these tests.
 
-## Mandatory latest-head review — no quota exemption (2026-10-14)
+## Codex quota-limit exception — approved 2026-10-14
 
-A Codex quota notice does **not** waive the requirement for a completed,
-exact-final-head Codex review. The P1/P2 gate remains red until that review
-has finished, every identified P1/P2 is fixed, regression-tested, and
-resolved, and the required CI checks have passed on the same head commit.
+When Codex reports that its review usage limit is reached, allow a merge or
+release after successful CI and zero unresolved P1/P2 issues.
 
-Never merge just because source tests passed while review was still pending.
-Whenever a fix updates the PR head, request a new exact-head Codex review.
+The exception requires a real Codex bot quota message following a
+review request that identifies the current full PR head SHA. A stale
+quota message or an ordinary incomplete review does not qualify.
 
-## Mandatory release gate
+Record the deferred review as an open GitHub issue linking the PR,
+specific head SHA and any affected beta release. On the next run
+where Codex reviews are available, include the outstanding review
+in that run and address any newly reported P1/P2 issues. Never
+claim the deferred review was completed.
 
-Every beta/stable GitHub Release must be published from the protected
-default branch **after** merging reviewed source through a PR. The
-publisher runs `scripts/check_release_readiness.py` before `gh release
-create`; it looks up the merged PR associated with the exact published
-commit and checks the final PR head for: completed Codex review, clean
-P1/P2 findings, and required CI success. Missing data or errors fail closed.
+## Release policy
 
-Build validation and GitHub Releases are separate stages. **Do not
-publish Actions artifacts as user-facing firmware downloads.**
+Release publishers verify source CI and all known P1/P2 findings.
+They may accept an authenticated, recent quota deferral instead of
+a completed latest-head review. An unresolved P1/P2, failed CI or
+unverified quota condition still blocks publication.
 
-A release can still be triggered by an administrator if repository
-rulesets are absent. Configure Rulesets on main to require the exact-head
-Codex review gate, CI checks, and no bypass as described above. There is
-no GitHub repo-settings control exposed through the currently connected
-app, so code-only gates cannot guarantee branch protection.
+Distribute firmware through GitHub Releases, not Actions artifacts.

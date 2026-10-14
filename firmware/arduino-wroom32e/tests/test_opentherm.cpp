@@ -66,6 +66,11 @@ int main(){
   float value=0;
   assert(ot_readonly::fixedPoint(id,raw,value));
   assert(value==37.5f);
+  // OpenTherm ID 33 is signed 16-bit exhaust temperature in whole °C.
+  assert(ot_readonly::fixedPoint(33,static_cast<uint16_t>(100),value));
+  assert(value==100.0f);
+  assert(ot_readonly::fixedPoint(33,static_cast<uint16_t>(-7),value));
+  assert(value==-7.0f);
   response[3]^=1;
   assert(!ot_readonly::response(response,5,id,type,raw)); // parity
   reply(6,26,0,response);

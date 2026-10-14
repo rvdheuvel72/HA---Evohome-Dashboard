@@ -825,9 +825,10 @@ void setup() {
   web.collectHeaders(configHeaders,1);
   web.begin();
   recordLog(GatewayDebug::INFO, "HTTP diagnostics ready on port 80");
-  setenv("TZ",gw_config::posixZone(configuration.current.timezone),1);
-  tzset();
-  configTime(0, 0, "pool.ntp.org", "time.google.com");
+  // configTime() would overwrite TZ with UTC. configTzTime() preserves
+  // full POSIX daylight-saving rules (CET/CEST for Europe/Amsterdam).
+  configTzTime(gw_config::posixZone(configuration.current.timezone),
+               "pool.ntp.org", "time.google.com");
   pendingBootMs=millis();
   wifiConnect();
 

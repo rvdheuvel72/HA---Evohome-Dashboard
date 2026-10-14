@@ -87,9 +87,11 @@ class GateTests(unittest.TestCase):
                                             now+timedelta(hours=25)))
         self.assertFalse(gate.quota_deferred([request,dict(bot,user={"login":"impersonator"})],
                                              SHA,now))
-        self.assertFalse(gate.quota_deferred([dict(request,created_at=stamp(now)),
-                                              dict(bot,created_at=stamp(now-timedelta(minutes=4)))],
-                                             SHA,now))
+        # Codex can stop answering when exhausted; a recent verified bot
+        # quota notice still qualifies after explicit current-head request.
+        self.assertTrue(gate.quota_deferred([dict(request,created_at=stamp(now)),
+                                             dict(bot,created_at=stamp(now-timedelta(minutes=4)))],
+                                            SHA,now))
         self.assertEqual(gate.review_disposition([], [request,bot], SHA, now),
                          "quota_deferred")
 

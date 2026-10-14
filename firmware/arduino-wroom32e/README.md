@@ -1,6 +1,6 @@
 # Arduino-framework RAMSES II gateway for ESP32-WROOM-32E
 
-Standalone, receive-only Arduino IDE prototype for the 4 MB ESP32-WROOM-32E / NodeMCU-32, CC1101 868 MHz, Wi-Fi REST API and MQTT RX. **Not yet tested on physical hardware.**
+Arduino IDE prototype, receive-only by default; optional guarded read-only RF discovery for the 4 MB ESP32-WROOM-32E / NodeMCU-32, CC1101 868 MHz, Wi-Fi REST API and MQTT RX. **Not yet tested on physical hardware.**
 
 ## Download the standalone Arduino IDE ZIP
 
@@ -31,6 +31,29 @@ Standalone, receive-only Arduino IDE prototype for the 4 MB ESP32-WROOM-32E / No
 6. Optionally set `#define GW_HOSTNAME "evohome-gateway"` in your private `GatewaySecrets.h`; see hostname notes below.
 7. Click Verify, then Upload, and open Serial Monitor at 115200 baud.
 8. Open **Tools > Serial Monitor** at 115200, press **EN** once while the monitor is already open, and watch for BOOT / CC1101 / HEARTBEAT messages. Verify radio_detected in the web interface, then monitor valid_frames with your Evohome nearby.
+
+## Experimental OpenTherm read-only discovery (v0.4.0 preview)
+
+The main branch version 0.3.1 release stays RX-only. A new draft implementation
+supports passive decoding of OpenTherm RP/3220, compatibility discovery with only
+RQ/3220 Read-Data requests, persistent per-ID results, compatibility-derived
+read-only polling, configurable CC1101 tuning and a web UI with a manual
+**Start read-only test** action.
+
+Refer to [READ_ONLY_OPENTHERM.md](READ_ONLY_OPENTHERM.md) for the complete
+safety gates, private GatewaySecrets.h settings, compatibility classification,
+API endpoints and known limitations. The RF transmit implementation is
+UNTESTED on actual hardware and is disabled by default. Do not interpret
+a successful Arduino build as validated communication with your R8810A.
+
+**All 256 OpenTherm numeric IDs (0..255)** can be swept in an optional
+explicit full scan, while the default test uses a curated read-candidate
+list. No OpenTherm Write-Data or RAMSES W commands are available.
+Some OpenTherm IDs are not readable, and a negative Read-Data answer does
+not prove the underlying feature unsupported.
+
+The CC1101 chip is multiband, but the module RF matching and antenna
+are not automatically multiband. Evohome TX is hard-limited to 868.3 MHz.
 
 ## Configurable network hostname (new in v0.3.1)
 
@@ -89,7 +112,7 @@ Check the COM port selected in Tools > Port, set **115200 baud**, keep Serial Mo
 - GET /api/v1/status returns connection/radio/counter/health information.
 - GET /api/v1/packets returns up to 12 recent valid RAMSES II messages.
 
-There are NO write, pairing, transmit or heating-control endpoints. HTTP Basic authentication is optional; use a trusted LAN only and never port-forward it.
+There are NO write, pairing or heating-control endpoints. The new experimental v0.4 preview provides a disabled-by-default, authenticated, strictly read-only RQ/3220 scan endpoint as described above. HTTP Basic authentication is optional; use a trusted LAN only and never port-forward it.
 
 ## MQTT Discovery for Home Assistant (new in v0.3.0)
 
@@ -106,7 +129,7 @@ With MQTT connected and Home Assistant MQTT Discovery enabled, the gateway autom
 
 The device's **availability** is tracked using the existing topic `RAMSES/GATEWAY/18:NNNNNN` with retained `online` and LWT `offline`; no separate MQTT Discovery connection sensor is necessary. The diagnostic values are reported every 15 seconds to `RAMSES/GATEWAY/18:NNNNNN/status`, retained. Home Assistant entity configuration is retained under `homeassistant/<component>/ramses_gateway_18_NNNNNN/<slug>/config`, and automatically republished on reconnect.
 
-The identifier remains the same as in v0.2.0. These entities represent **gateway health**, not Evohome climate/zone devices. Native RF decoding and MQTT-based zone integration still require CC1101 hardware tests. The gateway remains strictly receive-only.
+The identifier remains the same as in v0.2.0. These entities represent **gateway health**, not Evohome climate/zone devices. Native RF decoding and MQTT-based zone integration still require CC1101 hardware tests. The gateway remains receive-only by default; read-only RF diagnostic transmission must be explicitly configured.
 
 To disable automatic discovery in a custom deployment, set `#define GW_MQTT_DISCOVERY 0` in `GatewaySecrets.h` before compiling (this does not delete already retained discovery configs from your broker).
 
@@ -129,3 +152,38 @@ This project is independent of the existing HA Evohome integration; the heating 
 ## Licensing and provenance
 
 Receiver radio values and frame/Manc​hester decoding rules were adapted from Peter Price's IndaloTech/ramses_esp: https://github.com/IndaloTech/ramses_esp . Review upstream licensing and secure permission where required before redistributing derived firmware.
+
+## Persistent configuration and timestamps (v0.4 beta)
+
+Set `GW_TIMEZONE "Europe/Amsterdam"` in private `GatewaySecrets.h`
+(default). The diagnostic log and exported text log display local dates,
+including CET/CEST daylight-saving time automatically. The underlying
+RAMSES/MQTT radio timestamps remain ISO-8601 UTC for interoperability.
+Before SNTP synchronizes, event timestamps show `clock waiting for NTP`
+rather than a fabricated calendar date; buffered earlier events receive
+reconstructed wall-clock timestamps after synchronization.
+
+The browser's **Gateway configuration** panel changes the settings *after*
+flashing. Values are validated, committed as a sealed NVS record, and then
+used as overrides to compiled `GatewaySecrets.h` defaults on every boot.
+The browser cannot rewrite the compiled header. Wi-Fi, MQTT, DHCP hostname,
+timezone, web login, recovery AP password, CC1101 frequency and read-only
+OpenTherm diagnostic settings are supported. The physical CC1101 module's
+declared hardware band remains a compile-time restriction. A new frequency
+is applied by a controlled restart (not a live SPI reprogramming).
+
+Passwords are never included in GET responses, and empty password inputs
+keep the existing values. Save requires **existing** HTTP Basic login with
+a strong password (12+ characters), a same-origin custom header, and a
+trusted local network. HTTP is not TLS encrypted; do not publish port 80
+on the Internet. After a Wi-Fi credential edit, the device waits up to
+90 seconds for a successful connection; otherwise it restores the last
+known-good NVS configuration and restarts. A configured WPA2 recovery
+AP provides an additional fallback.
+
+The RF radio may remain **physically disconnected**: the configuration,
+timestamps, Wi-Fi and MQTT all continue to work. RF diagnostic-transmission
+remains off by default and additionally requires an explicitly confirmed
+radio, actual received bridge identity, 868.3 MHz matching hardware, and
+valid RF addresses. No boiler write commands are available.
+

@@ -1,0 +1,184 @@
+name: Release RAMSES Arduino v0.4.0 beta
+
+on:
+  # A reviewed/merged push to main can publish the beta. The mandatory
+  # release-readiness checker also validates the exact PR head before release.
+  push:
+    branches: [main]
+    paths:
+      - "firmware/arduino-wroom32e/**"
+      - ".github/workflows/publish-ramses-arduino-v0.4-beta.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: read
+  checks: read
+  issues: read
+
+concurrency:
+  group: ramses-arduino-beta-release
+  cancel-in-progress: false
+
+jobs:
+  beta-release:
+    name: Verify and publish beta under GitHub Releases only
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout beta source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Validate RAMSES and OpenTherm protocols
+        shell: bash
+        run: |
+          set -euo pipefail
+          for testcase in codec debug hostname opentherm; do
+            g++ -std=c++17 -Wall -Wextra -Werror \
+              firmware/arduino-wroom32e/tests/test_${testcase}.cpp \
+              -o "/tmp/test-ramses-${testcase}"
+            "/tmp/test-ramses-${testcase}"
+          done
+          g++ -std=c++17 -Wall -Wextra -Werror \
+            firmware/arduino-wroom32e/tests/test_discovery.cpp \
+            -o /tmp/test-ramses-discovery
+          /tmp/test-ramses-discovery > /tmp/ramses-discovery.jsonl
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          lines = Path('/tmp/ramses-discovery.jsonl').read_text().splitlines()
+          assert len(lines) == 8, 'Expected 8 preexisting gateway MQTT entities'
+          for entry in lines:
+              topic, config = entry.split('\t', 1)
+              assert topic.endswith('/config')
+              json.loads(config)
+          print('Gateway MQTT JSON valid')
+          PY
+
+      - name: Set up Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Compile ESP32-WROOM-32E firmware
+        shell: bash
+        run: |
+          set -euo pipefail
+          arduino-cli config init
+          arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32@3.3.4
+          arduino-cli lib install "PubSubClient@2.8"
+          arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all \
+            firmware/arduino-wroom32e/RamsesGateway \
+            --output-dir "$RUNNER_TEMP/arduino-build"
+
+      - name: Package complete Arduino IDE source and firmware binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+          from zipfile import ZipFile, ZIP_DEFLATED
+
+          root = Path('firmware/arduino-wroom32e')
+          sketch = root / 'RamsesGateway'
+          if (sketch / 'GatewaySecrets.h').exists():
+              raise SystemExit('Refusing to distribute private secrets')
+          sources = sorted(p for p in sketch.iterdir()
+                           if p.is_file() and p.suffix in {'.h', '.ino'})
+          required = {
+              'RamsesGateway.ino', 'RamsesCodec.h', 'Cc1101Radio.h',
+              'OpenThermGateway.h', 'OpenThermReadOnly.h',
+              'OpenThermScan.h', 'RamsesReadRequest.h', 'RadioFrequency.h',
+              'GatewayWebPage.h', 'GatewayHostname.h',
+              'GatewayDiscovery.h', 'GatewaySecrets.example.h',
+              'GatewayDebug.h',
+          }
+          available = {p.name for p in sources}
+          if not required <= available:
+              raise SystemExit(f'Missing source files: {required-available}')
+          binaries = sorted(Path(os.environ['RUNNER_TEMP'], 'arduino-build').glob('*.bin'))
+          if not binaries:
+              raise SystemExit('No compiled ESP32 firmware binaries')
+          docs = ['README.md', 'READ_ONLY_OPENTHERM.md',
+                  'RELEASE_NOTES_v0.4.0-beta.1.md']
+          for name in docs:
+              assert (root / name).is_file(), f'Missing {name}'
+          out = Path('dist')
+          out.mkdir(exist_ok=True)
+          name = 'RAMSES-Arduino-Gateway-v0.4.0-beta.1-ESP32-WROOM-32E.zip'
+          bundle = out / name
+          with ZipFile(bundle, 'w', compression=ZIP_DEFLATED, compresslevel=9) as z:
+              for p in sources:
+                  z.write(p, f'RamsesGateway/{p.name}')
+              for p in binaries:
+                  z.write(p, f'firmware-bin/{p.name}')
+              for doc in docs:
+                  z.write(root / doc, doc)
+              z.write('LICENSE', 'LICENSE')
+          with ZipFile(bundle) as z:
+              assert z.testzip() is None, 'Corrupt ZIP member'
+              members = set(z.namelist())
+              assert {f'RamsesGateway/{x}' for x in required} <= members
+              assert any(x.startswith('firmware-bin/') and x.endswith('.bin')
+                         for x in members)
+              assert 'RamsesGateway/GatewaySecrets.h' not in members
+              print(f'ZIP files: {len(members)}, size: {bundle.stat().st_size} bytes')
+          checksum = hashlib.sha256(bundle.read_bytes()).hexdigest()
+          (out / f'{name}.sha256').write_text(f'{checksum}  {name}\n')
+          print('SHA256:', checksum)
+          PY
+
+      - name: Verify merged source has exact-head Codex review and no P1/P2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/check_release_readiness.py
+
+      - name: Publish GitHub Releases beta assets (no Actions artifacts)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="ramses-arduino-v0.4.0-beta.1"
+          FILE="RAMSES-Arduino-Gateway-v0.4.0-beta.1-ESP32-WROOM-32E.zip"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::Release $TAG already exists: do not overwrite an immutable beta. Bump beta number for another build."
+            exit 1
+          fi
+          if gh api "repos/${GH_REPO}/git/ref/tags/${TAG}" >/dev/null 2>&1; then
+            echo "::error::Beta tag ${TAG} exists already. Bump beta version; never reuse a stale tag."
+            exit 1
+          fi
+          gh release create "$TAG" \
+            "dist/$FILE" "dist/$FILE.sha256" \
+            --target "$GITHUB_SHA" \
+            --title "RAMSES Arduino Gateway v0.4.0-beta.1 (ESP32-WROOM-32E)" \
+            --notes-file firmware/arduino-wroom32e/RELEASE_NOTES_v0.4.0-beta.1.md \
+            --prerelease
+
+      - name: Add published date in CET/CEST to beta description
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: python3 scripts/release_local_time.py --tag ramses-arduino-v0.4.0-beta.1
+
+      - name: Verify release exists and has both downloads
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="ramses-arduino-v0.4.0-beta.1"
+          FILE="RAMSES-Arduino-Gateway-v0.4.0-beta.1-ESP32-WROOM-32E.zip"
+          gh release view "$TAG" --json isPrerelease,assets \
+            --jq '.isPrerelease == true' | grep -Fx true
+          gh release view "$TAG" --json assets --jq '.assets[].name' | grep -Fx "$FILE"
+          gh release view "$TAG" --json assets --jq '.assets[].name' | grep -Fx "$FILE.sha256"
+          echo "Release download page: https://github.com/$GH_REPO/releases/tag/$TAG"

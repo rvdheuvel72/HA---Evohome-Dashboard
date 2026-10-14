@@ -48,6 +48,33 @@
 #ifndef GW_HOSTNAME
 #define GW_HOSTNAME "" // Legacy secrets: auto-generated unique hostname
 #endif
+// Frequency is chosen within the declared physical RF module band.
+// The default CC1101 module and Evohome both use 868.3 MHz.
+#ifndef GW_CC1101_FREQUENCY_KHZ
+#define GW_CC1101_FREQUENCY_KHZ 868300
+#endif
+#ifndef GW_CC1101_MODULE_BAND
+#define GW_CC1101_MODULE_BAND 868
+#endif
+// Experimental RF request transmission must be explicitly enabled,
+// with RF IDs manually obtained from valid RAMSES traffic.
+#ifndef GW_OT_BRIDGE_ID
+#define GW_OT_BRIDGE_ID 0
+#endif
+#ifndef GW_OT_SOURCE_ID
+#define GW_OT_SOURCE_ID 0
+#endif
+#ifndef GW_OT_SCAN_ALL_256
+#define GW_OT_SCAN_ALL_256 0
+#endif
+#ifndef GW_OT_AUTO_POLL
+#define GW_OT_AUTO_POLL 0
+#endif
+#ifndef GW_TIMEZONE
+#define GW_TIMEZONE "Europe/Amsterdam"
+#endif
+#include "GatewayRuntimeConfig.h"
+#include "OpenThermGateway.h"
 
 namespace {
 constexpr uint32_t WIFI_RETRY_MS = 15000;
@@ -56,7 +83,7 @@ constexpr uint8_t RING_SIZE = 12;
 constexpr uint32_t RX_IDLE_TIMEOUT_MS = 250;
 constexpr uint32_t HEARTBEAT_MS = 15000;
 constexpr uint8_t DEBUG_QUEUE_SIZE = 16;
-constexpr char FW_VERSION[] = "0.3.1";
+constexpr char FW_VERSION[] = "0.4.0-readonly-preview";
 constexpr uint32_t MDNS_RETRY_MS = 15000;
 constexpr uint32_t MQTT_STATE_INTERVAL_MS = 15000;
 
@@ -64,6 +91,10 @@ struct PacketEvent {
   char hgi[256];
   uint32_t uptimeMs;
   uint8_t rssi;
+  bool otValid=false;
+  uint8_t otId=0;
+  uint8_t otResult=0;
+  uint16_t otRaw=0;
 };
 struct DebugEvent {
   char line[GatewayDebug::LINE_BYTES] = {};
@@ -76,6 +107,10 @@ WiFiClient wifiClient;
 PubSubClient mqtt(wifiClient);
 HardwareSerial rfUart(1);
 Cc1101Radio radio;
+OpenThermGateway otGateway;
+gw_config::Store configuration;
+uint32_t restartDueMs=0;
+uint32_t pendingBootMs=0;
 QueueHandle_t rxQueue = nullptr;
 QueueHandle_t debugQueue = nullptr;
 GatewayDebug diagnosticLog;
@@ -144,8 +179,8 @@ const char* resetReason() {
 }
 
 bool authorized() {
-  if (!GW_DEBUG_USER[0] || !GW_DEBUG_PASSWORD[0]) return true;
-  if (web.authenticate(GW_DEBUG_USER, GW_DEBUG_PASSWORD)) return true;
+  if (!configuration.current.webUser[0] || !configuration.current.webPassword[0]) return true;
+  if (web.authenticate(configuration.current.webUser, configuration.current.webPassword)) return true;
   web.requestAuthentication(BASIC_AUTH, "RAMSES Gateway Diagnostics");
   return false;
 }
@@ -182,9 +217,11 @@ void radioTask(void*) {
   ramses::FrameDecoder decoder;
   ramses::Message message;
   rfUart.setRxBufferSize(4096);
-  // CC1101 GDO2 is RX serial data. No UART TX pin assigned.
-  rfUart.begin(38400, SERIAL_8N1, Cc1101Radio::GDO2, -1);
-  radioReady = radio.begin();
+  // GDO2 receives async radio data; GDO0 is UART TX into CC1101 during STX.
+  // No RF TX is attempted unless explicit, constrained diagnostic gates pass.
+  rfUart.begin(38400, SERIAL_8N1, Cc1101Radio::GDO2, Cc1101Radio::GDO0);
+  radioReady = radio.begin(configuration.current.rfFrequencyKhz,GW_CC1101_MODULE_BAND);
+  if(radioReady)otGateway.begin();
   char radioInfo[130];
   snprintf(radioInfo, sizeof(radioInfo), "CC1101 detected=%u PARTNUM=0x%02X VERSION=0x%02X",
            radioReady ? 1 : 0, radio.part(), radio.version());
@@ -207,11 +244,21 @@ void radioTask(void*) {
       const bool decoded = decoder.feed(byteIn, message);
       rfSyncs = decoder.syncCount();
       if (decoded) {
+        otGateway.noteDevice(message);
         const uint8_t strength = radio.rssiMagnitude();
         PacketEvent packet = {};
         if (ramses::format(message, strength, packet.hgi, sizeof(packet.hgi))) {
           packet.uptimeMs = millis();
           packet.rssi = strength;
+          ot_readonly::Result otResult=ot_readonly::NOT_TESTED;
+          uint8_t otId=0;
+          uint16_t otRaw=0;
+          if(otGateway.observe(message,otId,otResult,otRaw)){
+            packet.otValid=true;
+            packet.otId=otId;
+            packet.otResult=otResult;
+            packet.otRaw=otRaw;
+          }
           ++validFrames;
           lastFrameMs = packet.uptimeMs;
           lastRssi = strength;
@@ -239,20 +286,198 @@ void radioTask(void*) {
       }
       lastCalibrationMs = now;
     }
+    otGateway.tick(radio,rfUart,decoder);
     vTaskDelay(pdMS_TO_TICKS(1));
   }
 }
 
+void httpOtProfile(){
+  if(!authorized())return;
+  otGateway.sendProfile(web);
+}
+void httpOtScan(){
+  if(!authorized())return;
+  if(!web.hasHeader("X-Gateway-Config") ||
+     web.header("X-Gateway-Config")!="scan"){
+    web.send(403,"application/json",
+      "{\"error\":\"missing_same_origin_scan_header\"}");
+    return;
+  }
+  // Never expose RF transmission on a gateway with anonymous HTTP
+  // or the documented example/default placeholder password.
+  if(!configuration.current.webUser[0] || strlen(configuration.current.webPassword)<12 ||
+     strcmp(configuration.current.webPassword,"CHANGE_TO_A_STRONG_PRIVATE_PASSWORD")==0){
+    web.send(403,"application/json","{\"error\":\"strong_web_auth_required\"}");
+    return;
+  }
+  if(!radioReady || !otGateway.transmitEnabled()){
+    web.send(409,"application/json","{\"error\":\"rf_tx_disabled_or_not_configured\"}");
+    return;
+  }
+  if(!otGateway.requestScan()){
+    web.send(409,"application/json","{\"error\":\"scan_already_active\"}");
+    return;
+  }
+  web.send(202,"application/json","{\"status\":\"queued\",\"mode\":\"read_only\"}");
+}
+
+// Cross-site HTML forms cannot set this custom request header; browsers do
+// not accept cross-origin credentialed writes without explicit CORS permission.
+bool settingsWriteAllowed(){
+  if (!configuration.current.webUser[0] ||
+      strlen(configuration.current.webPassword)<12 ||
+      strcmp(configuration.current.webPassword,
+             "CHANGE_TO_A_STRONG_PRIVATE_PASSWORD")==0) {
+    web.send(403,"application/json",
+      "{\"error\":\"configure_strong_web_auth_in_GatewaySecrets_first\"}");
+    return false;
+  }
+  if(!authorized())return false;
+  if(!web.hasHeader("X-Gateway-Config") ||
+     web.header("X-Gateway-Config")!="save") {
+    web.send(403,"application/json","{\"error\":\"missing_same_origin_settings_header\"}");
+    return false;
+  }
+  return true;
+}
+void httpConfigGet() {
+  if(!authorized())return;
+  const gw_config::Settings& cfg=configuration.current;
+  String result="{";
+  result+="\"hostname\":\""+escapeJSON(cfg.hostname)+"\",";
+  result+="\"web_user\":\""+escapeJSON(cfg.webUser)+"\",";
+  result+="\"wifi_ssid\":\""+escapeJSON(cfg.wifiSSID)+"\",";
+  result+="\"mqtt_host\":\""+escapeJSON(cfg.mqttHost)+"\",";
+  result+="\"mqtt_port\":"+String(cfg.mqttPort)+",";
+  result+="\"mqtt_discovery\":"+(cfg.mqttDiscovery?String("true"):String("false"))+",";
+  result+="\"mqtt_user\":\""+escapeJSON(cfg.mqttUser)+"\",";
+  result+="\"timezone\":\""+escapeJSON(cfg.timezone)+"\",";
+  result+="\"rf_frequency_khz\":"+String(cfg.rfFrequencyKhz)+",";
+  result+="\"rf_module_band\":"+String(GW_CC1101_MODULE_BAND)+",";
+  result+="\"ot_bridge\":"+String(cfg.otBridge)+",";
+  result+="\"ot_source\":"+String(cfg.otSource)+",";
+  result+="\"ot_scan_all\":"+(cfg.otScanAll?String("true"):String("false"))+",";
+  result+="\"ot_auto_poll\":"+(cfg.otAutoPoll?String("true"):String("false"))+",";
+  result+="\"ot_tx_enabled\":"+(cfg.otTxEnabled?String("true"):String("false"))+",";
+  result+="\"recovery_ap_configured\":"+(cfg.recoveryPassword[0]?String("true"):String("false"))+",";
+  result+="\"web_auth_configured\":"+(cfg.webPassword[0]?String("true"):String("false"))+",";
+  result+="\"wifi_password_configured\":"+(cfg.wifiPassword[0]?String("true"):String("false"))+",";
+  result+="\"mqtt_password_configured\":"+(cfg.mqttPassword[0]?String("true"):String("false"))+",";
+  result+="\"nvs_pending\":"+(configuration.pending?String("true"):String("false"))+"}";
+  // Password values (WiFi, MQTT, web and recovery AP) are NEVER exposed.
+  web.sendHeader("Cache-Control","no-store");
+  web.send(200,"application/json",result);
+}
+bool readField(const char* key,char* dst,size_t cap,bool optional=false){
+  if(!web.hasArg(key))return optional;
+  const String value=web.arg(key);
+  if(!gw_config::safeText(value,cap))return false;
+  snprintf(dst,cap,"%s",value.c_str());
+  return true;
+}
+void httpConfigSave(){
+  if(!settingsWriteAllowed())return;
+  if(configuration.pending){
+    web.send(409,"application/json","{\"error\":\"previous_changes_waiting_for_wifi_confirmation\"}");
+    return;
+  }
+  gw_config::Settings staged=configuration.current;
+  bool ok=readField("hostname",staged.hostname,sizeof(staged.hostname)) &&
+          readField("wifi_ssid",staged.wifiSSID,sizeof(staged.wifiSSID)) &&
+          readField("mqtt_host",staged.mqttHost,sizeof(staged.mqttHost)) &&
+          readField("mqtt_user",staged.mqttUser,sizeof(staged.mqttUser)) &&
+          readField("timezone",staged.timezone,sizeof(staged.timezone)) &&
+          readField("web_user",staged.webUser,sizeof(staged.webUser),true);
+  if(!ok){
+    web.send(400,"application/json","{\"error\":\"missing_or_invalid_text_field\"}");
+    return;
+  }
+  // Empty password means retain existing secret. Clearing any secret requires
+  // an explicit dedicated control, never an unnoticed empty form field.
+  const struct {const char* key;char* value;size_t size;} passwords[]={
+    {"wifi_password",staged.wifiPassword,sizeof(staged.wifiPassword)},
+    {"mqtt_password",staged.mqttPassword,sizeof(staged.mqttPassword)},
+    {"web_password",staged.webPassword,sizeof(staged.webPassword)},
+    {"recovery_password",staged.recoveryPassword,sizeof(staged.recoveryPassword)}
+  };
+  for(const auto& field:passwords){
+    if(web.hasArg(field.key) && web.arg(field.key).length()){
+      if(!readField(field.key,field.value,field.size)){
+        web.send(400,"application/json","{\"error\":\"invalid_password_length_or_characters\"}");
+        return;
+      }
+    }
+  }
+  if(!web.hasArg("mqtt_port") || !web.hasArg("rf_frequency_khz") ||
+     !web.hasArg("ot_bridge") || !web.hasArg("ot_source")) {
+    web.send(400,"application/json","{\"error\":\"required_numeric_field_missing\"}");
+    return;
+  }
+  auto number=[](const String& text,unsigned long max,unsigned long& parsed)->bool {
+    if(text.isEmpty() || text.length()>9)return false;
+    for(size_t i=0;i<text.length();i++)
+      if(text[i]<'0'||text[i]>'9')return false;
+    parsed=strtoul(text.c_str(),nullptr,10);
+    return parsed<=max;
+  };
+  unsigned long value=0;
+  if(!number(web.arg("mqtt_port"),65535,value) || !value){
+    web.send(400,"application/json","{\"error\":\"mqtt_port_must_be_1_to_65535\"}");return;
+  }
+  staged.mqttPort=static_cast<uint16_t>(value);
+  if(!number(web.arg("rf_frequency_khz"),999999,value)){
+    web.send(400,"application/json","{\"error\":\"invalid_rf_frequency\"}");return;
+  }
+  staged.rfFrequencyKhz=value;
+  if(!number(web.arg("ot_bridge"),262143,value)){
+    web.send(400,"application/json","{\"error\":\"invalid_bridge_id\"}");return;
+  }
+  staged.otBridge=value;
+  if(!number(web.arg("ot_source"),262143,value)){
+    web.send(400,"application/json","{\"error\":\"invalid_source_id\"}");return;
+  }
+  staged.otSource=value;
+  staged.otScanAll=web.arg("ot_scan_all")=="1";
+  staged.otAutoPoll=web.arg("ot_auto_poll")=="1";
+  staged.mqttDiscovery=web.arg("mqtt_discovery")=="1";
+  staged.otTxEnabled=web.arg("ot_tx_enabled")=="1";
+  if(staged.otTxEnabled && (!web.hasArg("rf_safety_confirm") ||
+      web.arg("rf_safety_confirm")!="1")){
+    web.send(400,"application/json","{\"error\":\"rf_read_request_safety_confirmation_required\"}");
+    return;
+  }
+  if(web.arg("clear_wifi_password")=="1")staged.wifiPassword[0]=0;
+  if(web.arg("clear_mqtt_password")=="1")staged.mqttPassword[0]=0;
+  if(web.arg("clear_recovery_password")=="1")staged.recoveryPassword[0]=0;
+  if(strlen(staged.webPassword)<12 || !staged.webUser[0] ||
+     strcmp(staged.webPassword,"CHANGE_TO_A_STRONG_PRIVATE_PASSWORD")==0){
+    web.send(400,"application/json","{\"error\":\"web_login_must_remain_secure\"}");
+    return;
+  }
+  if(!gw_config::validate(staged,GW_CC1101_MODULE_BAND)){
+    web.send(400,"application/json","{\"error\":\"invalid_settings_or_rf_band\"}");
+    return;
+  }
+  if(!configuration.stage(staged,GW_CC1101_MODULE_BAND)){
+    web.send(500,"application/json","{\"error\":\"nvs_save_failed\"}");
+    return;
+  }
+  recordLog(GatewayDebug::INFO,"Authenticated settings update saved; restarting gateway");
+  web.sendHeader("Cache-Control","no-store");
+  web.send(200,"application/json","{\"saved\":true,\"restart_in_seconds\":3}");
+  restartDueMs=millis()+3000;
+}
+
 void httpStatus() {
   if (!authorized()) return;
-  char json[1300];
+  char json[1550];
   const String ip = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "";
   const String apIp = recoveryApReady ? WiFi.softAPIP().toString() : "";
   snprintf(json, sizeof(json),
-           "{\"version\":\"%s\",\"board\":\"ESP32-WROOM-32E\",\"mode\":\"receive_only\","
-           "\"radio_detected\":%s,\"radio_verified\":false,\"cc1101_part\":%u,\"cc1101_version\":%u,"
+           "{\"version\":\"%s\",\"board\":\"ESP32-WROOM-32E\",\"mode\":\"%s\","
+           "\"radio_detected\":%s,\"radio_verified\":%s,\"cc1101_part\":%u,\"cc1101_version\":%u,"
            "\"wifi_connected\":%s,\"mqtt_connected\":%s,\"time_synced\":%s,"
-           "\"hostname\":\"%s\",\"mdns_active\":%s,"
+           "\"hostname\":\"%s\",\"mdns_active\":%s,\"cc1101_frequency_khz\":%lu,\"cc1101_module_band\":%u,\"ot_tx_enabled\":%s,"
            "\"valid_frames\":%lu,\"rejected_frames\":%lu,\"dropped_frames\":%lu,"
            "\"rf_uart_bytes\":%lu,\"rf_syncs\":%lu,\"radio_recalibrations\":%lu,"
            "\"radio_recalibration_failures\":%lu,"
@@ -260,11 +485,16 @@ void httpStatus() {
            "\"uptime_ms\":%lu,\"free_heap\":%lu,\"gateway_id\":\"%s\","
            "\"ip\":\"%s\",\"ap_ip\":\"%s\",\"ap_ssid\":\"%s\",\"reset_reason\":\"%s\"}",
            FW_VERSION,
-           radioReady ? "true" : "false", radio.part(), radio.version(),
+           otGateway.transmitEnabled() ? "read_only_requests" : "receive_only",
+           radioReady ? "true" : "false",
+           validFrames ? "true" : "false", radio.part(), radio.version(),
            WiFi.status() == WL_CONNECTED ? "true" : "false",
            mqtt.connected() ? "true" : "false",
            timeSynchronized() ? "true" : "false",
            gatewayHostname, mdnsReady ? "true" : "false",
+           static_cast<unsigned long>(radio.frequencyKhz()),
+           static_cast<unsigned>(radio.moduleBand()),
+           otGateway.transmitEnabled() ? "true" : "false",
            static_cast<unsigned long>(validFrames),
            static_cast<unsigned long>(rejectedFrames),
            static_cast<unsigned long>(droppedFrames),
@@ -298,6 +528,15 @@ void httpPackets() {
   web.send(200, "application/json", json);
 }
 
+// Wall clock for events before SNTP can be reconstructed after time sync.
+bool eventLocalTime(uint32_t uptimeMs,char* out,size_t capacity) {
+  if(!timeSynchronized() || !out || capacity<40)return false;
+  const uint32_t elapsed=millis()-uptimeMs;
+  const time_t instant=time(nullptr)-static_cast<time_t>(elapsed/1000u);
+  tm local={};
+  localtime_r(&instant,&local);
+  return strftime(out,capacity,"%Y-%m-%d %H:%M:%S %Z (%z)",&local)>0;
+}
 void httpDebugLogs() {
   if (!authorized()) return;
   const uint32_t cursor = static_cast<uint32_t>(strtoul(web.arg("since").c_str(), nullptr, 10));
@@ -317,6 +556,11 @@ void httpDebugLogs() {
     item += String(entry.sequence);
     item += ",\"uptime_ms\":";
     item += String(entry.uptimeMs);
+    item += ",\"timestamp\":";
+    char stamp[52]={};
+    if(eventLocalTime(entry.uptimeMs,stamp,sizeof(stamp)))
+      item += "\"" + escapeJSON(stamp) + "\"";
+    else item += "null";
     item += ",\"level\":\"";
     item += GatewayDebug::levelName(entry.level);
     item += "\",\"message\":\"";
@@ -336,7 +580,11 @@ void httpDebugDownload() {
   web.send(200, "text/plain", "");
   web.sendContent("RAMSES Arduino Gateway " + String(FW_VERSION) + " / " + resetReason() + "\n");
   diagnosticLog.eachAfter(0, GatewayDebug::TRACE, [&](const GatewayDebug::Entry& entry) {
-    String line = "[" + String(entry.uptimeMs) + "ms] ";
+    char stamp[52]={};
+    String line="[";
+    if(eventLocalTime(entry.uptimeMs,stamp,sizeof(stamp)))line+=stamp;
+    else line+="+"+String(entry.uptimeMs)+"ms (not synchronized)";
+    line+="] ";
     line += GatewayDebug::levelName(entry.level);
     line += " ";
     line += entry.message;
@@ -379,13 +627,13 @@ void serviceMdns() {
 }
 
 void wifiConnect() {
-  if (GW_WIFI_SSID[0] == '\0') return;
+  if (configuration.current.wifiSSID[0] == '\0') return;
   if (WiFi.status() == WL_CONNECTED) return;
   const uint32_t now = millis();
   if (lastWifiAttempt && now - lastWifiAttempt < WIFI_RETRY_MS) return;
   lastWifiAttempt = now;
   WiFi.disconnect(false);
-  WiFi.begin(GW_WIFI_SSID, GW_WIFI_PASSWORD);
+  WiFi.begin(configuration.current.wifiSSID, configuration.current.wifiPassword);
   recordLog(GatewayDebug::INFO, "Wi-Fi connection attempt");
 }
 
@@ -436,13 +684,13 @@ bool publishGatewayState() {
 }
 
 void mqttConnect() {
-  if (GW_MQTT_HOST[0] == '\0' || WiFi.status() != WL_CONNECTED || mqtt.connected()) return;
+  if (configuration.current.mqttHost[0] == '\0' || WiFi.status() != WL_CONNECTED || mqtt.connected()) return;
   const uint32_t now = millis();
   if (lastMqttAttempt && now - lastMqttAttempt < MQTT_RETRY_MS) return;
   lastMqttAttempt = now;
   bool ok;
-  if (GW_MQTT_USER[0] != '\0') {
-    ok = mqtt.connect(deviceId, GW_MQTT_USER, GW_MQTT_PASSWORD,
+  if (configuration.current.mqttUser[0] != '\0') {
+    ok = mqtt.connect(deviceId, configuration.current.mqttUser, configuration.current.mqttPassword,
                       availabilityTopic, 1, true, "offline");
   } else {
     ok = mqtt.connect(deviceId, availabilityTopic, 1, true, "offline");
@@ -452,7 +700,7 @@ void mqttConnect() {
     // A gateway with no CC1101 still registers as a device with radio=off.
     const bool stateOk = publishGatewayState();
     bool discoveryOk = true;
-    if (GW_MQTT_DISCOVERY) discoveryOk = publishDiscovery();
+    if (configuration.current.mqttDiscovery) discoveryOk = publishDiscovery();
     if (!stateOk) recordLog(GatewayDebug::WARN, "Initial MQTT state publish failed");
     if (!discoveryOk) recordLog(GatewayDebug::WARN, "MQTT Discovery incomplete");
     mqtt.publish(availabilityTopic, "online", true);
@@ -480,6 +728,27 @@ void handlePacket(const PacketEvent& event) {
   recentNext = (recentNext + 1) % RING_SIZE;
   if (recentCount < RING_SIZE) ++recentCount;
   Serial.printf("# RX %s\n", event.hgi);
+  if(event.otValid && mqtt.connected() && timeSynchronized()){
+    char telemetry[240];
+    float v=0;
+    const bool isFixed=event.otResult==ot_readonly::READ_ACK &&
+      ot_readonly::fixedPoint(event.otId,event.otRaw,v);
+    if(isFixed)
+      snprintf(telemetry,sizeof(telemetry),
+        "{\"id\":%u,\"name\":\"%s\",\"status\":\"%s\",\"raw\":%u,\"value\":%.3f}",
+        event.otId,ot_readonly::label(event.otId),
+        ot_readonly::state(static_cast<ot_readonly::Result>(event.otResult)),
+        event.otRaw,static_cast<double>(v));
+    else
+      snprintf(telemetry,sizeof(telemetry),
+        "{\"id\":%u,\"name\":\"%s\",\"status\":\"%s\",\"raw\":%u,\"value\":null}",
+        event.otId,ot_readonly::label(event.otId),
+        ot_readonly::state(static_cast<ot_readonly::Result>(event.otResult)),
+        event.otRaw);
+    char topic[108];
+    snprintf(topic,sizeof(topic),"%s/opentherm/event",baseTopic);
+    mqtt.publish(topic,telemetry,false);
+  }
   diagnosticLog.add(millis(), GatewayDebug::TRACE, event.hgi);
 
   // ramses_esp-compatible MQTT JSON. Refuse publishing stale/invalid timestamps.
@@ -497,8 +766,8 @@ void handlePacket(const PacketEvent& event) {
 void setup() {
   Serial.begin(115200);
   delay(250);
-  Serial.println("\n# RAMSES II Arduino prototype 0.3.1 (RX ONLY / HOSTNAME + mDNS)");
-  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.3.1");
+  Serial.println("\n# RAMSES II Arduino prototype 0.4.0 (read-only OpenTherm discovery)");
+  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-preview");
   char bootInfo[96];
   snprintf(bootInfo, sizeof(bootInfo), "Reset reason: %s", resetReason());
   recordLog(GatewayDebug::INFO, bootInfo);
@@ -511,8 +780,10 @@ void setup() {
     return;
   }
   const uint32_t serial = static_cast<uint32_t>(ESP.getEfuseMac() & 0xFFFFFFu);
-  const bool configuredHostnameValid = gateway_hostname::resolve(GW_HOSTNAME, serial, gatewayHostname, sizeof(gatewayHostname));
-  if (!configuredHostnameValid && GW_HOSTNAME[0])
+  configuration.begin(GW_CC1101_MODULE_BAND);
+  otGateway.configure(&configuration.current,GW_CC1101_MODULE_BAND);
+  const bool configuredHostnameValid = gateway_hostname::resolve(configuration.current.hostname, serial, gatewayHostname, sizeof(gatewayHostname));
+  if (!configuredHostnameValid && configuration.current.hostname[0])
     recordLog(GatewayDebug::WARN, "GW_HOSTNAME invalid: using generated evohome-gateway-XXXXXX");
   char hostInfo[100];
   snprintf(hostInfo, sizeof(hostInfo), "Gateway hostname: %s", gatewayHostname);
@@ -525,10 +796,10 @@ void setup() {
   snprintf(availabilityTopic, sizeof(availabilityTopic), "%s", baseTopic);
   snprintf(stateTopic, sizeof(stateTopic), "%s/status", baseTopic);
 
-  if (strlen(GW_RECOVERY_AP_PASSWORD) >= 8) {
+  if (strlen(configuration.current.recoveryPassword) >= 8) {
     WiFi.mode(WIFI_AP_STA);
     snprintf(recoveryApSsid, sizeof(recoveryApSsid), "RAMSES-Debug-%06X", serial);
-    recoveryApReady = WiFi.softAP(recoveryApSsid, GW_RECOVERY_AP_PASSWORD);
+    recoveryApReady = WiFi.softAP(recoveryApSsid, configuration.current.recoveryPassword);
     if (recoveryApReady) {
       char apInfo[128];
       snprintf(apInfo, sizeof(apInfo), "Recovery AP active: %s, IP %s",
@@ -543,20 +814,30 @@ void setup() {
   if (!WiFi.setHostname(gatewayHostname))
     recordLog(GatewayDebug::WARN, "Could not set DHCP Wi-Fi hostname");
   WiFi.setSleep(false);
-  mqtt.setServer(GW_MQTT_HOST, GW_MQTT_PORT);
+  mqtt.setServer(configuration.current.mqttHost, configuration.current.mqttPort);
   mqtt.setBufferSize(1536); // Home Assistant Discovery configurations are larger than 512 bytes
   web.on("/", HTTP_GET, httpIndex);
   web.on("/api/v1/status", HTTP_GET, httpStatus);
+  web.on("/api/v1/config", HTTP_GET, httpConfigGet);
+  web.on("/api/v1/config", HTTP_POST, httpConfigSave);
   web.on("/api/v1/packets", HTTP_GET, httpPackets);
+  web.on("/api/v1/opentherm/profile", HTTP_GET, httpOtProfile);
+  web.on("/api/v1/opentherm/scan", HTTP_POST, httpOtScan);
   web.on("/api/v1/debug/logs", HTTP_GET, httpDebugLogs);
   web.on("/api/v1/debug/download", HTTP_GET, httpDebugDownload);
   web.onNotFound([]() {
     if (!authorized()) return;
     web.send(404, "application/json", "{\"error\":\"not_found\"}");
   });
+  const char* configHeaders[]={"X-Gateway-Config"};
+  web.collectHeaders(configHeaders,1);
   web.begin();
   recordLog(GatewayDebug::INFO, "HTTP diagnostics ready on port 80");
-  configTime(0, 0, "pool.ntp.org", "time.google.com");
+  // configTime() would overwrite TZ with UTC. configTzTime() preserves
+  // full POSIX daylight-saving rules (CET/CEST for Europe/Amsterdam).
+  configTzTime(gw_config::posixZone(configuration.current.timezone),
+               "pool.ntp.org", "time.google.com");
+  pendingBootMs=millis();
   wifiConnect();
 
   const BaseType_t created = xTaskCreatePinnedToCore(radioTask, "ramses-rx", 6144, nullptr, 3, nullptr, 1);
@@ -583,6 +864,18 @@ void loop() {
     }
   }
   web.handleClient();
+  if(restartDueMs && static_cast<int32_t>(millis()-restartDueMs)>=0)ESP.restart();
+  if(configuration.pending) {
+    // Roll back staged credentials if Wi-Fi never reconnects after an edit.
+    if(WiFi.status()==WL_CONNECTED && millis()-pendingBootMs>=20000) {
+      if(configuration.confirm())recordLog(GatewayDebug::INFO,"Updated settings confirmed after Wi-Fi reconnection");
+    } else if(millis()-pendingBootMs>=90000) {
+      if(configuration.rollback(GW_CC1101_MODULE_BAND)) {
+        recordLog(GatewayDebug::ERROR,"Settings Wi-Fi test failed, restoring previous configuration");
+        delay(80);ESP.restart();
+      }
+    }
+  }
 
   PacketEvent item;
   unsigned handled = 0;

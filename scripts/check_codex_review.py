@@ -48,16 +48,19 @@ def pages(token, path):
 
 
 def review_ready(reviews, summaries, sha):
-    reviewed = any(is_codex(x.get("user")) and x.get("commit_id") == sha
-                   and x.get("submitted_at") and x.get("state") != "PENDING"
-                   for x in reviews)
-    completed = any(is_codex(x.get("user"))
-                    and "codex-pull-request-review-summary" in x.get("body", "")
-                    and ("\u2705 **Completed**" in x.get("body", ""))
-                    and (chr(96) + sha[:7] + chr(96)) in x.get("body", "")
-                    for x in summaries)
-    return reviewed and completed
+    """Trust authenticated exact-head Codex completion summary.
 
+    Codex may respond with a thumbs-up and updated summary instead of a
+    Review object when it finds no issues. The P1/P2 blocker scan is a
+    separate mandatory gate; old summaries are never accepted.
+    """
+    return any(
+        is_codex(x.get("user"))
+        and "codex-pull-request-review-summary" in x.get("body", "")
+        and COMPLETED in x.get("body", "")
+        and (chr(96) + sha[:7] + chr(96)) in x.get("body", "")
+        for x in summaries
+    )
 
 def finding_blocks(thread, comment, sha):
     """A current-head P1/P2 blocks regardless of thread resolution."""

@@ -64,7 +64,7 @@ struct Settings {
   uint8_t otScanAll=0;
   uint8_t otAutoPoll=0;
   uint8_t otTxEnabled=0;
-  uint8_t reserved=0;
+  uint8_t mqttDiscovery=1;
   uint32_t checksum=0;
 };
 static_assert(sizeof(Settings)<1024,"NVS configuration must stay bounded");
@@ -91,7 +91,7 @@ inline bool validate(const Settings& s, uint16_t hardwareBand) {
   if(!radio_frequency::withinHardwareBand(s.rfFrequencyKhz,hardwareBand))
     return false;
   if(s.otBridge>262143 || s.otSource>262142 || s.otSource==730 ||
-     s.otScanAll>1 || s.otAutoPoll>1 || s.otTxEnabled>1)
+     s.otScanAll>1 || s.otAutoPoll>1 || s.otTxEnabled>1 || s.mqttDiscovery>1)
     return false;
   // RF transmit cannot be armed without a valid bridge & gateway identity.
   if(s.otTxEnabled && (!s.otBridge || !s.otSource ||
@@ -122,6 +122,7 @@ inline Settings defaults() {
   s.otSource=GW_OT_SOURCE_ID;
   s.otScanAll=GW_OT_SCAN_ALL_256?1:0;
   s.otAutoPoll=GW_OT_AUTO_POLL?1:0;
+  s.mqttDiscovery=GW_MQTT_DISCOVERY?1:0;
   // Keep RF transmit OFF on every fresh installation, regardless of defaults.
   s.otTxEnabled=0;
   seal(s);

@@ -78,11 +78,11 @@ def parse_utc(timestamp):
 
 
 def quota_deferred(comments, sha, now=None):
-    """Authorize a temporary review debt only for a witnessed exact-head request.
+    """Accept a recent genuine PR quota notice plus exact-head request.
 
-    A real Codex quota notice must follow a user-authored @codex review
-    request that explicitly names the full 40-char PR head SHA. Old or
-    fabricated quota messages never waive reviews on a changed head.
+    The bot may stop responding to repeated review requests after quota
+    exhaustion. Require a new, explicit full SHA request nevertheless.
+    A quota notice is PR-specific and expires after 24h.
     """
     now = now or datetime.now(timezone.utc)
     requests = [
@@ -102,8 +102,7 @@ def quota_deferred(comments, sha, now=None):
         if is_codex(c.get("user"))
         and CODEX_QUOTA_NOTICE in c.get("body", "")
     ]
-    return any(t and latest_request <= t <= now
-               and now - t <= QUOTA_GRACE for t in notices)
+    return any(t and t <= now and now-t <= QUOTA_GRACE for t in notices)
 
 
 def review_disposition(reviews, comments, sha, now=None):

@@ -143,7 +143,9 @@ async function otStatus(){
 el('ot-scan').addEventListener('click',async()=>{
  el('ot-scan').disabled=true;
  try{
-  const r=await fetch('/api/v1/opentherm/scan',{method:'POST'});
+  const r=await fetch('/api/v1/opentherm/scan',{
+   method:'POST',headers:{'X-Gateway-Config':'scan'}
+  });
   const body=await r.json();
   if(!r.ok)throw new Error(body.error||'HTTP '+r.status);
   set('ot-state','Read-only scan queued');

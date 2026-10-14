@@ -342,6 +342,7 @@ void httpConfigGet() {
   const gw_config::Settings& cfg=configuration.current;
   String result="{";
   result+="\"hostname\":\""+escapeJSON(cfg.hostname)+"\",";
+  result+="\"web_user\":\""+escapeJSON(cfg.webUser)+"\",";
   result+="\"wifi_ssid\":\""+escapeJSON(cfg.wifiSSID)+"\",";
   result+="\"mqtt_host\":\""+escapeJSON(cfg.mqttHost)+"\",";
   result+="\"mqtt_port\":"+String(cfg.mqttPort)+",";

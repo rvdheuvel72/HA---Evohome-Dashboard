@@ -51,6 +51,7 @@ a{color:#a9d5ff}
 <label class="field">MQTT broker / IP<input name="mqtt_host" id="cfg-mqtt_host" maxlength="128" autocomplete="off"></label>
 <label class="field">MQTT port<input name="mqtt_port" id="cfg-mqtt_port" type="number" min="1" max="65535" required></label>
 <label class="field">MQTT username<input name="mqtt_user" id="cfg-mqtt_user" maxlength="64" autocomplete="off"></label>
+<label class="setting-check"><input type="checkbox" id="cfg-mqtt_discovery" name="mqtt_discovery"> Enable Home Assistant MQTT Discovery</label>
 <label class="field">MQTT password (blank = unchanged)<input name="mqtt_password" type="password" maxlength="64" autocomplete="new-password"></label>
 <label class="field">Timezone<select id="cfg-timezone" name="timezone">
 <option value="Europe/Amsterdam">Europe/Amsterdam (CET/CEST)</option>
@@ -58,12 +59,16 @@ a{color:#a9d5ff}
 <option value="America/New_York">America/New_York</option>
 <option value="Australia/Sydney">Australia/Sydney</option>
 </select></label>
-</div></fieldset>
+<div class="controls">
+<label class="setting-check"><input type="checkbox" name="clear_wifi_password" id="cfg-clear_wifi_password"> Clear Wi-Fi password (open network)</label>
+<label class="setting-check"><input type="checkbox" name="clear_mqtt_password" id="cfg-clear_mqtt_password"> Clear MQTT password</label>
+</div></div></fieldset>
 <fieldset><legend>Security and recovery</legend>
 <div class="fields">
 <label class="field">Web username<input id="cfg-web_user" name="web_user" maxlength="32" autocomplete="username"></label>
 <label class="field">New web password (blank = unchanged)<input name="web_password" type="password" maxlength="64" autocomplete="new-password"></label>
 <label class="field">Recovery AP password (blank = unchanged)<input name="recovery_password" type="password" maxlength="63" autocomplete="new-password"></label>
+<label class="setting-check"><input type="checkbox" id="cfg-clear_recovery_password" name="clear_recovery_password"> Disable recovery AP (not recommended before changing Wi-Fi)</label>
 </div><small>Web changes require existing HTTP authentication with a strong password. Use only a trusted LAN: HTTP Basic authentication is not encrypted. Wi-Fi credential updates are rolled back if the new network does not connect within 90 seconds.</small>
 </fieldset>
 <fieldset><legend>Radio and read-only OpenTherm</legend>
@@ -99,7 +104,7 @@ async function loadConfig(){
     if(field && values[name]!==undefined)field.value=values[name];
   }
   el('cfg-timezone').value=values.timezone||'Europe/Amsterdam';
-  for(const name of ['ot_scan_all','ot_auto_poll','ot_tx_enabled'])
+  for(const name of ['mqtt_discovery','ot_scan_all','ot_auto_poll','ot_tx_enabled'])
     el('cfg-'+name).checked=!!values[name];
   set('cfg-rf-band','CC1101 hardware module band: '+values.rf_module_band+
     ' MHz · frequency set after next restart · Radio detection not required to edit');
@@ -109,7 +114,8 @@ el('cfg').addEventListener('submit',async event=>{
  event.preventDefault();
  const button=el('cfg-submit');button.disabled=true;
  const data=new URLSearchParams(new FormData(el('cfg')));
- for(const name of ['ot_scan_all','ot_auto_poll','ot_tx_enabled','rf_safety_confirm'])
+ for(const name of ['mqtt_discovery','ot_scan_all','ot_auto_poll','ot_tx_enabled','rf_safety_confirm',
+    'clear_wifi_password','clear_mqtt_password','clear_recovery_password'])
    data.set(name,el('cfg-'+name).checked?'1':'0');
  try{
   const response=await fetch('/api/v1/config',{

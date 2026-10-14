@@ -84,3 +84,20 @@ acknowledged in the scan, with at most one RF request per minute.
 - The OpenTherm profile is observed compatibility evidence, not a complete
   certification of the boiler or a promise that each measurement will work
   under all operating conditions.
+
+## Runtime configuration (v0.4 beta)
+
+Set the initial `GW_TIMEZONE` and authentication in
+`GatewaySecrets.h`, then use the local web page **Gateway configuration**
+for subsequent changes. The ESP32 stores the overrides in NVS and
+preserves original compiled defaults as a fallback. Saving performs a
+clean restart; a bad Wi-Fi change is rolled back after 90 seconds without
+reconnection.
+
+The scanner and guarded transmit path use the runtime values after reboot,
+not stale `#define` values. RF transmit is disabled by default. The
+physical module band is intentionally compile-time hardware metadata;
+only a synthesizer frequency **within that band** is remotely adjustable.
+The RF compatibility test still cannot run until the actual CC1101 is
+connected and a valid R8810A is observed.
+

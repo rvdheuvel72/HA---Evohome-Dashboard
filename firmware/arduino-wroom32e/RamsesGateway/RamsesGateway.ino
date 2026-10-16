@@ -83,7 +83,7 @@ constexpr uint8_t RING_SIZE = 12;
 constexpr uint32_t RX_IDLE_TIMEOUT_MS = 250;
 constexpr uint32_t HEARTBEAT_MS = 15000;
 constexpr uint8_t DEBUG_QUEUE_SIZE = 16;
-constexpr char FW_VERSION[] = "0.4.0-beta.4";
+constexpr char FW_VERSION[] = "0.4.0-beta.5";
 constexpr uint32_t MDNS_RETRY_MS = 15000;
 constexpr uint32_t MQTT_STATE_INTERVAL_MS = 15000;
 
@@ -314,13 +314,27 @@ void httpOtOneShot(){
     web.send(403,"application/json","{\"error\":\"strong_web_auth_required\"}");
     return;
   }
-  if(!radioReady || !otGateway.requestOneShot()){
+  const String choice=web.arg("method");
+  ot_tx::Method method=ot_tx::ASYNC_UART;
+  if(choice=="fifo")method=ot_tx::REFERENCE_FIFO;
+  else if(choice!="uart"){
+    web.send(400,"application/json",
+      "{\"error\":\"one_shot_method_must_be_uart_or_fifo\"}");
+    return;
+  }
+  if(!radioReady || !otGateway.requestOneShot(method)){
     web.send(409,"application/json",
       "{\"error\":\"one_shot_not_ready_or_in_cooldown_check_status\"}");
     return;
   }
+  recordLog(GatewayDebug::INFO,
+     method==ot_tx::REFERENCE_FIFO?
+       "OpenTherm one-shot queued: reference-style 44-byte fixed FIFO TX":
+       "OpenTherm one-shot queued: legacy asynchronous UART TX");
   web.send(202,"application/json",
-    "{\"queued\":true,\"data_id\":25,\"attempt_limit\":1,\"mode\":\"experimental_read_only\"}");
+    method==ot_tx::REFERENCE_FIFO?
+    "{\"queued\":true,\"data_id\":25,\"attempt_limit\":1,\"method\":\"fifo_uartframed_55\"}":
+    "{\"queued\":true,\"data_id\":25,\"attempt_limit\":1,\"method\":\"async_uart\"}");
 }
 void httpOtScan(){
   if(!authorized())return;
@@ -801,8 +815,8 @@ void handlePacket(const PacketEvent& event) {
 void setup() {
   Serial.begin(115200);
   delay(250);
-  Serial.println("\n# RAMSES II Arduino v0.4.0-beta.4 (read-only OpenTherm discovery)");
-  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-beta.4");
+  Serial.println("\n# RAMSES II Arduino v0.4.0-beta.5 (read-only OpenTherm discovery)");
+  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-beta.5");
   char bootInfo[96];
   snprintf(bootInfo, sizeof(bootInfo), "Reset reason: %s", resetReason());
   recordLog(GatewayDebug::INFO, bootInfo);

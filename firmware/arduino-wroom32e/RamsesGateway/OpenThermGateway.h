@@ -38,36 +38,80 @@ class OpenThermGateway {
         config_->rfFrequencyKhz,config_->rfModuleBand,
         config_->rfExperimentalRx==1);
   }
-  bool requestOneShot() {
+  bool requestOneShot(ot_tx::Method method) {
     if(!experimentalOneShotReady() || work_.active || requested_)return false;
     portENTER_CRITICAL(&mutex_);
-    const bool ok=singleProbe_.request(millis());
+    const bool ok=singleProbe_.request(millis(),method);
     portEXIT_CRITICAL(&mutex_);
     return ok;
   }
   void sendOneShotStatus(WebServer& server) {
     ot_single::Probe snapshot;
+    ot_tx::Report details[2];
+    ot_tx::Comparison stats[2];
     portENTER_CRITICAL(&mutex_);
     snapshot=singleProbe_;
+    for(unsigned i=0;i<2;i++) {
+      details[i]=lastReports_[i];
+      stats[i]=comparisons_[i];
+    }
     portEXIT_CRITICAL(&mutex_);
+    const ot_tx::Report& d=details[snapshot.method];
     float degrees=0;
     const bool hasValue=snapshot.state==ot_single::READ_ACK &&
       ot_readonly::fixedPoint(ot_single::DATA_ID,snapshot.raw,degrees);
-    char response[550];
+    char response[2100];
     snprintf(response,sizeof(response),
-      "{\"data_id\":%u,\"name\":\"boiler_flow_c\",\"status\":\"%s\","
+      "{\"data_id\":25,\"name\":\"boiler_flow_c\",\"status\":\"%s\","
       "\"ready\":%s,\"bridge_seen\":%s,\"source_conflict\":%s,"
       "\"bridge_id\":%lu,\"source_id\":%lu,\"cooldown_ms\":%lu,"
-      "\"attempted\":%s,\"raw\":%u,\"value_c\":%.3f,\"has_value\":%s}",
-      static_cast<unsigned>(ot_single::DATA_ID),snapshot.label(),
-      experimentalOneShotReady()?"true":"false",
+      "\"attempted\":%s,\"raw\":%u,\"value_c\":%.3f,\"has_value\":%s,"
+      "\"tx_method\":\"%s\",\"tx_phase\":\"%s\",\"tx_local_complete\":%s,"
+      "\"tx_expected_bytes\":%u,\"tx_written_bytes\":%u,\"tx_elapsed_us\":%lu,"
+      "\"tx_pa_programmed\":%u,\"tx_pa_readback\":%u,"
+      "\"tx_marc_before\":%u,\"tx_marc_during\":%u,\"tx_marc_after\":%u,"
+      "\"tx_fifo_before\":%u,\"tx_fifo_after\":%u,"
+      "\"tx_rx_restored\":%s,\"tx_saw_tx\":%s,"
+      "\"comparison\":["
+      "{\"method\":\"async_uart\",\"attempts\":%lu,\"local_completed\":%lu,"
+      "\"read_acks\":%lu,\"timeouts\":%lu,\"other_replies\":%lu,\"tx_failures\":%lu,"
+      "\"last_phase\":\"%s\",\"last_elapsed_us\":%lu},"
+      "{\"method\":\"fifo_uartframed_55\",\"attempts\":%lu,\"local_completed\":%lu,"
+      "\"read_acks\":%lu,\"timeouts\":%lu,\"other_replies\":%lu,\"tx_failures\":%lu,"
+      "\"last_phase\":\"%s\",\"last_elapsed_us\":%lu}],"
+      "\"caution\":\"Local TX success does not prove over-the-air delivery\"}",
+      snapshot.label(),experimentalOneShotReady()?"true":"false",
       bridgeSeen_?"true":"false",sourceConflict_?"true":"false",
       static_cast<unsigned long>(config_->otBridge),
       static_cast<unsigned long>(config_->otSource),
       static_cast<unsigned long>(snapshot.cooldown(millis())),
-      snapshot.attempted?"true":"false",
-      static_cast<unsigned>(snapshot.raw),
-      static_cast<double>(hasValue?degrees:0),hasValue?"true":"false");
+      snapshot.attempted?"true":"false",static_cast<unsigned>(snapshot.raw),
+      static_cast<double>(hasValue?degrees:0),hasValue?"true":"false",
+      ot_tx::methodName(snapshot.method),ot_tx::phaseName(d.phase),
+      d.phase==ot_tx::LOCAL_COMPLETE?"true":"false",
+      static_cast<unsigned>(d.expected_bytes),static_cast<unsigned>(d.written_bytes),
+      static_cast<unsigned long>(d.elapsed_us),
+      static_cast<unsigned>(d.pa_configured),static_cast<unsigned>(d.pa_readback),
+      static_cast<unsigned>(d.marc_before),static_cast<unsigned>(d.marc_during),
+      static_cast<unsigned>(d.marc_after),
+      static_cast<unsigned>(d.txbytes_before),static_cast<unsigned>(d.txbytes_after),
+      d.rx_restored?"true":"false",d.saw_tx?"true":"false",
+      static_cast<unsigned long>(stats[0].attempts),
+      static_cast<unsigned long>(stats[0].local_completed),
+      static_cast<unsigned long>(stats[0].read_acks),
+      static_cast<unsigned long>(stats[0].timeouts),
+      static_cast<unsigned long>(stats[0].rejected),
+      static_cast<unsigned long>(stats[0].tx_failures),
+      ot_tx::phaseName(stats[0].last_phase),
+      static_cast<unsigned long>(stats[0].last_elapsed_us),
+      static_cast<unsigned long>(stats[1].attempts),
+      static_cast<unsigned long>(stats[1].local_completed),
+      static_cast<unsigned long>(stats[1].read_acks),
+      static_cast<unsigned long>(stats[1].timeouts),
+      static_cast<unsigned long>(stats[1].rejected),
+      static_cast<unsigned long>(stats[1].tx_failures),
+      ot_tx::phaseName(stats[1].last_phase),
+      static_cast<unsigned long>(stats[1].last_elapsed_us));
     server.sendHeader("Cache-Control","no-store");
     server.send(200,"application/json",response);
   }
@@ -130,7 +174,11 @@ class OpenThermGateway {
     if((msg.addrMask&2) && rfType(msg.addresses[1])==18 &&
        rfId(msg.addresses[1])==config_->otSource) {
       portENTER_CRITICAL(&mutex_);
-      singleProbe_.accept(id,r,raw,millis());
+      if(singleProbe_.accept(id,r,raw,millis())) {
+        ot_tx::Comparison& summary=comparisons_[singleProbe_.method];
+        if(r==ot_readonly::READ_ACK)summary.read_acks++;
+        else summary.rejected++;
+      }
       portEXIT_CRITICAL(&mutex_);
       if(work_.accept(id,r,raw,millis()))publishSnapshot();
     }
@@ -144,14 +192,31 @@ class OpenThermGateway {
     portEXIT_CRITICAL(&mutex_);
     const uint32_t now=millis();
     bool oneShot=false;
+    ot_tx::Method method=ot_tx::ASYNC_UART;
     portENTER_CRITICAL(&mutex_);
     oneShot=singleProbe_.begin(now);
+    method=singleProbe_.method;
+    const auto previous=singleProbe_.state;
     singleProbe_.tick(now);
+    if(previous==ot_single::WAITING && singleProbe_.state==ot_single::TIMEOUT)
+      comparisons_[method].timeouts++;
     portEXIT_CRITICAL(&mutex_);
     if(oneShot) {
-      const bool ok=experimentalOneShotReady() && !work_.active && !requested_ &&
-        sendReadRequest(radio,port,decoder,ot_single::DATA_ID,true);
+      ot_tx::Report details;
+      details.method=method;
+      const bool permitted=experimentalOneShotReady() && !work_.active && !requested_;
+      const bool ok=permitted &&
+        sendReadRequest(radio,port,decoder,ot_single::DATA_ID,true,method,details);
+      if(!permitted)details.phase=ot_tx::FREQUENCY_REJECTED;
       portENTER_CRITICAL(&mutex_);
+      const unsigned index=static_cast<unsigned>(method);
+      lastReports_[index]=details;
+      ot_tx::Comparison& summary=comparisons_[index];
+      summary.attempts++;
+      summary.last_phase=details.phase;
+      summary.last_elapsed_us=details.elapsed_us;
+      if(ok)summary.local_completed++;
+      else summary.tx_failures++;
       singleProbe_.sent(ok);
       portEXIT_CRITICAL(&mutex_);
     }
@@ -271,6 +336,8 @@ class OpenThermGateway {
   volatile bool bridgeSeen_=false;
   volatile bool sourceConflict_=false;
   ot_single::Probe singleProbe_;
+  ot_tx::Report lastReports_[2];
+  ot_tx::Comparison comparisons_[2];
   bool wasCompleted_=false;
   uint32_t nextPolling_=0;
   uint32_t txFailures_=0;
@@ -303,27 +370,50 @@ class OpenThermGateway {
   bool transmit(Cc1101Radio& radio,HardwareSerial& port,
                 ramses::FrameDecoder& decoder,uint8_t id){
     if(!transmitEnabled())return false;
-    return sendReadRequest(radio,port,decoder,id,false);
+    ot_tx::Report diagnostics;
+    return sendReadRequest(radio,port,decoder,id,false,ot_tx::ASYNC_UART,diagnostics);
   }
   bool sendReadRequest(Cc1101Radio& radio,HardwareSerial& port,
-                ramses::FrameDecoder& decoder,uint8_t id,bool experimental){
+                ramses::FrameDecoder& decoder,uint8_t id,bool experimental,
+                ot_tx::Method method,ot_tx::Report& diag){
+    diag=ot_tx::Report{};
+    diag.method=method;
     if(experimental) {
-      if(id!=ot_single::DATA_ID || !experimentalOneShotReady())return false;
-    } else if(!transmitEnabled())return false;
+      if(id!=ot_single::DATA_ID || !experimentalOneShotReady()) {
+        diag.phase=ot_tx::FREQUENCY_REJECTED;return false;
+      }
+    } else if(!transmitEnabled()) {
+      diag.phase=ot_tx::FREQUENCY_REJECTED;return false;
+    }
     uint8_t frame[16],wire[44];size_t used=0;
-    if(!ramses_read::makeRequest(config_->otSource,config_->otBridge,id,frame,used))
-      return false;
+    if(!ramses_read::makeRequest(config_->otSource,config_->otBridge,id,frame,used)){
+      diag.phase=ot_tx::TX_CONFIG_FAILED;return false;
+    }
     const size_t wireLen=ramses_read::encodeUART(frame,used,wire,sizeof(wire));
-    if(!wireLen || wireLen!=44)return false;
-    // CC1101 owns the asynchronous serial GDO0 input while transmitting.
-    // No arbitrary RF packets are accepted from HTTP or MQTT.
-    if(!radio.beginReadRequestTx(experimental))return false;
+    if(wireLen!=44){diag.phase=ot_tx::TX_CONFIG_FAILED;return false;}
+    if(method==ot_tx::REFERENCE_FIFO) {
+      if(!experimental) {
+        diag.phase=ot_tx::FREQUENCY_REJECTED;return false;
+      }
+      const bool ok=radio.sendOneShotFifo(wire,wireLen,true,diag);
+      while(port.available())port.read();
+      decoder.reset();
+      return ok;
+    }
+    diag.expected_bytes=static_cast<uint16_t>(wireLen);
+    const uint32_t begun=micros();
+    if(!radio.beginReadRequestTx(experimental,&diag))return false;
     const size_t written=port.write(wire,wireLen);
     port.flush();
     delayMicroseconds(300);
-    const bool rxOk=radio.endReadRequestTx();
+    const bool rxOk=radio.endReadRequestTx(&diag);
     while(port.available())port.read();
-    decoder.reset(); // TX/RX mode change may leave a partial RX frame.
-    return written==wireLen && rxOk;
+    decoder.reset();
+    diag.written_bytes=static_cast<uint16_t>(written);
+    diag.elapsed_us=micros()-begun;
+    if(!rxOk)diag.phase=ot_tx::RX_RESTORE_FAILED;
+    else if(written!=wireLen)diag.phase=ot_tx::UART_WRITE_FAILED;
+    else diag.phase=ot_tx::LOCAL_COMPLETE;
+    return diag.phase==ot_tx::LOCAL_COMPLETE;
   }
 };

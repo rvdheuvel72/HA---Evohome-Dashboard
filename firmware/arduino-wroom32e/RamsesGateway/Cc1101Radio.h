@@ -4,6 +4,8 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include "RadioFrequency.h"
+#include "OpenThermTxDiagnostics.h"
+#include "RamsesUartFifo.h"
 
 class Cc1101Radio {
  public:
@@ -38,29 +40,111 @@ class Cc1101Radio {
   uint32_t frequencyKhz() const { return frequencyKhz_; }
   uint16_t moduleBand() const { return moduleBand_; }
 
-  // Caller MUST be the exclusive owner of radio and UART (radioTask).
-  // The GDO0 pin becomes a serial DATA INPUT to CC1101 during async TX.
-  // The transmit output is NOT independently hardware validated.
-  bool beginReadRequestTx(bool experimentalOneShot=false) {
-    if (!radio_frequency::evohomeTxFrequency(frequencyKhz_,moduleBand_) &&
-        !(experimentalOneShot &&
-          radio_frequency::experimentalOneShotFrequency(frequencyKhz_,moduleBand_,experimentalRx_)))
-      return false;
-    if (!strobe(0x36)) return false; // SIDLE
-    if (!writeRegister(0x08, 0x32)) return false; // async serial (no packet FIFO)
-    if (!strobe(0x35)) return false; // STX
-    // Wait for TX state before placing the 38.4k UART preamble on GDO0;
-    // otherwise the first symbols can be lost during PLL calibration.
-    const uint32_t started=millis();
-    while((status(0x35)&0x1fu)!=0x13u){
-      if(millis()-started>50){ strobe(0x36); enterReceive(); return false; }
+  // Both TX paths operate exclusively on radioTask. Neither one guarantees
+  // that a remote bridge received RF energy or decoded the frame.
+  bool beginReadRequestTx(bool experimentalOneShot=false,
+                          ot_tx::Report* details=nullptr) {
+    ot_tx::Report local;
+    ot_tx::Report& d=details?*details:local;
+    d.method=ot_tx::ASYNC_UART;
+    if (!txFrequencyAllowed(experimentalOneShot)) {
+      d.phase=ot_tx::FREQUENCY_REJECTED;return false;
+    }
+    if(!prepareTx(d))return false;
+    if (!writeRegister(0x08,0x32)) { // async serial TX, no packet FIFO
+      d.phase=ot_tx::TX_CONFIG_FAILED;enterReceive();return false;
+    }
+    if(!strobe(0x35)) {
+      d.phase=ot_tx::TX_START_FAILED;enterReceive();return false;
+    }
+    const uint32_t started=micros();
+    while((status(0x35)&0x1fu)!=0x13u) {
+      if(micros()-started>10000) {
+        d.marc_during=status(0x35)&0x1fu;
+        d.phase=ot_tx::TX_START_FAILED;enterReceive();return false;
+      }
       delayMicroseconds(100);
     }
+    d.saw_tx=true;
+    d.marc_during=0x13;
     return true;
   }
-  bool endReadRequestTx() {
-    if (!strobe(0x36)) return false; // SIDLE
-    return enterReceive();
+
+  bool endReadRequestTx(ot_tx::Report* details=nullptr) {
+    const bool idle=strobe(0x36);
+    const bool rx=enterReceive();
+    if(details) {
+      details->marc_after=status(0x35)&0x1fu;
+      details->rx_restored=idle && rx;
+    }
+    return idle && rx;
+  }
+
+  // The reference RAMSES project converts each Manchester encoded UART byte
+  // into 8N1 serial bits before writing the CC1101 FIFO. 44 UART bytes become
+  // exactly 55 FIFO bytes (440 RF bits). Fixed-length FIFO transmission avoids
+  // infinite-streaming underrun risks. HW sync/CRC disabled: RAW RAMSES
+  // preamble/sync and frame checksum are already encoded in the waveform.
+  bool sendOneShotFifo(const uint8_t* wire,size_t wireLength,
+                       bool experimentalOneShot,ot_tx::Report& d) {
+    d.method=ot_tx::REFERENCE_FIFO;
+    const uint32_t begun=micros();
+    if(!wire || wireLength!=ramses_uart_fifo::INPUT_LEN ||
+       !txFrequencyAllowed(experimentalOneShot)) {
+      d.phase=ot_tx::FREQUENCY_REJECTED;return false;
+    }
+    uint8_t txFifo[ramses_uart_fifo::RF_LEN]={};
+    size_t txLength=0;
+    if(!ramses_uart_fifo::encode(wire,wireLength,txFifo,sizeof(txFifo),txLength) ||
+       txLength!=ramses_uart_fifo::RF_LEN) {
+      d.phase=ot_tx::TX_CONFIG_FAILED;return false;
+    }
+    d.expected_bytes=static_cast<uint16_t>(txLength);
+    if(!prepareTx(d))return false;
+    if(!writeRegister(0x02,0x2E) ||  // GDO0 stays high-Z: ESP32 UART TX drives this wire
+       !writeRegister(0x06,static_cast<uint8_t>(txLength)) ||
+       !writeRegister(0x08,0x00) || // fixed length; FIFO; no HW CRC
+       !strobe(0x3B)) {            // flush TX FIFO in IDLE
+      d.phase=ot_tx::TX_CONFIG_FAILED;
+      endReadRequestTx(&d);return false;
+    }
+    if(!writeFifoBurst(txFifo,txLength)) {
+      d.phase=ot_tx::FIFO_PREFILL_FAILED;
+      endReadRequestTx(&d);return false;
+    }
+    d.written_bytes=static_cast<uint16_t>(txLength);
+    d.txbytes_before=status(0x3A);
+    if((d.txbytes_before&0x7fu)!=txLength ||
+       (d.txbytes_before&0x80u)) {
+      d.phase=ot_tx::FIFO_PREFILL_FAILED;
+      endReadRequestTx(&d);return false;
+    }
+    if(!strobe(0x35)) { // STX, constrained to exactly 44 buffered bytes
+      d.phase=ot_tx::TX_START_FAILED;
+      endReadRequestTx(&d);return false;
+    }
+    bool idleComplete=false;
+    for(;;) {
+      const uint8_t state=status(0x35)&0x1fu;
+      if(state==0x13u)d.saw_tx=true;
+      d.marc_during=state;
+      if(state==0x16u) {d.phase=ot_tx::TX_UNDERFLOW;break;}
+      if(state==0x01u && d.saw_tx) {idleComplete=true;break;}
+      if(micros()-begun>ot_tx::Report::MAX_FIFO_TX_US) {
+        d.phase=d.saw_tx?ot_tx::TX_TIMEOUT:ot_tx::TX_START_FAILED;
+        break;
+      }
+      delayMicroseconds(100);
+    }
+    d.elapsed_us=micros()-begun;
+    d.txbytes_after=status(0x3A);
+    if(d.txbytes_after&0x80u)d.phase=ot_tx::TX_UNDERFLOW;
+    else if(idleComplete && (d.txbytes_after&0x7fu)==0)
+      d.phase=ot_tx::LOCAL_COMPLETE;
+    else if(idleComplete)d.phase=ot_tx::TX_TIMEOUT;
+    const bool rxOk=endReadRequestTx(&d);
+    if(!rxOk)d.phase=ot_tx::RX_RESTORE_FAILED;
+    return d.phase==ot_tx::LOCAL_COMPLETE;
   }
 
   bool enterReceive() {
@@ -81,6 +165,41 @@ class Cc1101Radio {
   }
 
  private:
+  bool txFrequencyAllowed(bool experiment) const {
+    return radio_frequency::evohomeTxFrequency(frequencyKhz_,moduleBand_) ||
+      (experiment && radio_frequency::experimentalOneShotFrequency(
+        frequencyKhz_,moduleBand_,experimentalRx_));
+  }
+  uint8_t readRegister(uint8_t reg) {
+    if(!select())return 0xff;
+    SPI.transfer(reg|0x80u);
+    const uint8_t result=SPI.transfer(0);
+    release();return result;
+  }
+  bool writeFifoBurst(const uint8_t* bytes,size_t count) {
+    if(!bytes || !count || count>64 || !select())return false;
+    SPI.transfer(0x7f); // 0x3F TX FIFO + burst bit
+    for(size_t i=0;i<count;i++)SPI.transfer(bytes[i]);
+    release();return true;
+  }
+  bool prepareTx(ot_tx::Report& d) {
+    d.marc_before=status(0x35)&0x1fu;
+    if(!strobe(0x36)) {
+      d.phase=ot_tx::RADIO_IDLE_FAILED;return false;
+    }
+    // 868 MHz nominal -10dBm from TI CC1101 PA table; antenna/board
+    // matching is unknown, so this is NOT a radiated-power certification.
+    d.pa_configured=ot_tx::Report::PA_868_LOW;
+    if(!writeRegister(0x3e,d.pa_configured)) {
+      d.phase=ot_tx::PA_PROGRAM_FAILED;enterReceive();return false;
+    }
+    d.pa_readback=readRegister(0x3e);
+    if(d.pa_readback!=d.pa_configured) {
+      d.phase=ot_tx::PA_PROGRAM_FAILED;enterReceive();return false;
+    }
+    return true;
+  }
+
   // 868.3 MHz, ~38.38 kb/s GFSK, asynchronous serial RX on GDO2.
   // Source: IndaloTech/ramses_esp components/cc1101/cc1101_param.c
   static constexpr uint8_t settings_[] = {

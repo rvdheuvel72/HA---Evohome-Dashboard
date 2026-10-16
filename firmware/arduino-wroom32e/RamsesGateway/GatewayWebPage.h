@@ -52,8 +52,15 @@ a{color:#a9d5ff}
 <p class="muted">Send exactly ONE RAMSES 3220 Read-Data ID25 request (boiler flow temperature) at 868.300 MHz. No retries, no scan, no polling and no heating writes. The 433 MHz-marked PCB's on-air 868 MHz transmission and emissions are not bench-verified. Minimum cooldown: 60 seconds.</p>
 <p id="one-shot-status" class="muted">Checking bridge identity...</p>
 <label class="setting-check"><input type="checkbox" id="one-shot-confirm"> I verified the R8810A RF ID and selected an unused 18: virtual gateway RF ID. I authorize ONE experimental read-only RF transmission.</label>
-<div class="controls"><button type="button" id="one-shot-send" disabled>Transmit ONE Read-Data ID25</button><a href="/api/v1/opentherm/one-shot" target="_blank">One-shot diagnostic JSON</a></div>
+<div class="controls"><label class="field">Single-test transmit method
+<select id="one-shot-method" aria-label="One-shot transmit method">
+<option value="uart">Original asynchronous UART / GDO0</option>
+<option value="fifo">Reference-style CC1101 FIFO (44 UART bytes / 55 RF bytes)</option>
+</select></label><button type="button" id="one-shot-send" disabled>Transmit ONE Read-Data ID25</button><a href="/api/v1/opentherm/one-shot" target="_blank">One-shot diagnostic JSON</a></div>
+<small>One click = exactly one RF request using the selected method; never both. Each method shares a fixed nominal -10 dBm 868 MHz PATABLE value. The unmatched 433M PCB's radiated power remains unknown. Keep automatic scans/polling off.</small>
 <p id="one-shot-result" aria-live="polite" class="muted">No request attempted.</p>
+<pre id="one-shot-diag" aria-live="polite">TX diagnostic data appears after one request.</pre>
+<pre id="one-shot-compare">UART/FIFO A-B comparison will appear here.</pre>
 </details>
 </section>
 </div><div id="page-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
@@ -214,22 +221,37 @@ async function updateOneShot(){
     ' · 18: source '+(p.source_conflict?'ADDRESS CONFLICT':'no observed conflict')+
     ' · cooldown '+Math.ceil(Number(p.cooldown_ms)/1000)+'s'+
     (p.ready?' · ready':' · set R8810A and unique virtual RF IDs in Settings, with scans, polling and normal TX off'));
-  set('one-shot-result','ID25: '+p.status+
+  set('one-shot-result','ID25: '+p.status+' · method '+p.tx_method+
     (p.has_value?' · flow '+p.value_c+' °C':'')+
     (p.attempted?' · raw '+p.raw:''));
+  const hex=n=>'0x'+Number(n||0).toString(16).toUpperCase().padStart(2,'0');
+  set('one-shot-diag',
+    'Local TX: '+p.tx_phase+' · '+(p.tx_local_complete?'sequence completed':'no confirmed local completion')+
+    '\\nData: '+p.tx_written_bytes+'/'+p.tx_expected_bytes+' bytes · elapsed '+p.tx_elapsed_us+' µs'+
+    '\\nPA configured/readback: '+hex(p.tx_pa_programmed)+' / '+hex(p.tx_pa_readback)+
+    '\\nMARCSTATE before/during/after: '+hex(p.tx_marc_before)+' / '+hex(p.tx_marc_during)+' / '+hex(p.tx_marc_after)+
+    '\\nFIFO count before/after: '+hex(p.tx_fifo_before)+' / '+hex(p.tx_fifo_after)+
+    '\\nSaw TX state: '+p.tx_saw_tx+' · RX restored: '+p.tx_rx_restored+
+    '\\nThis does NOT establish over-the-air delivery.');
+  set('one-shot-compare',(p.comparison||[]).map(x=>
+    x.method+' · '+x.attempts+' attempts · local done '+x.local_completed+
+    ' · ACK '+x.read_acks+' · timeout '+x.timeouts+
+    ' · other '+x.other_replies+' · TX failure '+x.tx_failures+
+    ' · last '+x.last_phase+' ('+x.last_elapsed_us+' µs)').join('\\n'));
  }catch(e){
   el('one-shot-send').disabled=true;
   set('one-shot-status','One-shot status unavailable: '+e.message);
  }
 }
 el('one-shot-confirm').addEventListener('change',updateOneShot);
+el('one-shot-method').addEventListener('change',updateOneShot);
 el('one-shot-send').addEventListener('click',async()=>{
  el('one-shot-send').disabled=true;
  try{
   const r=await fetch('/api/v1/opentherm/one-shot',{
    method:'POST',
    headers:{'X-Gateway-Config':'one-shot','Content-Type':'application/x-www-form-urlencoded'},
-   body:'confirm=experimental-single-read-25'
+   body:'confirm=experimental-single-read-25&method='+encodeURIComponent(el('one-shot-method').value)
   });
   const body=await r.json();
   if(!r.ok)throw new Error(body.error||('HTTP '+r.status));

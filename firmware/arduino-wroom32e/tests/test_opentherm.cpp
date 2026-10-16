@@ -5,6 +5,7 @@
 #include "../RamsesGateway/OpenThermReadOnly.h"
 #include "../RamsesGateway/OpenThermScan.h"
 #include "../RamsesGateway/OpenThermOneShot.h"
+#include "../RamsesGateway/RamsesUartFifo.h"
 #include "../RamsesGateway/RamsesReadRequest.h"
 #include "../RamsesGateway/RadioFrequency.h"
 #include "../RamsesGateway/RamsesCodec.h"
@@ -40,7 +41,25 @@ int main(){
   assert(!radio_frequency::evohomeTxFrequency(868300,915));
   // A manual click only queues one fixed Data-ID 25 request.
   ot_single::Probe shot;
-  assert(shot.state==ot_single::IDLE && shot.request(10000));
+  assert(shot.state==ot_single::IDLE && shot.request(10000,ot_tx::REFERENCE_FIFO));
+  assert(shot.method==ot_tx::REFERENCE_FIFO);
+  assert(strcmp(ot_tx::methodName(shot.method),"fifo_uartframed_55")==0);
+  assert(strcmp(ot_tx::phaseName(ot_tx::TX_UNDERFLOW),"tx_underflow")==0);
+  assert(ot_tx::Report::PA_868_LOW==0x26);
+  assert(ot_tx::Report::MAX_FIFO_TX_US==80000);
+  ot_tx::Report report;
+  assert(report.phase==ot_tx::NOT_STARTED);
+  report.method=ot_tx::REFERENCE_FIFO;
+  report.expected_bytes=44;
+  report.written_bytes=44;
+  report.phase=ot_tx::LOCAL_COMPLETE;
+  assert(report.expected_bytes==report.written_bytes);
+  ot_tx::Comparison foo;
+  foo.attempts++;foo.local_completed++;
+  assert(foo.attempts==1 && foo.local_completed==1);
+  ot_single::Probe invalid;
+  assert(!invalid.request(9999,static_cast<ot_tx::Method>(2)));
+  assert(invalid.state==ot_single::IDLE);
   assert(!shot.request(10000));  // no double-click duplicate
   assert(shot.begin(10000));
   assert(!shot.begin(10000));
@@ -49,7 +68,8 @@ int main(){
   assert(shot.accept(25,ot_readonly::READ_ACK,0x2580,10020));
   assert(shot.state==ot_single::READ_ACK && shot.raw==0x2580);
   assert(!shot.request(60000)); // less than 60s since TX
-  assert(shot.request(70000) && shot.begin(70000));
+  assert(shot.request(70000,ot_tx::ASYNC_UART) && shot.begin(70000));
+  assert(shot.method==ot_tx::ASYNC_UART);
   shot.tick(71800); // no response, no retry, terminal timeout
   assert(shot.state==ot_single::TIMEOUT);
   assert(!shot.request(71900));
@@ -86,6 +106,26 @@ int main(){
   assert(uart[0]==0x55 && uart[5]==0xff && uart[6]==0x00);
   assert(uart[7]==0x33 && uart[8]==0x55 && uart[9]==0x53);
   assert(uart[42]==0x35 && uart[43]==0x55);
+  // Same RF bits as 38,400-baud serial UART: 44 x (start + 8 data + stop).
+  uint8_t fifoFrame[55]={};
+  size_t fifoLength=0;
+  assert(ramses_uart_fifo::encode(uart,sizeof(uart),fifoFrame,sizeof(fifoFrame),fifoLength));
+  assert(fifoLength==55);
+  for(size_t n=0;n<44;n++) {
+    const size_t start=n*10;
+    auto rfBit=[&](size_t i)->uint8_t {
+      return static_cast<uint8_t>((fifoFrame[i>>3]>>(7-(i&7)))&1u);
+    };
+    assert(rfBit(start)==0);
+    for(unsigned b=0;b<8;b++)
+      assert(rfBit(start+1+b)==((uart[n]>>b)&1u));
+    assert(rfBit(start+9)==1);
+  }
+  size_t invalidLength=99;
+  assert(!ramses_uart_fifo::encode(uart,43,fifoFrame,sizeof(fifoFrame),invalidLength));
+  assert(invalidLength==0);
+  assert(!ramses_uart_fifo::encode(uart,44,fifoFrame,54,invalidLength));
+  assert(invalidLength==0);
   ramses::FrameDecoder rx;
   ramses::Message received{};
   bool found=false;

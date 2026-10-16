@@ -16,6 +16,7 @@ class Cc1101Radio {
     if (!radio_frequency::synth(frequencyKhz,moduleBand,synthesizer,experimentalRx)) return false;
     frequencyKhz_=frequencyKhz;
     moduleBand_=moduleBand;
+    experimentalRx_=experimentalRx;
     pinMode(CS, OUTPUT);
     digitalWrite(CS, HIGH);
     pinMode(MISO, INPUT);
@@ -40,8 +41,11 @@ class Cc1101Radio {
   // Caller MUST be the exclusive owner of radio and UART (radioTask).
   // The GDO0 pin becomes a serial DATA INPUT to CC1101 during async TX.
   // The transmit output is NOT independently hardware validated.
-  bool beginReadRequestTx() {
-    if (!radio_frequency::evohomeTxFrequency(frequencyKhz_,moduleBand_)) return false;
+  bool beginReadRequestTx(bool experimentalOneShot=false) {
+    if (!radio_frequency::evohomeTxFrequency(frequencyKhz_,moduleBand_) &&
+        !(experimentalOneShot &&
+          radio_frequency::experimentalOneShotFrequency(frequencyKhz_,moduleBand_,experimentalRx_)))
+      return false;
     if (!strobe(0x36)) return false; // SIDLE
     if (!writeRegister(0x08, 0x32)) return false; // async serial (no packet FIFO)
     if (!strobe(0x35)) return false; // STX
@@ -90,6 +94,7 @@ class Cc1101Radio {
   uint8_t part_ = 0xFF, version_ = 0xFF;
   uint32_t frequencyKhz_ = 868300;
   uint16_t moduleBand_ = 868;
+  bool experimentalRx_=false;
 
   bool select() {
     SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE0));

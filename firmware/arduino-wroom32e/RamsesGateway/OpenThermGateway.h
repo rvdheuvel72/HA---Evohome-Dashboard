@@ -232,8 +232,14 @@ class OpenThermGateway {
        !ot_readonly::response(msg.payload,msg.length,id,r,raw))return false;
     // Only attribute scan results to our transaction when the reply
     // explicitly addresses the configured gateway RF identity.
-    if((msg.addrMask&2) && rfType(msg.addresses[1])==18 &&
-       rfId(msg.addresses[1])==config_->otSource) {
+    const bool directedGateway=(msg.addrMask&2) &&
+      rfType(msg.addresses[1])==18 &&
+      rfId(msg.addresses[1])==config_->otSource;
+    const bool directedPairedController=(msg.addrMask&2) &&
+      binding_.state==ramses_bind::VERIFIED &&
+      rfType(msg.addresses[1])==1 &&
+      rfId(msg.addresses[1])==binding_.virtualId;
+    if(directedGateway || directedPairedController) {
       portENTER_CRITICAL(&mutex_);
       if(singleProbe_.accept(id,r,raw,millis())) {
         ot_tx::Comparison& summary=comparisons_[singleProbe_.method];
@@ -511,7 +517,16 @@ class OpenThermGateway {
       diag.phase=ot_tx::FREQUENCY_REJECTED;return false;
     }
     uint8_t frame[16],wire[44];size_t used=0;
-    if(!ramses_read::makeRequest(config_->otSource,config_->otBridge,id,frame,used)){
+    uint8_t sourceType=18;
+    uint32_t sourceId=config_->otSource;
+    portENTER_CRITICAL(&mutex_);
+    if(binding_.state==ramses_bind::VERIFIED){
+      sourceType=1;
+      sourceId=binding_.virtualId;
+    }
+    portEXIT_CRITICAL(&mutex_);
+    if(!ramses_read::makeRequestTyped(sourceType,sourceId,
+                                     config_->otBridge,id,frame,used)){
       diag.phase=ot_tx::TX_CONFIG_FAILED;return false;
     }
     const size_t wireLen=ramses_read::encodeUART(frame,used,wire,sizeof(wire));

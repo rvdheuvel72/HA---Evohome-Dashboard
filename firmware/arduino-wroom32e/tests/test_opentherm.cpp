@@ -5,6 +5,7 @@
 #include "../RamsesGateway/OpenThermReadOnly.h"
 #include "../RamsesGateway/OpenThermScan.h"
 #include "../RamsesGateway/OpenThermOneShot.h"
+#include "../RamsesGateway/RamsesUartFifo.h"
 #include "../RamsesGateway/RamsesReadRequest.h"
 #include "../RamsesGateway/RadioFrequency.h"
 #include "../RamsesGateway/RamsesCodec.h"
@@ -105,6 +106,26 @@ int main(){
   assert(uart[0]==0x55 && uart[5]==0xff && uart[6]==0x00);
   assert(uart[7]==0x33 && uart[8]==0x55 && uart[9]==0x53);
   assert(uart[42]==0x35 && uart[43]==0x55);
+  // Same RF bits as 38,400-baud serial UART: 44 x (start + 8 data + stop).
+  uint8_t fifoFrame[55]={};
+  size_t fifoLength=0;
+  assert(ramses_uart_fifo::encode(uart,sizeof(uart),fifoFrame,sizeof(fifoFrame),fifoLength));
+  assert(fifoLength==55);
+  for(size_t n=0;n<44;n++) {
+    const size_t start=n*10;
+    auto rfBit=[&](size_t i)->uint8_t {
+      return static_cast<uint8_t>((fifoFrame[i>>3]>>(7-(i&7)))&1u);
+    };
+    assert(rfBit(start)==0);
+    for(unsigned b=0;b<8;b++)
+      assert(rfBit(start+1+b)==((uart[n]>>b)&1u));
+    assert(rfBit(start+9)==1);
+  }
+  size_t invalidLength=99;
+  assert(!ramses_uart_fifo::encode(uart,43,fifoFrame,sizeof(fifoFrame),invalidLength));
+  assert(invalidLength==0);
+  assert(!ramses_uart_fifo::encode(uart,44,fifoFrame,54,invalidLength));
+  assert(invalidLength==0);
   ramses::FrameDecoder rx;
   ramses::Message received{};
   bool found=false;

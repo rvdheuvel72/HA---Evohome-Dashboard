@@ -3,10 +3,10 @@
 **Experimental diagnostic release — the module marked 433M is unchanged.** Neither TX method has been physically bench-verified for correct 868.3 MHz radiated output, channel occupancy or RF compliance.
 
 ### One-shot A/B test
-- Added a **single-request transmit method selector**, **original asynchronous UART/GDO0** versus **reference-style CC1101 FIFO fixed length**. Each click transmits no more than one ID25 `RQ 3220` request. The methods are not run simultaneously or automatically in sequence.
+- Added a **single-request transmit method selector**, **original asynchronous UART/GDO0** versus **reference-style CC1101 FIFO fixed length with UART 8N1 framing**. Each click transmits no more than one ID25 `RQ 3220` request. The methods are not run simultaneously or automatically in sequence.
 - Added per-method attempt/local completion/Read-Ack/timeout counters and full TX telemetry via `GET /api/v1/opentherm/one-shot`: chosen method, reason codes, radio MARCSTATE, TX FIFO byte state, bytes sent, transmit time, PA value and readback, and RX restoration.
 - Both transmit methods now explicitly program `PATABLE[0]=0x26` (TI 868MHz nominal -10dBm); beta.4 did not explicitly program PA. This is *not* a certified output power with an unmatched 433M RF network.
-- FIFO method uses a prebuffered 44-byte frame, **fixed length** (no FIFO underflow streaming), short timeout, and **high-impedance GDO0** to avoid colliding with the ESP32 UART TX wiring.
+- FIFO method uses a prebuffered 55-byte FIFO frame (44 UART bytes plus 8N1 framing), **fixed length** (no FIFO underflow streaming), short timeout, and **high-impedance GDO0** to avoid colliding with the ESP32 UART TX wiring.
 - Keeps the beta.4 manual consent, authenticated API, verified R8810A/source IDs, one-shot-only experimental 433M TX allowance, 60-second cooldown, no polling, no scanning, no write commands. All firmware changes require P1/P2 review and verified trusted build.
 
 ### Manual test plan

@@ -333,7 +333,7 @@ void httpOtOneShot(){
        "OpenTherm one-shot queued: legacy asynchronous UART TX");
   web.send(202,"application/json",
     method==ot_tx::REFERENCE_FIFO?
-    "{\"queued\":true,\"data_id\":25,\"attempt_limit\":1,\"method\":\"fifo_fixed_44\"}":
+    "{\"queued\":true,\"data_id\":25,\"attempt_limit\":1,\"method\":\"fifo_uartframed_55\"}":
     "{\"queued\":true,\"data_id\":25,\"attempt_limit\":1,\"method\":\"async_uart\"}");
 }
 void httpOtScan(){

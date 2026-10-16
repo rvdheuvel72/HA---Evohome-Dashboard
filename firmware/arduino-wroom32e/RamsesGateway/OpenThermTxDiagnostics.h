@@ -5,7 +5,7 @@
 namespace ot_tx {
 enum Method : uint8_t { ASYNC_UART=0, REFERENCE_FIFO=1 };
 inline const char* methodName(Method m) {
-  return m==REFERENCE_FIFO?"fifo_fixed_44":"async_uart";
+  return m==REFERENCE_FIFO?"fifo_uartframed_55":"async_uart";
 }
 enum Phase : uint8_t {
   NOT_STARTED, FREQUENCY_REJECTED, RADIO_IDLE_FAILED, PA_PROGRAM_FAILED,

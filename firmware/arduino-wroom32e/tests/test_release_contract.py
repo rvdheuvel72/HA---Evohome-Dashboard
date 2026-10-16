@@ -13,34 +13,18 @@ version = match.group(1)
 assert re.fullmatch(r"0\.4\.0-beta\.\d+", version), version
 human = version.replace("-beta", " beta")
 assert publisher.splitlines()[0] == f"name: Release RAMSES Arduino v{human}"
-# Both the publish step and the post-publication verification step declare
-# the tag and ZIP name. A single matching occurrence must never mask a stale
-# reference elsewhere in this release workflow.
+
+# Both the publication and post-publication verification steps carry their
+# own identifiers; do not accept a stale tag or ZIP in either step.
 expected_tag = f"ramses-arduino-v{version}"
 filename = f"RAMSES-Arduino-Gateway-v{version}-ESP32-WROOM-32E.zip"
-all_tags = re.findall(r'(?m)^[ \\t]*TAG="([^"]+)"[ \\t]*
-assert filename in readme
-assert f"RELEASE_NOTES_v{version}.md" in publisher
-notes = FW / f"RELEASE_NOTES_v{version}.md"
-assert notes.is_file()
-assert version in notes.read_text()
-assert version in sketch
-print(f"RAMSES release contract PASS: {version}")
-, publisher)
-all_files = re.findall(r'(?m)^[ \\t]*FILE="([^"]+)"[ \\t]*
-assert filename in readme
-assert f"RELEASE_NOTES_v{version}.md" in publisher
-notes = FW / f"RELEASE_NOTES_v{version}.md"
-assert notes.is_file()
-assert version in notes.read_text()
-assert version in sketch
-print(f"RAMSES release contract PASS: {version}")
-, publisher)
-assert all_tags == [expected_tag, expected_tag], (
-    f"Publisher and verification TAG values differ: {all_tags!r} != {expected_tag}"
+tags = re.findall(r'(?m)^[ \t]*TAG="([^"]+)"[ \t]*$', publisher)
+files = re.findall(r'(?m)^[ \t]*FILE="([^"]+)"[ \t]*$', publisher)
+assert tags == [expected_tag, expected_tag], (
+    f"Unexpected publish/verify tags: {tags!r}; expected {expected_tag}"
 )
-assert all_files == [filename, filename], (
-    f"Publisher and verification FILE values differ: {all_files!r} != {filename}"
+assert files == [filename, filename], (
+    f"Unexpected publish/verify asset names: {files!r}; expected {filename}"
 )
 assert filename in readme
 assert f"RELEASE_NOTES_v{version}.md" in publisher

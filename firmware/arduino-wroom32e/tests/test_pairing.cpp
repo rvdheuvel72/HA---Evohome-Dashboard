@@ -97,6 +97,7 @@ int main() {
   // P2 regression: the RX queue is processed before the radio task tick.
   // Frames arriving at or past the deadline must NEVER advance the bind
   // state, even if tick() has not been invoked externally.
+  ramses_read::putAddress(w.addresses[1],1,62142);
   ramses_bind::Session late;
   assert(late.start(200000,62142,48994,245914));
   late.offered(true,200100);

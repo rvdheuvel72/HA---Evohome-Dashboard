@@ -214,9 +214,14 @@ void makeTimestamp(char* out, size_t size) {
   gettimeofday(&tv, nullptr);
   struct tm utc = {};
   gmtime_r(&tv.tv_sec, &utc);
-  snprintf(out, size, "%04d-%02d-%02dT%02d:%02d:%02d.%06ld+00:00",
-           utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday,
-           utc.tm_hour, utc.tm_min, utc.tm_sec, (long)tv.tv_usec);
+  if(!out || size<33)return; // Full ISO timestamp fits in 33 bytes including NUL.
+  // strftime bounds each calendar field before adding the six microseconds.
+  if(strftime(out,size,"%Y-%m-%dT%H:%M:%S",&utc)!=19) {
+    out[0]='\0';
+    return;
+  }
+  snprintf(out+19,size-19,".%06u+00:00",
+           static_cast<unsigned>(tv.tv_usec%1000000L));
 }
 
 void radioTask(void*) {
@@ -247,12 +252,12 @@ void radioTask(void*) {
     while (rfUart.available() && processed < 512) {
       const uint8_t byteIn = static_cast<uint8_t>(rfUart.read());
       ++processed;
-      ++rfUartBytes;
+      rfUartBytes = rfUartBytes + 1u;
       lastByteMs = millis();
       const bool decoded = decoder.feed(byteIn, message);
       const ramses::RejectReason error=decoder.takeError();
       if(error!=ramses::NO_REJECTION) {
-        ++rejectedFrames;
+        rejectedFrames = rejectedFrames + 1u;
         portENTER_CRITICAL(&rxDiagnosticsMux);
         rxDiagnostics.rejection(error,millis());
         portEXIT_CRITICAL(&rxDiagnosticsMux);
@@ -277,12 +282,12 @@ void radioTask(void*) {
             packet.otResult=otResult;
             packet.otRaw=otRaw;
           }
-          ++validFrames;
+          validFrames = validFrames + 1u;
           lastFrameMs = packet.uptimeMs;
           lastRssi = strength;
-          if (xQueueSend(rxQueue, &packet, 0) != pdTRUE) ++droppedFrames;
+          if (xQueueSend(rxQueue, &packet, 0) != pdTRUE) droppedFrames = droppedFrames + 1u;
         } else {
-          ++rejectedFrames;
+          rejectedFrames = rejectedFrames + 1u;
           portENTER_CRITICAL(&rxDiagnosticsMux);
           ++rxDiagnostics.formatFailure;
           portEXIT_CRITICAL(&rxDiagnosticsMux);
@@ -295,7 +300,7 @@ void radioTask(void*) {
       decoder.abortIdleTimeout();
       const ramses::RejectReason reason=decoder.takeError();
       if(reason!=ramses::NO_REJECTION) {
-        ++rejectedFrames;
+        rejectedFrames = rejectedFrames + 1u;
         portENTER_CRITICAL(&rxDiagnosticsMux);
         rxDiagnostics.rejection(reason,now);
         portEXIT_CRITICAL(&rxDiagnosticsMux);
@@ -304,9 +309,9 @@ void radioTask(void*) {
     if (!decoder.receiving() && (now - lastCalibrationMs > 30000)) {
       // The upstream gateway also periodically re-enters RX to recalibrate.
       const bool ok = radio.enterReceive();
-      if (ok) ++radioRxRecalibrations;
+      if (ok) radioRxRecalibrations = radioRxRecalibrations + 1u;
       else {
-        ++radioRxRecalibrationFailures;
+        radioRxRecalibrationFailures = radioRxRecalibrationFailures + 1u;
         radioLog(GatewayDebug::WARN, "CC1101 periodic RX recalibration failed");
       }
       lastCalibrationMs = now;
@@ -937,8 +942,8 @@ void setup() {
   char bootInfo[96];
   snprintf(bootInfo, sizeof(bootInfo), "Reset reason: %s", resetReason());
   recordLog(GatewayDebug::INFO, bootInfo);
-  Serial.printf("# Core=%d MHz, flash=%lu bytes\n",
-                getCpuFrequencyMhz(), static_cast<unsigned long>(ESP.getFlashChipSize()));
+  Serial.printf("# Core=%lu MHz, flash=%lu bytes\n",
+                static_cast<unsigned long>(getCpuFrequencyMhz()), static_cast<unsigned long>(ESP.getFlashChipSize()));
   rxQueue = xQueueCreate(12, sizeof(PacketEvent));
   debugQueue = xQueueCreate(DEBUG_QUEUE_SIZE, sizeof(DebugEvent));
   if (rxQueue == nullptr || debugQueue == nullptr) {
@@ -964,7 +969,7 @@ void setup() {
 
   if (strlen(configuration.current.recoveryPassword) >= 8) {
     WiFi.mode(WIFI_AP_STA);
-    snprintf(recoveryApSsid, sizeof(recoveryApSsid), "RAMSES-Debug-%06X", serial);
+    snprintf(recoveryApSsid, sizeof(recoveryApSsid), "RAMSES-Debug-%06lX", static_cast<unsigned long>(serial));
     recoveryApReady = WiFi.softAP(recoveryApSsid, configuration.current.recoveryPassword);
     if (recoveryApReady) {
       char apInfo[128];

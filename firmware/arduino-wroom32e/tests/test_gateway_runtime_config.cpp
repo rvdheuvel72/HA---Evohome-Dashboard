@@ -16,6 +16,7 @@
 #define GW_DEBUG_USER "admin"
 #define GW_DEBUG_PASSWORD "test-diagnostic-password"
 #define GW_CC1101_FREQUENCY_KHZ 868300
+#define GW_CC1101_MODULE_BAND 868
 #define GW_OT_BRIDGE_ID 0
 #define GW_OT_SOURCE_ID 0
 #define GW_OT_SCAN_ALL_256 0

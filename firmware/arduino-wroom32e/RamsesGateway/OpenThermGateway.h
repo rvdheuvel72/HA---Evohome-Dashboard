@@ -41,9 +41,14 @@ class OpenThermGateway {
         config_->rfExperimentalRx==1);
   }
   bool bindingReady() const {
-    // UI/readiness is conservative; requestBinding checks again under mutex.
-    if(!config_ || !bridgeSeen_ || !observedController_ ||
-       seenControllers_.saturated() ||
+    // Read the bounded identity-coverage flag under the same mutex as note().
+    // requestBinding also checks eligible() under that lock, so no stale
+    // readiness snapshot can permit a collision-prone transmission.
+    if(!config_)return false;
+    portENTER_CRITICAL(&mutex_);
+    const bool coverageExhausted=seenControllers_.saturated();
+    portEXIT_CRITICAL(&mutex_);
+    if(!bridgeSeen_ || !observedController_ || coverageExhausted ||
        config_->otTxEnabled || config_->otAutoPoll || config_->otScanAll ||
        !config_->otBridge || sourceConflict_)return false;
     return radio_frequency::evohomeTxFrequency(
@@ -447,7 +452,7 @@ class OpenThermGateway {
   static constexpr uint32_t PROFILE_MAGIC=0x4f543034;
   const gw_config::Settings* config_=nullptr;
   uint16_t moduleBand_=868;
-  portMUX_TYPE mutex_=portMUX_INITIALIZER_UNLOCKED;
+  mutable portMUX_TYPE mutex_=portMUX_INITIALIZER_UNLOCKED;
   ot_scan::Scanner work_,published_;
   bool requested_=false;
   volatile bool bridgeSeen_=false;

@@ -297,6 +297,31 @@ void httpOtProfile(){
   if(!authorized())return;
   otGateway.sendProfile(web);
 }
+void httpOtOneShot(){
+  if(!authorized())return;
+  if(web.method()==HTTP_GET){otGateway.sendOneShotStatus(web);return;}
+  if(!web.hasHeader("X-Gateway-Config") ||
+     web.header("X-Gateway-Config")!="one-shot" ||
+     web.arg("confirm")!="experimental-single-read-25"){
+    web.send(403,"application/json",
+      "{\"error\":\"explicit_one_shot_confirmation_required\"}");
+    return;
+  }
+  if(!configuration.current.webUser[0] ||
+     strlen(configuration.current.webPassword)<12 ||
+     strcmp(configuration.current.webPassword,
+        "CHANGE_TO_A_STRONG_PRIVATE_PASSWORD")==0){
+    web.send(403,"application/json","{\"error\":\"strong_web_auth_required\"}");
+    return;
+  }
+  if(!radioReady || !otGateway.requestOneShot()){
+    web.send(409,"application/json",
+      "{\"error\":\"one_shot_not_ready_or_in_cooldown_check_status\"}");
+    return;
+  }
+  web.send(202,"application/json",
+    "{\"queued\":true,\"data_id\":25,\"attempt_limit\":1,\"mode\":\"experimental_read_only\"}");
+}
 void httpOtScan(){
   if(!authorized())return;
   if(!web.hasHeader("X-Gateway-Config") ||
@@ -832,6 +857,8 @@ void setup() {
   web.on("/api/v1/config", HTTP_POST, httpConfigSave);
   web.on("/api/v1/packets", HTTP_GET, httpPackets);
   web.on("/api/v1/opentherm/profile", HTTP_GET, httpOtProfile);
+  web.on("/api/v1/opentherm/one-shot", HTTP_GET, httpOtOneShot);
+  web.on("/api/v1/opentherm/one-shot", HTTP_POST, httpOtOneShot);
   web.on("/api/v1/opentherm/scan", HTTP_POST, httpOtScan);
   web.on("/api/v1/debug/logs", HTTP_GET, httpDebugLogs);
   web.on("/api/v1/debug/download", HTTP_GET, httpDebugDownload);

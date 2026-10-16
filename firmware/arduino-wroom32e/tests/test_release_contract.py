@@ -13,9 +13,35 @@ version = match.group(1)
 assert re.fullmatch(r"0\.4\.0-beta\.\d+", version), version
 human = version.replace("-beta", " beta")
 assert publisher.splitlines()[0] == f"name: Release RAMSES Arduino v{human}"
-assert f'TAG="ramses-arduino-v{version}"' in publisher
+# Both the publish step and the post-publication verification step declare
+# the tag and ZIP name. A single matching occurrence must never mask a stale
+# reference elsewhere in this release workflow.
+expected_tag = f"ramses-arduino-v{version}"
 filename = f"RAMSES-Arduino-Gateway-v{version}-ESP32-WROOM-32E.zip"
-assert f'FILE="{filename}"' in publisher
+all_tags = re.findall(r'(?m)^[ \\t]*TAG="([^"]+)"[ \\t]*
+assert filename in readme
+assert f"RELEASE_NOTES_v{version}.md" in publisher
+notes = FW / f"RELEASE_NOTES_v{version}.md"
+assert notes.is_file()
+assert version in notes.read_text()
+assert version in sketch
+print(f"RAMSES release contract PASS: {version}")
+, publisher)
+all_files = re.findall(r'(?m)^[ \\t]*FILE="([^"]+)"[ \\t]*
+assert filename in readme
+assert f"RELEASE_NOTES_v{version}.md" in publisher
+notes = FW / f"RELEASE_NOTES_v{version}.md"
+assert notes.is_file()
+assert version in notes.read_text()
+assert version in sketch
+print(f"RAMSES release contract PASS: {version}")
+, publisher)
+assert all_tags == [expected_tag, expected_tag], (
+    f"Publisher and verification TAG values differ: {all_tags!r} != {expected_tag}"
+)
+assert all_files == [filename, filename], (
+    f"Publisher and verification FILE values differ: {all_files!r} != {filename}"
+)
 assert filename in readme
 assert f"RELEASE_NOTES_v{version}.md" in publisher
 notes = FW / f"RELEASE_NOTES_v{version}.md"

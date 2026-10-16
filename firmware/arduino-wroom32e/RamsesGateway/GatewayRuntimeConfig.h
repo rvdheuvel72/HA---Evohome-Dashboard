@@ -8,6 +8,9 @@
 #include <stdint.h>
 #include "GatewayHostname.h"
 #include "RadioFrequency.h"
+#ifndef GW_CC1101_MODULE_BAND
+#define GW_CC1101_MODULE_BAND 868 // Matches the default in RamsesGateway.ino
+#endif
 
 namespace gw_config {
 inline bool safeText(const String& s, size_t maxLen) {

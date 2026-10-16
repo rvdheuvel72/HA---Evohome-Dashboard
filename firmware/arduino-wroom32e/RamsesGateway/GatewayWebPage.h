@@ -48,16 +48,16 @@ a{color:#a9d5ff}
 <span id="ot-state" class="muted">Loading...</span></div>
 <pre id="ot-results">No compatibility scan requested.</pre>
 <details class="panel" id="one-shot-panel">
-<summary>Experimental one-request read test using your existing 433M CC1101</summary>
-<p class="muted">Send exactly ONE RAMSES 3220 Read-Data ID25 request (boiler flow temperature) at 868.300 MHz. No retries, no scan, no polling and no heating writes. The 433 MHz-marked PCB's on-air 868 MHz transmission and emissions are not bench-verified. Minimum cooldown: 60 seconds.</p>
+<summary>Manual OpenTherm ID25 read test (unpaired experimental 18: or verified bound 01:)</summary>
+<p class="muted">Send exactly ONE RAMSES 3220 Read-Data ID25 request (boiler flow temperature) at 868.300 MHz. A verified additional controller 01: identity can be used on standard 868 MHz hardware; the pre-existing 433M cross-band unpaired test remains separately guarded. No retries, polling, scan or heating writes. Minimum cooldown: 60 seconds.</p>
 <p id="one-shot-status" class="muted">Checking bridge identity...</p>
-<label class="setting-check"><input type="checkbox" id="one-shot-confirm"> I verified the R8810A RF ID and selected an unused 18: virtual gateway RF ID. I authorize ONE experimental read-only RF transmission.</label>
+<label class="setting-check"><input type="checkbox" id="one-shot-confirm"> I verified the R8810A RF ID and my unique gateway 18: identity, or confirmed the additional 01: controller binding. I authorize ONE manually triggered read-only RF transmission.</label>
 <div class="controls"><label class="field">Single-test transmit method
 <select id="one-shot-method" aria-label="One-shot transmit method">
 <option value="uart">Original asynchronous UART / GDO0</option>
 <option value="fifo">Reference FIFO (upstream bit-aligned, 60 RF bytes)</option>
 </select></label><button type="button" id="one-shot-send" disabled>Transmit ONE Read-Data ID25</button><a href="/api/v1/opentherm/one-shot" target="_blank">One-shot diagnostic JSON</a></div>
-<small>One click = exactly one RF request using the selected method; never both. Each method shares a fixed nominal -10 dBm 868 MHz PATABLE value. The unmatched 433M PCB's radiated power remains unknown. Keep automatic scans/polling off.</small>
+<small>One click = exactly one RF request using the selected method; never both. Each method shares a fixed nominal -10 dBm 868 MHz PATABLE value. A 433M PCB's radiated power at 868 MHz remains unknown. Keep automatic scans/polling off.</small>
 <p id="one-shot-result" aria-live="polite" class="muted">No request attempted.</p>
 <pre id="one-shot-diag" aria-live="polite">TX diagnostic data appears after one request.</pre>
 <pre id="one-shot-compare">UART/FIFO A-B comparison will appear here.</pre>

@@ -8,6 +8,23 @@
 
 namespace ramses {
 
+enum RejectReason : uint8_t {
+  NO_REJECTION=0, INVALID_SYMBOL, BAD_CHECKSUM, MALFORMED_FRAME,
+  OVERSIZED_FRAME, INCOMPLETE_FRAME, IDLE_TIMEOUT
+};
+inline const char* rejectName(RejectReason reason) {
+  switch(reason) {
+    case NO_REJECTION:return "none";
+    case INVALID_SYMBOL:return "invalid_manchester";
+    case BAD_CHECKSUM:return "bad_checksum";
+    case MALFORMED_FRAME:return "malformed_structure";
+    case OVERSIZED_FRAME:return "oversized_frame";
+    case INCOMPLETE_FRAME:return "incomplete_frame";
+    case IDLE_TIMEOUT:return "idle_timeout";
+  }
+  return "unknown";
+}
+
 struct Message {
   uint8_t header = 0;
   uint8_t messageType = 0;
@@ -20,10 +37,16 @@ struct Message {
   uint8_t payload[64] = {};
 };
 
-inline bool decode(const uint8_t* raw, size_t size, Message& msg) {
+inline bool decode(const uint8_t* raw, size_t size, Message& msg,
+                   RejectReason* reason=nullptr) {
+  if(reason)*reason=NO_REJECTION;
+  const auto invalid=[reason](RejectReason error)->bool {
+    if(reason)*reason=error;
+    return false;
+  };
   // Message: header, variable addresses/params, opcode, payload-length,
   // payload, checksum. Full-byte checksum adds to zero modulo 256.
-  if (size < 5 || !raw || (raw[0] & 0xC0)) return false;
+  if (size < 5 || !raw || (raw[0] & 0xC0)) return invalid(MALFORMED_FRAME);
   const uint8_t addrMasks[4] = { 0x07, 0x04, 0x05, 0x03 };
   const uint8_t h = raw[0];
   Message candidate{};
@@ -34,7 +57,7 @@ inline bool decode(const uint8_t* raw, size_t size, Message& msg) {
 
   for (uint8_t i = 0; i < 3; ++i) {
     if (candidate.addrMask & (1u << i)) {
-      if (size - pos < 3) return false;
+      if (size - pos < 3) return invalid(MALFORMED_FRAME);
       memcpy(candidate.addresses[i], raw + pos, 3);
       pos += 3;
     }
@@ -42,21 +65,21 @@ inline bool decode(const uint8_t* raw, size_t size, Message& msg) {
 
   for (uint8_t i = 0; i < 2; ++i) {
     if (h & (i == 0 ? 0x02 : 0x01)) {
-      if (pos >= size) return false;
+      if (pos >= size) return invalid(MALFORMED_FRAME);
       candidate.hasParam[i] = true;
       candidate.params[i] = raw[pos++];
     }
   }
-  if (size - pos < 4) return false; // opcode(2), length(1), csum(1)
+  if (size - pos < 4) return invalid(MALFORMED_FRAME); // opcode(2), length(1), csum(1)
   candidate.opcode = (static_cast<uint16_t>(raw[pos]) << 8) | raw[pos + 1];
   pos += 2;
   const uint8_t payloadLen = raw[pos++];
-  if (payloadLen > sizeof(candidate.payload) || size - pos != static_cast<size_t>(payloadLen) + 1u) return false;
+  if (payloadLen > sizeof(candidate.payload) || size - pos != static_cast<size_t>(payloadLen) + 1u) return invalid(MALFORMED_FRAME);
   candidate.length = payloadLen;
   memcpy(candidate.payload, raw + pos, payloadLen);
   uint8_t sum = 0;
   for (size_t i = 0; i < size; ++i) sum = static_cast<uint8_t>(sum + raw[i]);
-  if (sum != 0) return false;
+  if (sum != 0) return invalid(BAD_CHECKSUM);
   msg = candidate;
   return true;
 }
@@ -108,13 +131,16 @@ class FrameDecoder {
       return false;
     }
     if (value == 0x35) { // RAMSES trailer
-      const bool valid = !half_ && decode(raw_, size_, out);
+      RejectReason reason=NO_REJECTION;
+      const bool valid = !half_ && decode(raw_, size_, out,&reason);
+      if(!valid)lastError_=half_?INCOMPLETE_FRAME:reason;
       reset();
       return valid;
     }
     const uint8_t lo = nibble(value & 0x0F);
     const uint8_t hi = nibble(value >> 4);
     if (lo == 0xFF || hi == 0xFF) {
+      lastError_=INVALID_SYMBOL;
       reset();
       return false;
     }
@@ -124,7 +150,7 @@ class FrameDecoder {
       pending_ = decodedNibble << 4;
       half_ = true;
     } else {
-      if (size_ >= sizeof(raw_)) { reset(); return false; }
+      if (size_ >= sizeof(raw_)) { lastError_=OVERSIZED_FRAME;reset();return false; }
       raw_[size_++] = static_cast<uint8_t>(pending_ | decodedNibble);
       half_ = false;
     }
@@ -132,6 +158,12 @@ class FrameDecoder {
   }
 
   void reset() { active_ = false; half_ = false; size_ = 0; sync_ = 0; }
+  void abortIdleTimeout() { if(active_)lastError_=IDLE_TIMEOUT;reset(); }
+  RejectReason takeError() {
+    const RejectReason result=lastError_;
+    lastError_=NO_REJECTION;
+    return result;
+  }
   bool receiving() const { return active_; }
   uint32_t syncCount() const { return syncCount_; }
 
@@ -146,6 +178,7 @@ class FrameDecoder {
       default: return 0xFF;
     }
   }
+  RejectReason lastError_=NO_REJECTION;
   bool active_ = false;
   bool half_ = false;
   uint8_t pending_ = 0;

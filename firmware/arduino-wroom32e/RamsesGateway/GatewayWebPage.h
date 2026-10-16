@@ -62,6 +62,14 @@ a{color:#a9d5ff}
 <pre id="one-shot-diag" aria-live="polite">TX diagnostic data appears after one request.</pre>
 <pre id="one-shot-compare">UART/FIFO A-B comparison will appear here.</pre>
 </details>
+<section class="panel" aria-label="Passive radio receive diagnostics">
+<h2>Passive radio receive diagnostics</h2>
+<p class="muted">These counters include all RF senders and classify decoding errors before address checks. An invalid frame cannot be reliably attributed to the R8810A. The optional RX Debug switch logs one summary every 15 seconds; it does not change reception, filtering, TX or settings and resets to OFF after reboot.</p>
+<label class="setting-check"><input type="checkbox" id="rx-debug-enable"> Enable detailed RX debug summaries (every 15 seconds, no restart)</label>
+<span id="rx-debug-state" class="muted">Loading RX diagnostics...</span>
+<div class="controls"><a href="/api/v1/radio/diagnostics" target="_blank">Receive diagnostic JSON</a><a href="/api/v1/debug/download" target="_blank">Export debug log</a></div>
+<pre id="rx-debug-counters" aria-live="polite">Waiting for radio diagnostic counters...</pre>
+</section>
 </section>
 </div><div id="page-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
 <section class="panel"><h2>Gateway configuration</h2>
@@ -192,6 +200,48 @@ el('cfg').addEventListener('submit',async event=>{
   set('cfg-message','Saved. ESP32 restarting — reconnect using its updated IP/hostname in a few seconds.');
  }catch(e){set('cfg-message','Save rejected: '+e.message);button.disabled=false}
 });
+
+async function updateRxDiagnostics(){
+  try {
+    const response=await fetch('/api/v1/radio/diagnostics',{cache:'no-store'});
+    if(!response.ok)throw new Error('HTTP '+response.status);
+    const d=await response.json();
+    el('rx-debug-enable').checked=!!d.debug_enabled;
+    set('rx-debug-state',d.debug_enabled?'RX Debug ON (15s summaries)':'RX Debug OFF (passive counters still available)');
+    const r=d.rejected||{};
+    const age=t=>t?Math.round(t/1000)+'s':'not observed';
+    set('rx-debug-counters',
+      'R8810A requests observed: '+d.requests_to_bridge+
+      '\\nR8810A messages received: '+d.messages_from_bridge+
+      ' · 3EF0='+d.bridge_3ef0+' · 3220='+d.bridge_3220+
+      '\\nLast controller request age: '+age(d.last_request_uptime_ms&&d.last_request_age_ms)+
+      '\\nLast bridge message age: '+age(d.last_bridge_uptime_ms&&d.last_bridge_age_ms)+
+      '\\nFrame rejection reasons (all senders):'+
+      '\\n  Checksum '+r.checksum+' · Manchester '+r.invalid_manchester+
+      ' · Malformed '+r.malformed_structure+' · Oversize '+r.oversized+
+      ' · Incomplete '+r.incomplete+' · Idle timeout '+r.idle_timeout+
+      ' · Format '+r.format_failure+
+      '\\nLast error: '+d.last_rejection+
+      ' · RSSI magnitude (indicative): '+d.last_rssi_magnitude+
+      '\\nInvalid RF frames cannot identify their sender.');
+  }catch(e){set('rx-debug-state','RX diagnostics unavailable: '+e.message)}
+}
+el('rx-debug-enable').addEventListener('change',async()=>{
+  const checkbox=el('rx-debug-enable');
+  const enabled=checkbox.checked;
+  checkbox.disabled=true;
+  try {
+    const response=await fetch('/api/v1/radio/diagnostics',{
+      method:'POST',
+      headers:{'X-Gateway-Config':'radio-debug','Content-Type':'application/x-www-form-urlencoded'},
+      body:'enabled='+(enabled?'1':'0')
+    });
+    const data=await response.json();
+    if(!response.ok)throw new Error(data.error||'HTTP '+response.status);
+  }catch(e){set('rx-debug-state','Cannot switch RX debug: '+e.message)}
+  finally{checkbox.disabled=false;updateRxDiagnostics()}
+});
+updateRxDiagnostics();setInterval(updateRxDiagnostics,5000);
 
 async function otStatus(){
  try{

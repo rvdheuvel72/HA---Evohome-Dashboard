@@ -188,6 +188,17 @@ radio, actual received bridge identity, 868.3 MHz matching hardware, and
 valid RF addresses. No boiler write commands are available.
 
 
+
+## Manual experimental one-request 3220 test on the existing 433M V2.0 PCB
+
+This feature intentionally does **not** turn the existing 433M PCB into a certified 868 MHz transmitter. Passive RX at 868.3 MHz is working in the user's installation, but outbound power, sensitivity, emissions and interoperability have not been bench-tested.
+
+On the ESP32 web **Settings** tab, retain **PCB: 433 MHz**, **868300 kHz**, **experimental cross-band RX: enabled**. Provide the *physically verified* R8810A decimal RF ID (e.g. packet source `10:048994` implies bridge ID `48994`) and a unique, unused 18: virtual RF source ID between 1 and 262142 (not reserved 730). **Do not reuse the MQTT gateway ID** (it may exceed RF address range). Leave **normal RF TX**, **automatic read polling** and **scan-all** OFF. Save and restart with strong HTTP authentication.
+
+On the **Diagnostics** tab, expand **Experimental one-request read test**, confirm your radio identity and click the explicitly consented button. The gateway requires an RF-verified observed bridge and no observed collision of the chosen 18: source ID. A click sends **at most one** `RQ 3220` / OpenTherm **Read-Data ID25** (boiler flow temperature), with no retransmission, retries, scans, writes or setpoint overrides. Rate limit: 60 seconds after an attempt. Use `GET /api/v1/opentherm/one-shot` for queued, awaiting_reply, read_ack, data_invalid, unknown_data_id, timeout or tx_failed, including any flow-temperature value. The Web API requires Basic authentication and a request-specific custom header for POST.
+
+This per-request diagnostic exception does **not** enable the existing bulk compatibility scanner, automatic RF requests, or a generic ability to transmit arbitrary RAMSES frames. On-air response and RF compliance are unverified until measured with the physical gateway and bridge. Do not assume a timeout proves unsupported OpenTherm ID25; it could be lost RF TX or RX.
+
 ## Browser Settings tab and experimental 868.3 MHz reception on 433M PCB
 
 **Diagnostics** and **Settings** are now separate tabs on the ESP32 web interface. The Settings tab shows the fixed GPIO wiring and exposes the physical module marking (433/868/315/915 MHz), the receiver frequency in kHz, and an explicit **Allow experimental cross-band receive-only tuning** opt-in. After saving, the configuration persists in ESP32 NVS and takes effect after a controlled reboot. No firmware recompilation is needed for subsequent changes. Existing v1 NVS credentials and settings are migrated to v2.

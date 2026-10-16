@@ -38,6 +38,11 @@ jobs:
           g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer \
             firmware/arduino-wroom32e/tests/test_debug.cpp -o /tmp/test-ramses-web-debug
           /tmp/test-ramses-web-debug
+      - name: Test capture session, capacity and rejection export model
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer \
+            firmware/arduino-wroom32e/tests/test_capture.cpp -o /tmp/test-ramses-capture
+          /tmp/test-ramses-capture
       - name: Validate MQTT Discovery JSON against HA conventions
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer \

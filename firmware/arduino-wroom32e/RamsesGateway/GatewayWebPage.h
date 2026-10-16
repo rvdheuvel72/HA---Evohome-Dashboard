@@ -69,6 +69,19 @@ a{color:#a9d5ff}
 <span id="rx-debug-state" class="muted">Loading RX diagnostics...</span>
 <div class="controls"><a href="/api/v1/radio/diagnostics" target="_blank">Receive diagnostic JSON</a><a href="/api/v1/debug/download" target="_blank">Export debug log</a></div>
 <pre id="rx-debug-counters" aria-live="polite">Waiting for radio diagnostic counters...</pre>
+<details class="panel" id="packet-capture-panel">
+<summary>Extended RAMSES packet capture (received packets and rejected frames)</summary>
+<p class="muted">Capture starts only when you click Start. Stores up to 192 RF decoder events in ESP32 RAM: every successfully decoded packet plus rejected frame candidates (with rejection reason and UART byte, but no reliable sender). Independent of the 12-packet Recent history and the web/MQTT queue. Automatically stops at 192; download before starting a new session, clearing, or rebooting. Not a raw RF/IQ capture and cannot show transmissions the CC1101 completely missed. No RF TX, reboot or saved settings.</p>
+<div class="controls">
+<button type="button" id="capture-start">Start new capture</button>
+<button type="button" id="capture-stop">Stop capture</button>
+<button type="button" id="capture-clear">Clear capture</button>
+<a href="/api/v1/capture/download" target="_blank" id="capture-download">Download capture (.tsv)</a>
+<a href="/api/v1/capture/status" target="_blank">Capture status JSON</a>
+</div>
+<p id="capture-state" class="muted" aria-live="polite">Capture is inactive.</p>
+<pre id="capture-stats" aria-live="polite">No capture running.</pre>
+</details>
 </section>
 </section>
 </div><div id="page-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
@@ -200,6 +213,44 @@ el('cfg').addEventListener('submit',async event=>{
   set('cfg-message','Saved. ESP32 restarting — reconnect using its updated IP/hostname in a few seconds.');
  }catch(e){set('cfg-message','Save rejected: '+e.message);button.disabled=false}
 });
+
+async function updatePacketCapture(){
+  try {
+    const response=await fetch('/api/v1/capture/status',{cache:'no-store'});
+    if(!response.ok)throw new Error('HTTP '+response.status);
+    const p=await response.json();
+    set('capture-state',
+      p.full?'Buffer FULL — stopped automatically. Download now.':
+      p.active?'CAPTURING — download/stop available':'Capture stopped');
+    el('capture-stop').disabled=!p.active;
+    el('capture-download').style.pointerEvents=p.count>0?'auto':'none';
+    set('capture-stats',
+      p.count+' / '+p.limit+' entries · '+p.decoded+' valid decoded · '+
+      p.rejected+' rejected frames'+
+      '\nReceiver syncs during session: '+p.syncs_since_start+
+      '\nRF UART bytes: '+p.radio_uart_bytes_since_start+
+      '\nWeb/MQTT queue drops: '+p.main_queue_dropped_since_start+
+      '\nCapture is RAM-only; start or clear discards unsaved entries.');
+  }catch(e){set('capture-state','Capture status unavailable: '+e.message)}
+}
+async function changePacketCapture(action) {
+  if((action==='clear'||action==='start') && !confirm('Unsaved capture entries will be lost. '+(action==='start'?'Start a new session?':'Clear current session?')))return;
+  const button=el('capture-'+action);button.disabled=true;
+  try {
+    const response=await fetch('/api/v1/capture/action',{
+      method:'POST',
+      headers:{'X-Gateway-Config':'packet-capture',
+               'Content-Type':'application/x-www-form-urlencoded'},
+      body:'action='+action
+    });
+    const data=await response.json();
+    if(!response.ok)throw new Error(data.error||'HTTP '+response.status);
+  }catch(e){set('capture-state','Capture action failed: '+e.message)}
+  finally{button.disabled=false;updatePacketCapture()}
+}
+for(const action of ['start','stop','clear'])
+  el('capture-'+action).addEventListener('click',()=>changePacketCapture(action));
+updatePacketCapture();setInterval(updatePacketCapture,5000);
 
 async function updateRxDiagnostics(){
   try {

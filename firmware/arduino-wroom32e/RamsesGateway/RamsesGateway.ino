@@ -74,6 +74,7 @@
 #define GW_TIMEZONE "Europe/Amsterdam"
 #endif
 #include "GatewayRuntimeConfig.h"
+#include "RamsesPacketCapture.h"
 #include "OpenThermGateway.h"
 
 namespace {
@@ -83,7 +84,7 @@ constexpr uint8_t RING_SIZE = 12;
 constexpr uint32_t RX_IDLE_TIMEOUT_MS = 250;
 constexpr uint32_t HEARTBEAT_MS = 15000;
 constexpr uint8_t DEBUG_QUEUE_SIZE = 16;
-constexpr char FW_VERSION[] = "0.4.0-beta.8";
+constexpr char FW_VERSION[] = "0.4.0-beta.9";
 constexpr uint32_t MDNS_RETRY_MS = 15000;
 constexpr uint32_t MQTT_STATE_INTERVAL_MS = 15000;
 
@@ -136,6 +137,11 @@ portMUX_TYPE rxDiagnosticsMux = portMUX_INITIALIZER_UNLOCKED;
 ramses_rx::Counters rxDiagnostics;
 volatile bool rxDebugEnabled=false;
 volatile uint32_t rxDebugEnabledAtMs=0;
+// Capture records are written directly from radioTask BEFORE the 12-slot
+// web/MQTT queue. Capture does not inherit that queue's drops or ring limit.
+portMUX_TYPE packetCaptureMux=portMUX_INITIALIZER_UNLOCKED;
+ramses_capture::Session packetCapture;
+
 
 char deviceId[12] = {};
 char baseTopic[64] = {};
@@ -224,6 +230,20 @@ void makeTimestamp(char* out, size_t size) {
            static_cast<unsigned>(tv.tv_usec%1000000L));
 }
 
+void appendCapture(ramses_capture::Kind kind,const char* message,
+                   uint32_t uptime,uint8_t rssi) {
+  uint64_t utcMs=0;
+  if(timeSynchronized()) {
+    struct timeval tv={};
+    gettimeofday(&tv,nullptr);
+    utcMs=static_cast<uint64_t>(tv.tv_sec)*1000u+
+          static_cast<uint32_t>(tv.tv_usec/1000);
+  }
+  portENTER_CRITICAL(&packetCaptureMux);
+  packetCapture.append(kind,message,uptime,rssi,utcMs);
+  portEXIT_CRITICAL(&packetCaptureMux);
+}
+
 void radioTask(void*) {
   ramses::FrameDecoder decoder;
   ramses::Message message;
@@ -257,6 +277,11 @@ void radioTask(void*) {
       const bool decoded = decoder.feed(byteIn, message);
       const ramses::RejectReason error=decoder.takeError();
       if(error!=ramses::NO_REJECTION) {
+        char rejection[110];
+        snprintf(rejection,sizeof(rejection),
+                 "%s uart_byte=0x%02X sender=unknown",
+                 ramses::rejectName(error),static_cast<unsigned>(byteIn));
+        appendCapture(ramses_capture::REJECTION,rejection,millis(),0);
         rejectedFrames = rejectedFrames + 1u;
         portENTER_CRITICAL(&rxDiagnosticsMux);
         rxDiagnostics.rejection(error,millis());
@@ -273,6 +298,8 @@ void radioTask(void*) {
         if (ramses::format(message, strength, packet.hgi, sizeof(packet.hgi))) {
           packet.uptimeMs = millis();
           packet.rssi = strength;
+          appendCapture(ramses_capture::PACKET,packet.hgi,
+                        packet.uptimeMs,strength);
           ot_readonly::Result otResult=ot_readonly::NOT_TESTED;
           uint8_t otId=0;
           uint16_t otRaw=0;
@@ -287,6 +314,9 @@ void radioTask(void*) {
           lastRssi = strength;
           if (xQueueSend(rxQueue, &packet, 0) != pdTRUE) droppedFrames = droppedFrames + 1u;
         } else {
+          appendCapture(ramses_capture::REJECTION,
+                        "format_failure decoded_frame_not_formatted",
+                        millis(),0);
           rejectedFrames = rejectedFrames + 1u;
           portENTER_CRITICAL(&rxDiagnosticsMux);
           ++rxDiagnostics.formatFailure;
@@ -300,6 +330,9 @@ void radioTask(void*) {
       decoder.abortIdleTimeout();
       const ramses::RejectReason reason=decoder.takeError();
       if(reason!=ramses::NO_REJECTION) {
+        appendCapture(ramses_capture::REJECTION,
+                      "idle_timeout incomplete_rf_candidate sender=unknown",
+                      now,0);
         rejectedFrames = rejectedFrames + 1u;
         portENTER_CRITICAL(&rxDiagnosticsMux);
         rxDiagnostics.rejection(reason,now);
@@ -682,6 +715,134 @@ void httpRadioDiagnostics() {
   web.send(200,"application/json",body);
 }
 
+// These endpoints never alter the radio or transmit. The capture is RAM-only
+// (not raw RF bits) and automatically freezes at 192 events. Export before
+// starting a new capture, clearing, or restarting.
+void httpCaptureStatus(){
+  if(!authorized())return;
+  bool active,full;
+  size_t count;
+  uint32_t started,stopped,received,rejected,uartStart,syncStart,droppedStart;
+  portENTER_CRITICAL(&packetCaptureMux);
+  active=packetCapture.active;full=packetCapture.full;
+  count=packetCapture.count;
+  started=packetCapture.started_ms;stopped=packetCapture.stopped_ms;
+  received=packetCapture.received;rejected=packetCapture.rejected;
+  uartStart=packetCapture.start_uart_bytes;
+  syncStart=packetCapture.start_syncs;
+  droppedStart=packetCapture.start_dropped;
+  portEXIT_CRITICAL(&packetCaptureMux);
+  char out[810];
+  const int len=snprintf(out,sizeof(out),
+    "{\"active\":%s,\"full\":%s,\"storage\":\"RAM_only\","
+    "\"limit\":%u,\"count\":%u,\"decoded\":%lu,\"rejected\":%lu,"
+    "\"started_uptime_ms\":%lu,\"stopped_uptime_ms\":%lu,"
+    "\"radio_uart_bytes_since_start\":%lu,\"syncs_since_start\":%lu,"
+    "\"main_queue_dropped_since_start\":%lu,"
+    "\"notes\":\"Only checksum-valid packets and decoder-rejected frame candidates; not raw RF bits. Capture stops when full. Export before restart or clear.\"}",
+    active?"true":"false",full?"true":"false",
+    static_cast<unsigned>(ramses_capture::MAX_ITEMS),
+    static_cast<unsigned>(count),
+    static_cast<unsigned long>(received),
+    static_cast<unsigned long>(rejected),
+    static_cast<unsigned long>(started),
+    static_cast<unsigned long>(stopped),
+    static_cast<unsigned long>(started?rfUartBytes-uartStart:0),
+    static_cast<unsigned long>(started?rfSyncs-syncStart:0),
+    static_cast<unsigned long>(started?droppedFrames-droppedStart:0));
+  if(len<=0 || static_cast<size_t>(len)>=sizeof(out)){
+    web.send(500,"application/json","{\"error\":\"status_overflow\"}");return;
+  }
+  web.sendHeader("Cache-Control","no-store");
+  web.send(200,"application/json",out);
+}
+
+void httpCaptureAction(){
+  if(!authorized())return;
+  if(!web.hasHeader("X-Gateway-Config") ||
+     web.header("X-Gateway-Config")!="packet-capture" ||
+     !web.hasArg("action")) {
+    web.send(403,"application/json","{\"error\":\"capture_confirmation_required\"}");
+    return;
+  }
+  const String action=web.arg("action");
+  if(action!="start" && action!="stop" && action!="clear"){
+    web.send(400,"application/json","{\"error\":\"unknown_capture_action\"}");
+    return;
+  }
+  const uint32_t now=millis();
+  portENTER_CRITICAL(&packetCaptureMux);
+  if(action=="start")packetCapture.start(now,rfUartBytes,rfSyncs,droppedFrames);
+  if(action=="stop")packetCapture.stop(now);
+  if(action=="clear")packetCapture.clear();
+  portEXIT_CRITICAL(&packetCaptureMux);
+  web.sendHeader("Cache-Control","no-store");
+  web.send(200,"application/json","{\"ok\":true}");
+}
+
+// Read each entry under a short lock, send outside lock to avoid blocking RX.
+// On-core HTTP is serialized; start/clear cannot interfere mid-download.
+void httpCaptureDownload(){
+  if(!authorized())return;
+  size_t count;
+  uint32_t started,stopped;
+  bool active,full;
+  portENTER_CRITICAL(&packetCaptureMux);
+  count=packetCapture.count;
+  started=packetCapture.started_ms;
+  stopped=packetCapture.stopped_ms;
+  active=packetCapture.active;
+  full=packetCapture.full;
+  portEXIT_CRITICAL(&packetCaptureMux);
+  char filename[72];
+  snprintf(filename,sizeof(filename),"attachment; filename=RAMSES-RX-%lu.tsv",
+           static_cast<unsigned long>(started));
+  web.sendHeader("Content-Disposition",filename);
+  web.sendHeader("Cache-Control","no-store");
+  web.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  web.send(200,"text/tab-separated-values; charset=utf-8","");
+  char line[380];
+  snprintf(line,sizeof(line),
+    "# RAMSES RX capture: start_uptime_ms=%lu stop_uptime_ms=%lu active_at_export=%u full=%u entries=%u\n",
+    static_cast<unsigned long>(started),static_cast<unsigned long>(stopped),
+    static_cast<unsigned>(active),static_cast<unsigned>(full),
+    static_cast<unsigned>(count));
+  web.sendContent(line);
+  web.sendContent("# Times are device uptime in ms; date anchor at export follows. No raw RF bits; receiver may miss frames.\n");
+  char anchor[40];
+  makeTimestamp(anchor,sizeof(anchor));
+  snprintf(line,sizeof(line),"# export_utc=%s export_uptime_ms=%lu\n",
+           anchor,static_cast<unsigned long>(millis()));
+  web.sendContent(line);
+  web.sendContent("sequence\tlocal_time\tutc_epoch_ms\tuptime_ms\ttype\trssi_magnitude\tmessage\n");
+  for(size_t i=0;i<count;i++){
+    ramses_capture::Entry row;
+    portENTER_CRITICAL(&packetCaptureMux);
+    const bool present=packetCapture.item(i,row);
+    portEXIT_CRITICAL(&packetCaptureMux);
+    if(!present)break;
+    // Input strings are generated internally (no tab/CR/LF).
+    char localStamp[48]="unsynced";
+    if(row.utc_ms>0) {
+      const time_t seconds=static_cast<time_t>(row.utc_ms/1000u);
+      tm local={};
+      localtime_r(&seconds,&local);
+      if(!strftime(localStamp,sizeof(localStamp),
+                   "%Y-%m-%dT%H:%M:%S%z",&local))
+        snprintf(localStamp,sizeof(localStamp),"time_format_error");
+    }
+    const int n=snprintf(line,sizeof(line),"%lu\t%s\t%llu\t%lu\t%s\t%u\t%s\n",
+      static_cast<unsigned long>(row.sequence),localStamp,
+      static_cast<unsigned long long>(row.utc_ms),
+      static_cast<unsigned long>(row.uptime_ms),
+      ramses_capture::kindName(row.kind),
+      static_cast<unsigned>(row.rssi),row.message);
+    if(n>0 && static_cast<size_t>(n)<sizeof(line))web.sendContent(line);
+    if((i&15u)==0)delay(0); // yield while serving a full capture
+  }
+  web.sendContent("");
+}
+
 void httpPackets() {
   if (!authorized()) return;
   String json = "{\"packets\":[";
@@ -937,8 +1098,8 @@ void handlePacket(const PacketEvent& event) {
 void setup() {
   Serial.begin(115200);
   delay(250);
-  Serial.println("\n# RAMSES II Arduino v0.4.0-beta.8 (read-only OpenTherm discovery)");
-  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-beta.8");
+  Serial.println("\n# RAMSES II Arduino v0.4.0-beta.9 (read-only OpenTherm discovery)");
+  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-beta.9");
   char bootInfo[96];
   snprintf(bootInfo, sizeof(bootInfo), "Reset reason: %s", resetReason());
   recordLog(GatewayDebug::INFO, bootInfo);
@@ -992,6 +1153,9 @@ void setup() {
   web.on("/api/v1/config", HTTP_GET, httpConfigGet);
   web.on("/api/v1/config", HTTP_POST, httpConfigSave);
   web.on("/api/v1/packets", HTTP_GET, httpPackets);
+  web.on("/api/v1/capture/status", HTTP_GET, httpCaptureStatus);
+  web.on("/api/v1/capture/action", HTTP_POST, httpCaptureAction);
+  web.on("/api/v1/capture/download", HTTP_GET, httpCaptureDownload);
   web.on("/api/v1/radio/diagnostics", HTTP_GET, httpRadioDiagnostics);
   web.on("/api/v1/radio/diagnostics", HTTP_POST, httpRadioDiagnostics);
   web.on("/api/v1/opentherm/profile", HTTP_GET, httpOtProfile);

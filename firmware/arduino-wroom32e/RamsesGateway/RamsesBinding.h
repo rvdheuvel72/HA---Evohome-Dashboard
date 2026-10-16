@@ -117,7 +117,7 @@ struct Session {
     deadline=now+RESPONSE_TIMEOUT_MS;
   }
   bool observe(const ramses::Message& m,uint32_t now) {
-    if(!busy() || !(m.addrMask&1))return false;
+    if((!busy() && state!=VERIFIED) || !(m.addrMask&1))return false;
     if(type(m.addresses[0])==1 &&
        id(m.addresses[0])==virtualId) {
       virtualIdCollision=true;state=ID_CONFLICT;return false;

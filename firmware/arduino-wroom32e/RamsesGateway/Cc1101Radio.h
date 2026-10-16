@@ -5,6 +5,7 @@
 #include <SPI.h>
 #include "RadioFrequency.h"
 #include "OpenThermTxDiagnostics.h"
+#include "RamsesUartFifo.h"
 
 class Cc1101Radio {
  public:
@@ -79,34 +80,41 @@ class Cc1101Radio {
     return idle && rx;
   }
 
-  // FIFO comparison follows the reference RAMSES project's use of Manchester-
-  // encoded wire bytes and the CC1101 packet FIFO. Because this fixed 44-byte
-  // test fits in the 64-byte FIFO, fixed-length packet mode avoids the risk of
-  // unbounded RF if an infinite-length FIFO producer stalls. HW sync and CRC
-  // are disabled: encoded frame already has RAMSES preamble/sync/checksum.
+  // The reference RAMSES project converts each Manchester encoded UART byte
+  // into 8N1 serial bits before writing the CC1101 FIFO. 44 UART bytes become
+  // exactly 55 FIFO bytes (440 RF bits). Fixed-length FIFO transmission avoids
+  // infinite-streaming underrun risks. HW sync/CRC disabled: RAW RAMSES
+  // preamble/sync and frame checksum are already encoded in the waveform.
   bool sendOneShotFifo(const uint8_t* wire,size_t wireLength,
                        bool experimentalOneShot,ot_tx::Report& d) {
     d.method=ot_tx::REFERENCE_FIFO;
-    d.expected_bytes=static_cast<uint16_t>(wireLength);
     const uint32_t begun=micros();
-    if(!wire || wireLength!=44 || !txFrequencyAllowed(experimentalOneShot)) {
+    if(!wire || wireLength!=ramses_uart_fifo::INPUT_LEN ||
+       !txFrequencyAllowed(experimentalOneShot)) {
       d.phase=ot_tx::FREQUENCY_REJECTED;return false;
     }
+    uint8_t txFifo[ramses_uart_fifo::RF_LEN]={};
+    size_t txLength=0;
+    if(!ramses_uart_fifo::encode(wire,wireLength,txFifo,sizeof(txFifo),txLength) ||
+       txLength!=ramses_uart_fifo::RF_LEN) {
+      d.phase=ot_tx::TX_CONFIG_FAILED;return false;
+    }
+    d.expected_bytes=static_cast<uint16_t>(txLength);
     if(!prepareTx(d))return false;
     if(!writeRegister(0x02,0x2E) ||  // GDO0 stays high-Z: ESP32 UART TX drives this wire
-       !writeRegister(0x06,static_cast<uint8_t>(wireLength)) ||
+       !writeRegister(0x06,static_cast<uint8_t>(txLength)) ||
        !writeRegister(0x08,0x00) || // fixed length; FIFO; no HW CRC
        !strobe(0x3B)) {            // flush TX FIFO in IDLE
       d.phase=ot_tx::TX_CONFIG_FAILED;
       endReadRequestTx(&d);return false;
     }
-    if(!writeFifoBurst(wire,wireLength)) {
+    if(!writeFifoBurst(txFifo,txLength)) {
       d.phase=ot_tx::FIFO_PREFILL_FAILED;
       endReadRequestTx(&d);return false;
     }
-    d.written_bytes=static_cast<uint16_t>(wireLength);
+    d.written_bytes=static_cast<uint16_t>(txLength);
     d.txbytes_before=status(0x3A);
-    if((d.txbytes_before&0x7fu)!=wireLength ||
+    if((d.txbytes_before&0x7fu)!=txLength ||
        (d.txbytes_before&0x80u)) {
       d.phase=ot_tx::FIFO_PREFILL_FAILED;
       endReadRequestTx(&d);return false;

@@ -1,8 +1,10 @@
 // Convert the 44 legacy RAMSES UART bytes into a CC1101 FIFO bitstream.
 // Each UART byte is 8N1: START=0, 8 payload bits LSB first, STOP=1.
 // FIFO transmits MSB first; 44 * 10 bits = 440 bits = exactly 55 bytes.
-// This reproduces the reference ramses_esp frame.c tx_byte() bit framing,
-// rather than mistakenly feeding 44 raw bytes (which drops UART framing).
+// Note: frame.c tx_byte() uses MARK, START, DATA (1,0,LSB-first)
+// at the beginning of each octet. Our legacy encode() uses START, DATA,
+// STOP (0,LSB-first,1), which is a one-bit stream phase shift.
+// Reference FIFO must use encodeReferenceSerial() instead.
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
@@ -36,8 +38,33 @@ inline bool encode(const uint8_t* serial,size_t serialLen,
   used=bitPos/8;
   return bitPos==RF_LEN*8 && used==RF_LEN;
 }
-// Bounded representation of reference FIFO priming + 8N1 RAMSES frame +
-// trailing MARK. The priming sequence is NOT an extra RAMSES request.
+// Exact on-air data bit alignment of IndaloTech/ramses_esp frame.c
+// tx_byte(): emit MARK=1, START=0, then DATA LSB-first for every
+// UART byte. Relative to START+DATA+STOP, this rotates the serial stream
+// one bit: essential after the reference's 00 FF 00 00 BREAK primer.
+// This encoder is independent of the legacy serial-UART framing method.
+inline bool encodeReferenceSerial(const uint8_t* serial,size_t serialLen,
+                                  uint8_t* out,size_t capacity,size_t& used) {
+  used=0;
+  if(!serial || !out || serialLen!=INPUT_LEN || capacity<RF_LEN)return false;
+  for(size_t i=0;i<RF_LEN;i++)out[i]=0;
+  size_t bitPos=0;
+  const auto putBit=[&](uint8_t bit){
+    if(bit)out[bitPos>>3]|=static_cast<uint8_t>(0x80u>>(bitPos&7));
+    ++bitPos;
+  };
+  for(size_t i=0;i<serialLen;i++){
+    putBit(1); // MARK before each UART start, as in reference insert_ps()
+    putBit(0); // START=SPACE
+    const uint8_t c=serial[i];
+    for(unsigned b=0;b<8;b++)putBit(static_cast<uint8_t>((c>>b)&1u));
+  }
+  used=bitPos/8;
+  return bitPos==RF_LEN*8 && used==RF_LEN;
+}
+
+// Bounded representation of reference FIFO priming + exactly the upstream
+// MARK/START/DATA waveform + trailing MARK. The primer adds no RQ message.
 inline bool encodePrimedReference(const uint8_t* serial,size_t serialLen,
                                   uint8_t* out,size_t capacity,size_t& used) {
   used=0;
@@ -46,7 +73,8 @@ inline bool encodePrimedReference(const uint8_t* serial,size_t serialLen,
   const uint8_t prefix[PRIME_LEN]={0x00,0xFF,0x00,0x00};
   for(size_t i=0;i<PRIME_LEN;i++)out[i]=prefix[i];
   size_t frameLength=0;
-  if(!encode(serial,serialLen,out+PRIME_LEN,capacity-PRIME_LEN,frameLength) ||
+  if(!encodeReferenceSerial(serial,serialLen,out+PRIME_LEN,
+                             capacity-PRIME_LEN,frameLength) ||
      frameLength!=RF_LEN)return false;
   out[PRIME_LEN+frameLength]=0xFF;
   used=PRIME_LEN+frameLength+IDLE_LEN;

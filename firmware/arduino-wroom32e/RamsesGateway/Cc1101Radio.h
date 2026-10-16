@@ -10,9 +10,10 @@ class Cc1101Radio {
   static constexpr uint8_t SCK = 18, MISO = 19, MOSI = 23, CS = 5;
   static constexpr uint8_t GDO0 = 26, GDO2 = 27;
 
-  bool begin(uint32_t frequencyKhz=868300, uint16_t moduleBand=868) {
+  bool begin(uint32_t frequencyKhz=868300, uint16_t moduleBand=868,
+             bool experimentalRx=false) {
     uint32_t synthesizer=0;
-    if (!radio_frequency::synth(frequencyKhz,moduleBand,synthesizer)) return false;
+    if (!radio_frequency::synth(frequencyKhz,moduleBand,synthesizer,experimentalRx)) return false;
     frequencyKhz_=frequencyKhz;
     moduleBand_=moduleBand;
     pinMode(CS, OUTPUT);

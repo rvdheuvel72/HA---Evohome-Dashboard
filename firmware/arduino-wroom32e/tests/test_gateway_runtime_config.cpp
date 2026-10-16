@@ -16,6 +16,7 @@
 #define GW_DEBUG_USER "admin"
 #define GW_DEBUG_PASSWORD "test-diagnostic-password"
 #define GW_CC1101_FREQUENCY_KHZ 868300
+#define GW_CC1101_MODULE_BAND 868
 #define GW_OT_BRIDGE_ID 0
 #define GW_OT_SOURCE_ID 0
 #define GW_OT_SCAN_ALL_256 0
@@ -28,6 +29,8 @@ int main(){
   assert(sealed(defaultsConfig,868));
   assert(strcmp(defaultsConfig.timezone,"Europe/Amsterdam")==0);
   assert(defaultsConfig.otTxEnabled==0);
+  assert(defaultsConfig.version==2 && defaultsConfig.rfModuleBand==868);
+  assert(defaultsConfig.rfExperimentalRx==0);
   assert(defaultsConfig.mqttDiscovery==1); // RF disabled on first boot.
   assert(std::strcmp(posixZone("Europe/Amsterdam"),
          "CET-1CEST,M3.5.0/2,M10.5.0/3")==0);
@@ -35,6 +38,15 @@ int main(){
   assert(!validHost("-hostname") && !validHost("a b") && validHost("ramses-home"));
   assert(!validAP("short") && validAP("strong-enough"));
   assert(!radio_frequency::withinHardwareBand(433920,868)); // see namespace below
+  Settings cross=defaultsConfig;
+  cross.rfModuleBand=433;
+  assert(!validate(cross,868)); // no silent cross-band RX
+  cross.rfExperimentalRx=1;
+  assert(validate(cross,868)); // explicitly opted-in RX
+  cross.otBridge=125802;cross.otSource=123456;cross.otTxEnabled=1;
+  assert(!validate(cross,868)); // cross-band mode cannot transmit
+  cross.otTxEnabled=0;
+  assert(validate(cross,868));
   assert(!validate(Settings{},0));
   Settings chosen=defaultsConfig;
   chosen.rfFrequencyKhz=433920;
@@ -54,6 +66,8 @@ int main(){
   Store store;store.begin(868);
   assert(!store.pending);
   Settings updated=store.current;
+  updated.rfModuleBand=433;
+  updated.rfExperimentalRx=1;
   copy(updated.hostname,sizeof(updated.hostname),"test-gateway");
   copy(updated.timezone,sizeof(updated.timezone),"UTC");
   updated.mqttPort=1884;
@@ -61,6 +75,7 @@ int main(){
   assert(store.stage(updated,868) && store.pending);
   Store pending;pending.begin(868);
   assert(pending.pending && strcmp(pending.current.hostname,"test-gateway")==0);
+  assert(pending.current.rfModuleBand==433 && pending.current.rfExperimentalRx==1);
   assert(strcmp(pending.current.timezone,"UTC")==0);
   assert(pending.rollback(868));
   Store previous;previous.begin(868);
@@ -69,8 +84,32 @@ int main(){
   Store committed;committed.begin(868);
   assert(committed.pending && committed.confirm());
   Store persisted;persisted.begin(868);
+  assert(!persisted.pending && persisted.current.rfModuleBand==433 &&
+         persisted.current.rfExperimentalRx==1);
   assert(!persisted.pending && persisted.current.mqttPort==1884 &&
          persisted.current.mqttDiscovery==0);
+  // Upgrade a genuine v1 binary record, preserving network credentials.
+  LegacySettingsV1 old={};
+  gw_config::copy(old.wifiSSID,sizeof(old.wifiSSID),defaultsConfig.wifiSSID);
+  gw_config::copy(old.wifiPassword,sizeof(old.wifiPassword),defaultsConfig.wifiPassword);
+  gw_config::copy(old.hostname,sizeof(old.hostname),defaultsConfig.hostname);
+  gw_config::copy(old.webUser,sizeof(old.webUser),defaultsConfig.webUser);
+  gw_config::copy(old.webPassword,sizeof(old.webPassword),defaultsConfig.webPassword);
+  gw_config::copy(old.timezone,sizeof(old.timezone),defaultsConfig.timezone);
+  old.mqttPort=defaultsConfig.mqttPort;
+  old.rfFrequencyKhz=defaultsConfig.rfFrequencyKhz;
+  old.mqttDiscovery=defaultsConfig.mqttDiscovery;
+  old.version=1;
+  old.checksum=legacyCrc(old);
+  Preferences prefs;
+  assert(prefs.begin("gw-settings",false));
+  assert(prefs.putBytes("config",&old,sizeof(old))==sizeof(old));
+  prefs.end();
+  Store migrated;migrated.begin(868);
+  assert(migrated.current.version==2);
+  assert(strcmp(migrated.current.wifiSSID,"my-home")==0);
+  assert(strcmp(migrated.current.webPassword,"test-diagnostic-password")==0);
+  assert(migrated.current.rfModuleBand==868 && migrated.current.rfExperimentalRx==0);
   // Verify POSIX DST rules actually change local time.
   const char* zone=posixZone("Europe/Amsterdam");
   setenv("TZ",zone,1);tzset();

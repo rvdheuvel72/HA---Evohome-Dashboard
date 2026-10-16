@@ -220,7 +220,9 @@ void radioTask(void*) {
   // GDO2 receives async radio data; GDO0 is UART TX into CC1101 during STX.
   // No RF TX is attempted unless explicit, constrained diagnostic gates pass.
   rfUart.begin(38400, SERIAL_8N1, Cc1101Radio::GDO2, Cc1101Radio::GDO0);
-  radioReady = radio.begin(configuration.current.rfFrequencyKhz,GW_CC1101_MODULE_BAND);
+  radioReady = radio.begin(configuration.current.rfFrequencyKhz,
+                            configuration.current.rfModuleBand,
+                            configuration.current.rfExperimentalRx==1);
   if(radioReady)otGateway.begin();
   char radioInfo[130];
   snprintf(radioInfo, sizeof(radioInfo), "CC1101 detected=%u PARTNUM=0x%02X VERSION=0x%02X",
@@ -353,7 +355,8 @@ void httpConfigGet() {
   result+="\"mqtt_user\":\""+escapeJSON(cfg.mqttUser)+"\",";
   result+="\"timezone\":\""+escapeJSON(cfg.timezone)+"\",";
   result+="\"rf_frequency_khz\":"+String(cfg.rfFrequencyKhz)+",";
-  result+="\"rf_module_band\":"+String(GW_CC1101_MODULE_BAND)+",";
+  result+="\"rf_module_band\":"+String(cfg.rfModuleBand)+",";
+  result+="\"rf_experimental_rx\":"+(cfg.rfExperimentalRx?String("true"):String("false"))+",";
   result+="\"ot_bridge\":"+String(cfg.otBridge)+",";
   result+="\"ot_source\":"+String(cfg.otSource)+",";
   result+="\"ot_scan_all\":"+(cfg.otScanAll?String("true"):String("false"))+",";
@@ -409,6 +412,7 @@ void httpConfigSave(){
     }
   }
   if(!web.hasArg("mqtt_port") || !web.hasArg("rf_frequency_khz") ||
+     !web.hasArg("rf_module_band") ||
      !web.hasArg("ot_bridge") || !web.hasArg("ot_source")) {
     web.send(400,"application/json","{\"error\":\"required_numeric_field_missing\"}");
     return;
@@ -429,6 +433,12 @@ void httpConfigSave(){
     web.send(400,"application/json","{\"error\":\"invalid_rf_frequency\"}");return;
   }
   staged.rfFrequencyKhz=value;
+  if(!number(web.arg("rf_module_band"),999,value) ||
+     (value!=315 && value!=433 && value!=868 && value!=915)){
+    web.send(400,"application/json","{\"error\":\"invalid_rf_board_marking\"}");return;
+  }
+  staged.rfModuleBand=static_cast<uint16_t>(value);
+  staged.rfExperimentalRx=web.arg("rf_experimental_rx")=="1";
   if(!number(web.arg("ot_bridge"),262143,value)){
     web.send(400,"application/json","{\"error\":\"invalid_bridge_id\"}");return;
   }
@@ -781,7 +791,7 @@ void setup() {
   }
   const uint32_t serial = static_cast<uint32_t>(ESP.getEfuseMac() & 0xFFFFFFu);
   configuration.begin(GW_CC1101_MODULE_BAND);
-  otGateway.configure(&configuration.current,GW_CC1101_MODULE_BAND);
+  otGateway.configure(&configuration.current,configuration.current.rfModuleBand);
   const bool configuredHostnameValid = gateway_hostname::resolve(configuration.current.hostname, serial, gatewayHostname, sizeof(gatewayHostname));
   if (!configuredHostnameValid && configuration.current.hostname[0])
     recordLog(GatewayDebug::WARN, "GW_HOSTNAME invalid: using generated evohome-gateway-XXXXXX");

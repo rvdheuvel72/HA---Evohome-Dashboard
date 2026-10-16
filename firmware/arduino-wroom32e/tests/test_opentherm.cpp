@@ -23,6 +23,11 @@ int main(){
   assert(radio_frequency::synth(868300,868,freq));
   assert(freq==0x21656A);
   assert(!radio_frequency::synth(433920,868,freq));
+  assert(radio_frequency::synth(868300,433,freq,true)); // explicit RX opt-in
+  assert(freq==0x21656A);
+  assert(!radio_frequency::synth(868300,433,freq));
+  assert(!radio_frequency::synth(500000,433,freq,true)); // outside silicon range
+  assert(!radio_frequency::evohomeTxFrequency(868300,433));
   assert(radio_frequency::synth(433920,433,freq));
   assert(!radio_frequency::synth(867000,0,freq));
   assert(radio_frequency::evohomeTxFrequency(868300,868));

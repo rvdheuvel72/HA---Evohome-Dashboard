@@ -19,7 +19,7 @@ Arduino IDE prototype, receive-only by default; optional guarded read-only RF di
 | GDO0 | GPIO26 / P26 |
 | GDO2 | GPIO27 / P27 |
 
-**Disconnect USB before wiring; never connect the CC1101 to 5V.** Some breakout boards use 2.0 mm pitch, so verify jumper compatibility rather than forcing 2.54 mm Dupont sockets. Radio and antenna must support 868 MHz.
+**For the photographed V2.0 module:** connector pin 1 GND = brown wire, pin 2 VCC = red wire to ESP32 3V3. **Disconnect USB before wiring; never connect the CC1101 to 5V.** Some breakout boards use 2.0 mm pitch, so verify jumper compatibility rather than forcing 2.54 mm Dupont sockets. Radio and antenna must support 868 MHz.
 
 ## Compile and upload from Arduino IDE
 
@@ -187,3 +187,11 @@ remains off by default and additionally requires an explicitly confirmed
 radio, actual received bridge identity, 868.3 MHz matching hardware, and
 valid RF addresses. No boiler write commands are available.
 
+
+## Browser Settings tab and experimental 868.3 MHz reception on 433M PCB
+
+**Diagnostics** and **Settings** are now separate tabs on the ESP32 web interface. The Settings tab shows the fixed GPIO wiring and exposes the physical module marking (433/868/315/915 MHz), the receiver frequency in kHz, and an explicit **Allow experimental cross-band receive-only tuning** opt-in. After saving, the configuration persists in ESP32 NVS and takes effect after a controlled reboot. No firmware recompilation is needed for subsequent changes. Existing v1 NVS credentials and settings are migrated to v2.
+
+For your pictured `433M V2.0` board, select **433 MHz**, frequency **868300 kHz**, tick experimental RX, and leave **RF read-request transmission OFF**. The silicon can tune to 868.3 MHz, but external RF matching and the supplied antenna are intended for 433 MHz: reception is **not assured**. The 433M module's vendor specifies operation in 387–464 MHz only, so this is a deliberately unverified reception experiment, not a supported product configuration. RF TX is disallowed whenever the declared PCB band is not 868 MHz and whenever experimental RX is enabled, even if the chip synthesizer tunes successfully.
+
+The original GPIO wiring does not change: GDO0 GPIO26, GDO2 GPIO27, CS GPIO5, SCK GPIO18, MISO GPIO19, MOSI GPIO23, plus 3.3 V and ground. Software and CI checks cannot verify RF signal reception; you must confirm CC1101 chip detection and valid RAMSES frames on your hardware. 

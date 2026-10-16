@@ -12,8 +12,15 @@ inline bool withinHardwareBand(uint32_t khz,uint16_t declaredBand){
     default:return false;
   }
 }
-inline bool synth(uint32_t khz,uint16_t band,uint32_t& word){
-  if(!withinHardwareBand(khz,band))return false;
+inline bool withinChipBand(uint32_t khz){
+  return (khz>=300000 && khz<=348000) ||
+         (khz>=387000 && khz<=464000) ||
+         (khz>=779000 && khz<=928000);
+}
+// Cross-band tuning needs an explicit RX-only configuration opt-in.
+inline bool synth(uint32_t khz,uint16_t band,uint32_t& word,bool experimentalRx=false){
+  if(!withinHardwareBand(khz,band) &&
+     !(experimentalRx && withinChipBand(khz)))return false;
   // CC1101 nominal XOSC = 26 MHz; FREQ = f_RFx2^16/f_XOSC.
   const uint64_t rounded=static_cast<uint64_t>(khz)*65536u+13000u;
   const uint64_t v=rounded/26000u;

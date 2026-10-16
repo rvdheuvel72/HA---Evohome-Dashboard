@@ -370,12 +370,12 @@ class OpenThermGateway {
   bool transmit(Cc1101Radio& radio,HardwareSerial& port,
                 ramses::FrameDecoder& decoder,uint8_t id){
     if(!transmitEnabled())return false;
-    return sendReadRequest(radio,port,decoder,id,false);
+    ot_tx::Report diagnostics;
+    return sendReadRequest(radio,port,decoder,id,false,ot_tx::ASYNC_UART,diagnostics);
   }
   bool sendReadRequest(Cc1101Radio& radio,HardwareSerial& port,
                 ramses::FrameDecoder& decoder,uint8_t id,bool experimental,
-                ot_tx::Method method=ot_tx::ASYNC_UART,
-                ot_tx::Report& diag=dummyReport_){
+                ot_tx::Method method,ot_tx::Report& diag){
     diag=ot_tx::Report{};
     diag.method=method;
     if(experimental) {
@@ -416,5 +416,4 @@ class OpenThermGateway {
     else diag.phase=ot_tx::LOCAL_COMPLETE;
     return diag.phase==ot_tx::LOCAL_COMPLETE;
   }
-  ot_tx::Report dummyReport_;
 };

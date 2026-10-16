@@ -54,7 +54,10 @@ class OpenThermGateway {
     portENTER_CRITICAL(&mutex_);
     const bool blocked=singleProbe_.state==ot_single::QUEUED ||
        singleProbe_.state==ot_single::WAITING;
-    const bool ok=!blocked && !binding_.busy() &&
+    bool alreadySeen=false;
+    for(uint8_t i=0;i<seenControllerCount_;i++)
+      if(seenControllers_[i]==virtualControllerId)alreadySeen=true;
+    const bool ok=!blocked && !binding_.busy() && !alreadySeen &&
        virtualControllerId!=observedController_ &&
        binding_.start(millis(),virtualControllerId,config_->otBridge,
                       observedController_);
@@ -176,10 +179,20 @@ class OpenThermGateway {
        rfType(msg.addresses[0])==10 &&
        rfId(msg.addresses[0])==config_->otBridge)
       bridgeSeen_=true;
-    if((msg.addrMask&3u)==3u && rfType(msg.addresses[0])==1 &&
-        rfType(msg.addresses[1])==10 &&
-        rfId(msg.addresses[1])==config_->otBridge)
-       observedController_=rfId(msg.addresses[0]);
+    if((msg.addrMask&1u) && rfType(msg.addresses[0])==1) {
+      const uint32_t id=rfId(msg.addresses[0]);
+      portENTER_CRITICAL(&mutex_);
+      bool found=false;
+      for(uint8_t i=0;i<seenControllerCount_;i++)
+        if(seenControllers_[i]==id)found=true;
+      if(!found && seenControllerCount_<12)
+        seenControllers_[seenControllerCount_++]=id;
+      portEXIT_CRITICAL(&mutex_);
+      if((msg.addrMask&3u)==3u &&
+          rfType(msg.addresses[1])==10 &&
+          rfId(msg.addresses[1])==config_->otBridge)
+        observedController_=id;
+    }
     // Check RF *sender* only. Replies addressed to our virtual ID are
     // expected and must never be misclassified as an address collision.
     if((msg.addrMask&1u) && config_->otSource &&
@@ -444,6 +457,8 @@ class OpenThermGateway {
   ramses_bind::Session binding_;
   ot_tx::Report bindingTx_;
   volatile uint32_t observedController_=0;
+  uint32_t seenControllers_[12]={};
+  uint8_t seenControllerCount_=0;
   bool wasCompleted_=false;
   uint32_t nextPolling_=0;
   uint32_t txFailures_=0;

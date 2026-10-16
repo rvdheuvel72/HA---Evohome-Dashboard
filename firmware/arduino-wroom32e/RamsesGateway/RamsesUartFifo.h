@@ -9,6 +9,14 @@
 namespace ramses_uart_fifo {
 constexpr size_t INPUT_LEN=44;
 constexpr size_t RF_LEN=55;
+ // IndaloTech/ramses_esp tx_fifo_prime(): one 0x00 priming byte, then
+ // 0xFF 0x00 0x00 break; tx_flush() finishes with 0xFF idle MARK.
+ // We retain *one* bounded, fixed-length packet (60 bytes <= CC1101 64-byte FIFO).
+constexpr size_t PRIME_LEN=4;
+constexpr size_t IDLE_LEN=1;
+constexpr size_t REFERENCE_RF_LEN=PRIME_LEN+RF_LEN+IDLE_LEN;
+static_assert(REFERENCE_RF_LEN==60,"One-shot TX must fit CC1101 FIFO");
+
 inline bool encode(const uint8_t* serial,size_t serialLen,
                    uint8_t* out,size_t capacity,size_t& used) {
   used=0;
@@ -27,5 +35,21 @@ inline bool encode(const uint8_t* serial,size_t serialLen,
   }
   used=bitPos/8;
   return bitPos==RF_LEN*8 && used==RF_LEN;
+}
+// Bounded representation of reference FIFO priming + 8N1 RAMSES frame +
+// trailing MARK. The priming sequence is NOT an extra RAMSES request.
+inline bool encodePrimedReference(const uint8_t* serial,size_t serialLen,
+                                  uint8_t* out,size_t capacity,size_t& used) {
+  used=0;
+  if(!serial || !out || serialLen!=INPUT_LEN ||
+     capacity<REFERENCE_RF_LEN)return false;
+  const uint8_t prefix[PRIME_LEN]={0x00,0xFF,0x00,0x00};
+  for(size_t i=0;i<PRIME_LEN;i++)out[i]=prefix[i];
+  size_t frameLength=0;
+  if(!encode(serial,serialLen,out+PRIME_LEN,capacity-PRIME_LEN,frameLength) ||
+     frameLength!=RF_LEN)return false;
+  out[PRIME_LEN+frameLength]=0xFF;
+  used=PRIME_LEN+frameLength+IDLE_LEN;
+  return used==REFERENCE_RF_LEN;
 }
 } // namespace ramses_uart_fifo

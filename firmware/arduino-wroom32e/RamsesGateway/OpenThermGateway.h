@@ -78,11 +78,12 @@ class OpenThermGateway {
        rfType(msg.addresses[0])==10 &&
        rfId(msg.addresses[0])==config_->otBridge)
       bridgeSeen_=true;
-    for(uint8_t idx=0;idx<3;idx++)
-      if((msg.addrMask&(1u<<idx)) &&
-         rfType(msg.addresses[idx])==18 &&
-         rfId(msg.addresses[idx])==config_->otSource &&
-         config_->otSource)sourceConflict_=true;
+    // Check RF *sender* only. Replies addressed to our virtual ID are
+    // expected and must never be misclassified as an address collision.
+    if((msg.addrMask&1u) && config_->otSource &&
+       rfType(msg.addresses[0])==18 &&
+       rfId(msg.addresses[0])==config_->otSource)
+      sourceConflict_=true;
   }
   void begin() {
     Preferences p;

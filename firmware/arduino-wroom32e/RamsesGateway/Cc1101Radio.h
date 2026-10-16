@@ -93,7 +93,7 @@ class Cc1101Radio {
       d.phase=ot_tx::FREQUENCY_REJECTED;return false;
     }
     if(!prepareTx(d))return false;
-    if(!writeRegister(0x02,0x06) ||  // GDO0 packet-end signalling
+    if(!writeRegister(0x02,0x2E) ||  // GDO0 stays high-Z: ESP32 UART TX drives this wire
        !writeRegister(0x06,static_cast<uint8_t>(wireLength)) ||
        !writeRegister(0x08,0x00) || // fixed length; FIFO; no HW CRC
        !strobe(0x3B)) {            // flush TX FIFO in IDLE

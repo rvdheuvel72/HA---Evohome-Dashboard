@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "../RamsesGateway/RamsesBinding.h"
+#include "../RamsesGateway/RamsesControllerIds.h"
 int main() {
   uint8_t f[64]={}; size_t n=0;
   assert(ramses_bind::makeOffer(62142,48994,f,n) && n==29);
@@ -139,6 +140,22 @@ int main() {
   wrapEarly.offered(true,0xfffffff8u);
   assert(wrapEarly.observe(w,14991u));
   assert(wrapEarly.state==ramses_bind::CONFIRM_QUEUED);
+  // P2 regression: controller-ID tracking must fail closed when full.
+  ramses_ids::SeenControllers seen;
+  assert(seen.eligible(62142));
+  seen.note(62142);
+  assert(seen.contains(62142) && !seen.eligible(62142));
+  seen.note(62142); // duplicate must not consume a slot
+  assert(seen.count==1);
+  for(uint32_t id=1000;id<1000+ramses_ids::SeenControllers::CAPACITY-1;id++)
+    seen.note(id);
+  assert(seen.count==ramses_ids::SeenControllers::CAPACITY);
+  assert(seen.saturated());
+  assert(!seen.eligible(220000)); // unknown 13th controller cannot be ruled out
+  seen.note(220000); // cannot silently make binding safe while saturated
+  assert(!seen.contains(220000));
+  assert(!seen.eligible(220000));
+  assert(!seen.eligible(62142));
   printf("Manual R8810A binding encoders, RX gates, timers and verification PASS\n");
   return 0;
 }

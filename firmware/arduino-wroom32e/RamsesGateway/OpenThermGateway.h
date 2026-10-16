@@ -33,16 +33,17 @@ class OpenThermGateway {
   bool experimentalOneShotReady() const {
     if(!config_ || config_->otTxEnabled!=0 || config_->otAutoPoll!=0 ||
        config_->otScanAll!=0 || config_->otBridge==0 ||
-       config_->otBridge>262143 || config_->otSource==0 ||
-       config_->otSource>=262143 || config_->otSource==730 ||
-       !bridgeSeen_ || sourceConflict_)return false;
+       config_->otBridge>262143 || !bridgeSeen_)return false;
     portENTER_CRITICAL(&mutex_);
     const bool verifiedBinding=binding_.state==ramses_bind::VERIFIED &&
                                !binding_.virtualIdCollision;
     portEXIT_CRITICAL(&mutex_);
-    return radio_frequency::manualReadOneShotAllowed(
+    // A verified 01: controller does not require the separate 18: source ID.
+    // Only the unpaired cross-band probe uses otSource/sourceConflict.
+    return radio_frequency::manualReadOneShotWithIdentity(
        config_->rfFrequencyKhz,config_->rfModuleBand,
-       config_->rfExperimentalRx==1,verifiedBinding);
+       config_->rfExperimentalRx==1,verifiedBinding,
+       config_->otSource,sourceConflict_);
   }
   bool bindingReady() const {
     // Read the bounded identity-coverage flag under the same mutex as note().

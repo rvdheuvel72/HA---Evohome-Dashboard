@@ -43,7 +43,7 @@ int main(){
   ot_single::Probe shot;
   assert(shot.state==ot_single::IDLE && shot.request(10000,ot_tx::REFERENCE_FIFO));
   assert(shot.method==ot_tx::REFERENCE_FIFO);
-  assert(strcmp(ot_tx::methodName(shot.method),"fifo_uartframed_55")==0);
+  assert(strcmp(ot_tx::methodName(shot.method),"fifo_reference_primed_60")==0);
   assert(strcmp(ot_tx::phaseName(ot_tx::TX_UNDERFLOW),"tx_underflow")==0);
   assert(ot_tx::Report::PA_868_LOW==0x26);
   assert(ot_tx::Report::MAX_FIFO_TX_US==80000);
@@ -121,6 +121,45 @@ int main(){
       assert(rfBit(start+1+b)==((uart[n]>>b)&1u));
     assert(rfBit(start+9)==1);
   }
+  // The upstream RAMSES FIFO TX primes with 00 FF 00 00, then shifts
+  // the same 55-byte 8N1 waveform, and flushes a final FF idle MARK.
+  // It must remain one bounded packet inside the 64-byte CC1101 FIFO.
+  static_assert(ramses_uart_fifo::REFERENCE_RF_LEN==60,"FIFO capacity");
+  uint8_t refFifo[64]={};
+  size_t refLength=0;
+  assert(ramses_uart_fifo::encodePrimedReference(
+    uart,sizeof(uart),refFifo,sizeof(refFifo),refLength));
+  assert(refLength==60);
+  const uint8_t prime[]={0x00,0xFF,0x00,0x00};
+  assert(memcmp(refFifo,prime,sizeof(prime))==0);
+  assert(memcmp(refFifo+sizeof(prime),fifoFrame,sizeof(fifoFrame))==0);
+  assert(refFifo[refLength-1]==0xFF);
+  size_t primedInvalid=99;
+  assert(!ramses_uart_fifo::encodePrimedReference(
+    uart,43,refFifo,sizeof(refFifo),primedInvalid));
+  assert(primedInvalid==0);
+  assert(!ramses_uart_fifo::encodePrimedReference(
+    uart,sizeof(uart),refFifo,59,primedInvalid));
+  assert(primedInvalid==0);
+  // Priming does not change any Manchester RAMSES data or introduce
+  // another RQ message. Verify reconstructing UART octets from RF bits.
+  uint8_t restored[44]={};
+  for(size_t n=0;n<44;n++){
+    const size_t start=(sizeof(prime)*8)+n*10;
+    const auto bit=[&](size_t offset)->uint8_t {
+      return (refFifo[offset/8]>>(7-(offset%8)))&1u;
+    };
+    assert(bit(start)==0 && bit(start+9)==1);
+    for(unsigned b=0;b<8;b++)
+      restored[n]|=static_cast<uint8_t>(bit(start+1+b)<<b);
+  }
+  assert(memcmp(restored,uart,sizeof(uart))==0);
+  ramses::FrameDecoder referenceDecoder;
+  ramses::Message referenceMsg{};
+  unsigned referenceMessages=0;
+  for(uint8_t c:restored)
+    if(referenceDecoder.feed(c,referenceMsg))referenceMessages++;
+  assert(referenceMessages==1 && referenceMsg.opcode==0x3220);
   size_t invalidLength=99;
   assert(!ramses_uart_fifo::encode(uart,43,fifoFrame,sizeof(fifoFrame),invalidLength));
   assert(invalidLength==0);

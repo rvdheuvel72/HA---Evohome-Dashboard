@@ -94,6 +94,50 @@ int main() {
   ramses_read::putAddress(conflict.addresses[0],1,63111);
   assert(!s.observe(conflict,181002));
   assert(s.state==ramses_bind::ID_CONFLICT);
+  // P2 regression: the RX queue is processed before the radio task tick.
+  // Frames arriving at or past the deadline must NEVER advance the bind
+  // state, even if tick() has not been invoked externally.
+  ramses_bind::Session late;
+  assert(late.start(200000,62142,48994,245914));
+  late.offered(true,200100);
+  assert(!late.observe(w,215100)); // exact 15s boundary
+  assert(late.state==ramses_bind::TIMED_OUT && !late.acceptedOffer);
+  assert(!late.observe(w,215200)); // after boundary
+  assert(late.state==ramses_bind::TIMED_OUT && !late.confirmationSent);
+
+  ramses_bind::Session lateVerify;
+  assert(lateVerify.start(300000,62142,48994,245914));
+  lateVerify.offered(true,300001);
+  ramses_read::putAddress(w.addresses[1],1,62142);
+  assert(lateVerify.observe(w,300002));
+  lateVerify.confirmed(true);
+  lateVerify.verifiedRequestSent(true,300003);
+  assert(!lateVerify.observe(rp,302503)); // exact 2.5s boundary
+  assert(lateVerify.state==ramses_bind::UNVERIFIED);
+  assert(!lateVerify.observe(rp,302504));
+  assert(!lateVerify.verifiedReadAck);
+
+  // Just-before-deadline responses still count, including subsequent ACK.
+  ramses_bind::Session justInTime;
+  assert(justInTime.start(400000,62142,48994,245914));
+  justInTime.offered(true,400010);
+  assert(justInTime.observe(w,415009));
+  justInTime.confirmed(true);
+  justInTime.verifiedRequestSent(true,415100);
+  assert(justInTime.observe(rp,417599));
+  assert(justInTime.state==ramses_bind::VERIFIED && justInTime.verifiedReadAck);
+
+  // millis() rollover must not cause premature expiry or late acceptance.
+  ramses_bind::Session wrap;
+  assert(wrap.start(0xfffffff0u,62142,48994,245914));
+  wrap.offered(true,0xfffffff8u);
+  assert(!wrap.observe(w,14992u)); // deadline wraps to 14992 exactly
+  assert(wrap.state==ramses_bind::TIMED_OUT);
+  ramses_bind::Session wrapEarly;
+  assert(wrapEarly.start(0xfffffff0u,62142,48994,245914));
+  wrapEarly.offered(true,0xfffffff8u);
+  assert(wrapEarly.observe(w,14991u));
+  assert(wrapEarly.state==ramses_bind::CONFIRM_QUEUED);
   printf("Manual R8810A binding encoders, RX gates, timers and verification PASS\n");
   return 0;
 }

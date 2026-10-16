@@ -47,6 +47,14 @@ a{color:#a9d5ff}
 <a href="/api/v1/opentherm/profile" target="_blank">Export compatibility JSON</a>
 <span id="ot-state" class="muted">Loading...</span></div>
 <pre id="ot-results">No compatibility scan requested.</pre>
+<details class="panel" id="one-shot-panel">
+<summary>Experimental one-request read test using your existing 433M CC1101</summary>
+<p class="muted">Send exactly ONE RAMSES 3220 Read-Data ID25 request (boiler flow temperature) at 868.300 MHz. No retries, no scan, no polling and no heating writes. The 433 MHz-marked PCB's on-air 868 MHz transmission and emissions are not bench-verified. Minimum cooldown: 60 seconds.</p>
+<p id="one-shot-status" class="muted">Checking bridge identity...</p>
+<label class="setting-check"><input type="checkbox" id="one-shot-confirm"> I verified the R8810A RF ID and selected an unused 18: virtual gateway RF ID. I authorize ONE experimental read-only RF transmission.</label>
+<div class="controls"><button type="button" id="one-shot-send" disabled>Transmit ONE Read-Data ID25</button><a href="/api/v1/opentherm/one-shot" target="_blank">One-shot diagnostic JSON</a></div>
+<p id="one-shot-result" aria-live="polite" class="muted">No request attempted.</p>
+</details>
 </section>
 </div><div id="page-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
 <section class="panel"><h2>Gateway configuration</h2>
@@ -194,6 +202,43 @@ async function otStatus(){
   set('ot-results',lines.length?lines.join('\n'):'No OpenTherm replies recorded.');
  }catch(e){set('ot-state','Profile unavailable: '+e.message)}
 }
+async function updateOneShot(){
+ try{
+  const r=await fetch('/api/v1/opentherm/one-shot',{cache:'no-store'});
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  const p=await r.json();
+  const available=p.ready && !['queued','awaiting_reply'].includes(p.status) &&
+    Number(p.cooldown_ms)===0;
+  el('one-shot-send').disabled=!el('one-shot-confirm').checked||!available;
+  set('one-shot-status','Bridge '+(p.bridge_seen?'observed':'NOT yet observed')+
+    ' · 18: source '+(p.source_conflict?'ADDRESS CONFLICT':'no observed conflict')+
+    ' · cooldown '+Math.ceil(Number(p.cooldown_ms)/1000)+'s'+
+    (p.ready?' · ready':' · set R8810A and unique virtual RF IDs in Settings, with scans, polling and normal TX off'));
+  set('one-shot-result','ID25: '+p.status+
+    (p.has_value?' · flow '+p.value_c+' °C':'')+
+    (p.attempted?' · raw '+p.raw:''));
+ }catch(e){
+  el('one-shot-send').disabled=true;
+  set('one-shot-status','One-shot status unavailable: '+e.message);
+ }
+}
+el('one-shot-confirm').addEventListener('change',updateOneShot);
+el('one-shot-send').addEventListener('click',async()=>{
+ el('one-shot-send').disabled=true;
+ try{
+  const r=await fetch('/api/v1/opentherm/one-shot',{
+   method:'POST',
+   headers:{'X-Gateway-Config':'one-shot','Content-Type':'application/x-www-form-urlencoded'},
+   body:'confirm=experimental-single-read-25'
+  });
+  const body=await r.json();
+  if(!r.ok)throw new Error(body.error||('HTTP '+r.status));
+  el('one-shot-confirm').checked=false;
+  set('one-shot-result','One request queued. Waiting for R8810A reply...');
+ }catch(e){set('one-shot-result','Request rejected: '+e.message)}
+ finally{updateOneShot()}
+});
+updateOneShot();setInterval(updateOneShot,5000);
 el('ot-scan').addEventListener('click',async()=>{
  el('ot-scan').disabled=true;
  try{

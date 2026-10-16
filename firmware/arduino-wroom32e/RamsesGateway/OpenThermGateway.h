@@ -21,6 +21,7 @@ class OpenThermGateway {
         config_->otBridge > 0 && config_->otBridge <= 262143 &&
         config_->otSource > 0 && config_->otSource < 262143 &&
         config_->otSource != 730 &&
+        config_->rfExperimentalRx == 0 &&
         radio_frequency::evohomeTxFrequency(config_->rfFrequencyKhz,
                                               moduleBand_);
   }

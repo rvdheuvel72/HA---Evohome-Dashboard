@@ -169,15 +169,29 @@ REQUIRED_CHECKS = (
 )
 
 
-def required_ci_state(token, full_repo, sha):
-    """Never allow a quota exception to hide failed, missing, or pending CI."""
+def arduino_validation_required(paths):
+    """Also require a green ESP32 compile when a PR changes radio or its publisher."""
+    return any(path.startswith("firmware/arduino-wroom32e/") or
+               path in (".github/workflows/ramses-arduino-wroom32e.yml",
+                        ".github/workflows/publish-ramses-arduino-v0.4-beta.yml")
+               for path in paths)
+
+
+def required_ci_state(token, full_repo, sha, pr_number=None):
+    """Require all relevant source tests, and a radio compile for firmware PRs."""
+    required = list(REQUIRED_CHECKS)
+    if pr_number is not None:
+        changed = pages(token, "/repos/" + full_repo +
+                        "/pulls/" + str(pr_number) + "/files")
+        if arduino_validation_required([f.get("filename", "") for f in changed]):
+            required.append("compile")
     response = request(
         token, "/repos/" + full_repo + "/commits/" + sha + "/check-runs?per_page=100"
     )
     checks = response.get("check_runs") if isinstance(response, dict) else None
     if not isinstance(checks, list):
         raise RuntimeError("Cannot inspect required CI check runs")
-    for name in REQUIRED_CHECKS:
+    for name in required:
         matching = [run for run in checks if run.get("name") == name]
         if not matching:
             return "pending", "Waiting for required CI: " + name
@@ -189,21 +203,27 @@ def required_ci_state(token, full_repo, sha):
     return "passed", "Required source, transport, and HA runtime checks passed"
 
 
-def check(token, full_repo, number, sha):
+def check_ci(token, full_repo, number, sha):
+    """First stage: only finish when every relevant build and test has passed."""
     info = request(token, "/repos/" + full_repo + "/pulls/" + str(number))
     if info["head"]["sha"] != sha:
         return "changed", "PR head changed, check newest commit"
     if info.get("state") != "open":
-        return "skipped", "PR is closed; no Codex review required"
+        return "skipped", "PR is closed; no CI gate required"
+    return required_ci_state(token, full_repo, sha, pr_number=number)
+
+
+def check(token, full_repo, number, sha):
+    # The final review stage cannot start before the CI preflight has passed.
+    state, reason = check_ci(token, full_repo, number, sha)
+    if state != "passed":
+        return state, reason
     owner, name = full_repo.split("/", 1)
     # An unresolved P1/P2 or a P1/P2 on the *current head* always blocks,
     # even when Codex is currently over quota.
     unresolved = blockers(token, owner, name, number, sha)
     if unresolved:
         return "blocked", "Unresolved Codex P1/P2: " + "; ".join(unresolved[:8])
-    state, reason = required_ci_state(token, full_repo, sha)
-    if state != "passed":
-        return state, reason
     prefix = "/repos/" + full_repo
     revs = pages(token, prefix + "/pulls/" + str(number) + "/reviews")
     summaries = pages(token, prefix + "/issues/" + str(number) + "/comments")
@@ -220,6 +240,9 @@ def check(token, full_repo, number, sha):
 
 
 def main():
+    if len(sys.argv) > 2 or (len(sys.argv) == 2 and sys.argv[1] != "--ci-only"):
+        raise ValueError("Unknown gate option")
+    ci_only = len(sys.argv) == 2
     with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as stream:
         event = json.load(stream)
     token, full_repo = os.environ["GITHUB_TOKEN"], os.environ["GITHUB_REPOSITORY"]
@@ -229,9 +252,10 @@ def main():
         pr = request(token, "/repos/" + full_repo + "/pulls/" + str(number))
     if pr is None:
         raise RuntimeError("A PR event is required")
-    expires = time.monotonic() + 900
+    expires = time.monotonic() + (1800 if ci_only else 900)
     while True:
-        result, message = check(token, full_repo, pr["number"], pr["head"]["sha"])
+        task = check_ci if ci_only else check
+        result, message = task(token, full_repo, pr["number"], pr["head"]["sha"])
         print(message, flush=True)
         if result in ("passed", "skipped"):
             return 0

@@ -60,6 +60,44 @@ class GateTests(unittest.TestCase):
             state,_=gate.check("token","owner/repo",1,SHA)
         self.assertEqual(state,"passed")
 
+    def test_radio_compile_required_if_firmware_or_publisher_changes(self):
+        self.assertTrue(gate.arduino_validation_required([
+            "firmware/arduino-wroom32e/RamsesGateway/RamsesGateway.ino"
+        ]))
+        self.assertTrue(gate.arduino_validation_required([
+            ".github/workflows/publish-ramses-arduino-v0.4-beta.yml"
+        ]))
+        self.assertFalse(gate.arduino_validation_required([
+            "scripts/check_codex_review.py"
+        ]))
+
+        def ok(name):
+            return {"name": name, "status": "completed", "conclusion": "success",
+                    "started_at": "2026-10-16T08:00:00Z", "id": 1}
+        checks = [ok(name) for name in gate.REQUIRED_CHECKS]
+        with patch.object(gate, "pages", return_value=[{
+                "filename": "firmware/arduino-wroom32e/RamsesGateway/RamsesGateway.ino"
+             }]), patch.object(gate, "request", return_value={"check_runs": checks}):
+            self.assertEqual(gate.required_ci_state("token", "owner/repo",
+                                                    SHA, pr_number=7)[0], "pending")
+        with patch.object(gate, "pages", return_value=[{
+                "filename": "firmware/arduino-wroom32e/RamsesGateway/RamsesGateway.ino"
+             }]), patch.object(gate, "request", return_value={
+                 "check_runs": checks+[ok("compile")]}):
+            self.assertEqual(gate.required_ci_state("token", "owner/repo",
+                                                    SHA, pr_number=7)[0], "passed")
+
+    def test_ci_preflight_does_not_consult_codex_threads(self):
+        with patch.object(gate, "request", return_value={
+                "head": {"sha": SHA}, "state": "open"}), \
+             patch.object(gate, "required_ci_state",
+                          return_value=("passed", "Build checks passed")) as ci, \
+             patch.object(gate, "blockers") as blockers:
+            self.assertEqual(gate.check_ci("token", "owner/repo", 7, SHA)[0],
+                             "passed")
+        ci.assert_called_once_with("token", "owner/repo", SHA, pr_number=7)
+        blockers.assert_not_called()
+
     def test_required_ci_fail_closed_on_failure_missing_and_pending(self):
         def sample(name, state="completed", conclusion="success"):
             return {"name": name, "status": state, "conclusion": conclusion,

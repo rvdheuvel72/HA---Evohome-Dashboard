@@ -18,17 +18,53 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  codex-review:
-    name: Codex P1/P2 review gate
+  # Staged gate: wait for all required checks before the final P1/P2 decision.
+  # This is intentionally a distinct job: the required "Codex P1/P2 review gate"
+  # is the LAST approval check and must not turn green while CI is pending.
+  await-validation:
+    name: Await required build and test checks
     if: >-
       (github.event_name == 'pull_request_target' && github.event.pull_request.draft == false) ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request != null &&
        (github.event.comment.user.login == 'chatgpt-codex-connector[bot]' ||
         github.event.comment.user.login == 'chatgpt-codex-connector'))
-    # Privileged review check never shares persistent runners with PR-controlled tests.
+    runs-on: ubuntu-latest
+    timeout-minutes: 33
+    steps:
+      - name: Check out trusted base branch only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Wait for exact-head CI (and Arduino compile when relevant)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: python3 scripts/check_codex_review.py --ci-only
+
+  codex-review:
+    name: Codex P1/P2 review gate
+    needs: [await-validation]
+    # Always evaluate the dependency result: skipped/failed prerequisites
+    # must NEVER make a branch-protection-required final gate appear green.
+    if: >-
+      always() &&
+      ((github.event_name == 'pull_request_target' && github.event.pull_request.draft == false) ||
+       (github.event_name == 'issue_comment' && github.event.issue.pull_request != null &&
+        (github.event.comment.user.login == 'chatgpt-codex-connector[bot]' ||
+         github.event.comment.user.login == 'chatgpt-codex-connector')))
     runs-on: ubuntu-latest
     timeout-minutes: 19
     steps:
+      - name: Require successful build and test preflight
+        env:
+          BUILD_CHECK_RESULT: ${{ needs.await-validation.result }}
+        shell: bash
+        run: |
+          if [ "$BUILD_CHECK_RESULT" != "success" ]; then
+            echo "::error::Build/test validation has not passed: $BUILD_CHECK_RESULT"
+            exit 1
+          fi
       - name: Check out trusted base branch only
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -37,7 +73,7 @@ jobs:
       - name: Confirm trusted checker exists
         shell: bash
         run: test -f scripts/check_codex_review.py
-      - name: Verify Codex review, quota exception, CI and all P1/P2 threads
+      - name: Verify exact-head Codex review, quota exception and all P1/P2 threads
         env:
           GITHUB_TOKEN: ${{ github.token }}
         shell: bash

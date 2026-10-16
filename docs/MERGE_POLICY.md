@@ -48,3 +48,9 @@ a completed latest-head review. An unresolved P1/P2, failed CI or
 unverified quota condition still blocks publication.
 
 Distribute firmware through GitHub Releases, not Actions artifacts.
+
+## Final gate execution order (2026-10-16)
+
+The Codex gate is a separate, protected `pull_request_target` workflow, not the first job inside the self-hosted test workflow. The workflow now has two dependent GitHub-hosted jobs: **Await required build and test checks** (source/HA checks, plus the Arduino compile for firmware/publisher changes), then **Codex P1/P2 review gate**. The second job uses `needs` and `always()`: failed or missing preflight is a hard failure rather than a skipped check that GitHub might treat as passing. The final job rechecks CI, exact-head Codex review or authenticated quota deferral, and every existing P1/P2 review thread. Codex findings are never suppressed; pre-existing unresolved findings still block release even if all CI is green.
+
+Codex review comments and PR head updates may trigger a new gate run; only a fully successful latest-head final check permits merge. The privileged workflow continues to execute only code from the protected base branch on isolated GitHub-hosted runners, never unreviewed PR source code.

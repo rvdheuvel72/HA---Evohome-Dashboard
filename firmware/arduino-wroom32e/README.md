@@ -1,3 +1,7 @@
+## Beta.10: Experimental manual 1FC9 pairing with R8810A
+
+**Diagnostics → Experimental R8810A pairing** provides a deliberate, one-attempt additional virtual controller binding (01:). The ESP32 first observes the existing controller and bridge, then offers 1FC9, verifies the R8810A's addressed response, confirms the binding, and sends a single read-only OpenTherm ID25 verification request. It reports **verified** only for a valid reply addressed to its separate virtual controller ID; confirmation transmission alone is **not** proof of pairing. No automatic retries, writes, heating commands or replacement of the existing Evohome controller. **Do not reset the R8810A's bindings with a 15-second press.** This method is unverified on the physical R8810A; use the 5-second bind mode only and check Evohome boiler control after the experiment. Pairing identity is not persisted across ESP32 reboots.
+
 ## Beta.9: Switchable RAMSES receive packet capture
 
 **Diagnostics → Extended RAMSES packet capture** now supports **Start new capture, Stop, Clear and Download capture (.tsv)**, without restarting the gateway or changing settings. Capture defaults OFF and records **up to 192 frame events in RAM**. It runs directly inside `radioTask` before the web/MQTT queue, recording every checksum-valid decoded RAMSES frame and every detected malformed/frame rejection with a reason and offending UART byte where available. For valid messages, the original human-readable RAMSES/HGI line and indicative signal-strength value are preserved, with acquisition time (local time including timezone offset, and UTC epoch milliseconds), device uptime, and monotonically increasing sequence. On filling the 192-entry buffer, the capture **stops automatically** (no silent rollover); `/api/v1/capture/status` reports the buffer state, start/stop uptime, decoded/rejected counts, radio UART/sync deltas and main-queue drops. Download from authenticated `/api/v1/capture/download`; no NVS/flash writes, no raw RF bits or IQ and no RF transmit. Unsaved captures are lost on restart or Start/Clear. The old `/api/v1/packets` last-12 display is unchanged.
@@ -30,7 +34,7 @@ Arduino IDE prototype, receive-only by default; optional guarded read-only RF di
 
 ## Download the standalone Arduino IDE ZIP
 
-[RAMSES Arduino Gateway v0.4.0-beta.9 release](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.9) — download the **RAMSES-Arduino-Gateway-v0.4.0-beta.9-ESP32-WROOM-32E.zip** asset (not the repository source-code ZIP). Unzip it, then open `RamsesGateway/RamsesGateway.ino` in Arduino IDE. This is a separately tagged **prerelease** for the radio gateway, not the Home Assistant integration.
+[RAMSES Arduino Gateway v0.4.0-beta.10 release](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.10) — download the **RAMSES-Arduino-Gateway-v0.4.0-beta.10-ESP32-WROOM-32E.zip** asset (not the repository source-code ZIP). Unzip it, then open `RamsesGateway/RamsesGateway.ino` in Arduino IDE. This is a separately tagged **prerelease** for the radio gateway, not the Home Assistant integration.
 
 ## Wiring (verify actual labels on CC1101 breakout)
 

@@ -36,4 +36,24 @@ inline bool evohomeTxFrequency(uint32_t khz,uint16_t band){
   // Avoid transmitting a RAMSES request on an arbitrary tuning.
   return band==868 && khz==868300;
 }
+ // Only bound 01: controllers may use the standard-band one-shot exception.
+ // Normal unpaired 18: one-shot path remains the existing guarded experiment.
+inline bool manualReadOneShotAllowed(uint32_t khz,uint16_t band,
+                                     bool crossBandRx,bool verifiedBinding) {
+  return experimentalOneShotFrequency(khz,band,crossBandRx) ||
+      (verifiedBinding && evohomeTxFrequency(khz,band));
+}
+// Binding verification authorizes the distinct 01: identity; it must not
+// depend on a configured 18: ID or an 18: address conflict. An unpaired
+// source still needs a valid unique 18: identity and the restricted one-shot.
+inline bool manualReadOneShotWithIdentity(uint32_t khz,uint16_t band,
+                                         bool crossBandRx,bool verifiedBinding,
+                                         uint32_t unpairedSource18,
+                                         bool unpairedSourceConflict) {
+  if(verifiedBinding)
+    return manualReadOneShotAllowed(khz,band,crossBandRx,true);
+  return unpairedSource18>0 && unpairedSource18<262143 &&
+         unpairedSource18!=730 && !unpairedSourceConflict &&
+         experimentalOneShotFrequency(khz,band,crossBandRx);
+}
 } // namespace radio_frequency

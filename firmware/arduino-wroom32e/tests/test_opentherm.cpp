@@ -82,6 +82,37 @@ int main(){
   assert(radio_frequency::evohomeTxFrequency(868300,868));
   assert(!radio_frequency::evohomeTxFrequency(868350,868));
   assert(!radio_frequency::evohomeTxFrequency(868300,915));
+  // P2: only a VERIFIED 01: binding allows a guarded one-shot read on
+  // the standard 868-MHz hardware path, never on arbitrary RF tunings.
+  assert(!radio_frequency::manualReadOneShotAllowed(868300,868,false,false));
+  assert(radio_frequency::manualReadOneShotAllowed(868300,868,false,true));
+  assert(!radio_frequency::manualReadOneShotAllowed(868350,868,false,true));
+  assert(!radio_frequency::manualReadOneShotAllowed(433920,433,false,true));
+  assert(!radio_frequency::manualReadOneShotAllowed(868300,433,false,false));
+  assert(radio_frequency::manualReadOneShotAllowed(868300,433,true,false));
+  assert(radio_frequency::manualReadOneShotAllowed(868300,433,true,true));
+  // P2: a verified additional 01: controller is independent of the 18:
+  // diagnostic-gateway source ID and its address-collision status.
+  assert(radio_frequency::manualReadOneShotWithIdentity(
+      868300,868,false,true,0,false));
+  assert(radio_frequency::manualReadOneShotWithIdentity(
+      868300,868,false,true,0,true));
+  assert(!radio_frequency::manualReadOneShotWithIdentity(
+      868300,868,false,false,0,false));
+  assert(!radio_frequency::manualReadOneShotWithIdentity(
+      868300,868,false,false,62142,false));
+  assert(!radio_frequency::manualReadOneShotWithIdentity(
+      868300,433,true,false,0,false));
+  assert(!radio_frequency::manualReadOneShotWithIdentity(
+      868300,433,true,false,730,false));
+  assert(!radio_frequency::manualReadOneShotWithIdentity(
+      868300,433,true,false,62142,true));
+  assert(radio_frequency::manualReadOneShotWithIdentity(
+      868300,433,true,false,62142,false));
+  assert(radio_frequency::manualReadOneShotWithIdentity(
+      868300,433,true,true,0,false));
+  assert(!radio_frequency::manualReadOneShotWithIdentity(
+      868350,868,false,true,0,false));
   // A manual click only queues one fixed Data-ID 25 request.
   ot_single::Probe shot;
   assert(shot.state==ot_single::IDLE && shot.request(10000,ot_tx::REFERENCE_FIFO));

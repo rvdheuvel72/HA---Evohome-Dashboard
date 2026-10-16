@@ -30,7 +30,7 @@ a{color:#a9d5ff}
 .pin-map{width:100%;border-collapse:collapse;font-size:.9rem}
 .pin-map td,.pin-map th{padding:6px;text-align:left;border-bottom:1px solid #334354}
 </style></head><body>
-<header><div><h1>RAMSES II Gateway</h1><small>ESP32-WROOM-32E · CC1101 · read-only OpenTherm diagnostics</small></div><span id="connection" class="muted">Connecting...</span></header>
+<header><div><h1>RAMSES II Gateway</h1><small>ESP32-WROOM-32E · CC1101 · OpenTherm read diagnostics · optional experimental pairing</small></div><span id="connection" class="muted">Connecting...</span></header>
 <nav class="tabs" role="tablist" aria-label="Gateway pages"><button type="button" id="tab-diagnostics" role="tab" aria-selected="true" aria-controls="page-diagnostics">Diagnostics</button><button type="button" id="tab-settings" role="tab" aria-selected="false" aria-controls="page-settings">Settings</button></nav>
 <div id="page-diagnostics" role="tabpanel" aria-labelledby="tab-diagnostics">
 <section class="grid">
@@ -48,19 +48,30 @@ a{color:#a9d5ff}
 <span id="ot-state" class="muted">Loading...</span></div>
 <pre id="ot-results">No compatibility scan requested.</pre>
 <details class="panel" id="one-shot-panel">
-<summary>Experimental one-request read test using your existing 433M CC1101</summary>
-<p class="muted">Send exactly ONE RAMSES 3220 Read-Data ID25 request (boiler flow temperature) at 868.300 MHz. No retries, no scan, no polling and no heating writes. The 433 MHz-marked PCB's on-air 868 MHz transmission and emissions are not bench-verified. Minimum cooldown: 60 seconds.</p>
+<summary>Manual OpenTherm ID25 read test (unpaired experimental 18: or verified bound 01:)</summary>
+<p class="muted">Send exactly ONE RAMSES 3220 Read-Data ID25 request (boiler flow temperature) at 868.300 MHz. A verified additional controller 01: identity can be used on standard 868 MHz hardware; the pre-existing 433M cross-band unpaired test remains separately guarded. No retries, polling, scan or heating writes. Minimum cooldown: 60 seconds.</p>
 <p id="one-shot-status" class="muted">Checking bridge identity...</p>
-<label class="setting-check"><input type="checkbox" id="one-shot-confirm"> I verified the R8810A RF ID and selected an unused 18: virtual gateway RF ID. I authorize ONE experimental read-only RF transmission.</label>
+<label class="setting-check"><input type="checkbox" id="one-shot-confirm"> I verified the R8810A RF ID and my unique gateway 18: identity, or confirmed the additional 01: controller binding. I authorize ONE manually triggered read-only RF transmission.</label>
 <div class="controls"><label class="field">Single-test transmit method
 <select id="one-shot-method" aria-label="One-shot transmit method">
 <option value="uart">Original asynchronous UART / GDO0</option>
 <option value="fifo">Reference FIFO (upstream bit-aligned, 60 RF bytes)</option>
 </select></label><button type="button" id="one-shot-send" disabled>Transmit ONE Read-Data ID25</button><a href="/api/v1/opentherm/one-shot" target="_blank">One-shot diagnostic JSON</a></div>
-<small>One click = exactly one RF request using the selected method; never both. Each method shares a fixed nominal -10 dBm 868 MHz PATABLE value. The unmatched 433M PCB's radiated power remains unknown. Keep automatic scans/polling off.</small>
+<small>One click = exactly one RF request using the selected method; never both. Each method shares a fixed nominal -10 dBm 868 MHz PATABLE value. A 433M PCB's radiated power at 868 MHz remains unknown. Keep automatic scans/polling off.</small>
 <p id="one-shot-result" aria-live="polite" class="muted">No request attempted.</p>
 <pre id="one-shot-diag" aria-live="polite">TX diagnostic data appears after one request.</pre>
 <pre id="one-shot-compare">UART/FIFO A-B comparison will appear here.</pre>
+</details>
+<details class="panel" id="pairing-panel">
+<summary>Experimental R8810A pairing — additional virtual controller (01:)</summary>
+<p class="muted">Manual RAMSES 1FC9 three-step bind experiment. Existing Evohome controller stays paired: do NOT hold the R8810A button for 15 seconds or reset existing bindings. Use its 5-second bind-mode press ONLY. This feature does not impersonate your Evohome controller, alter heating demands, or transmit OpenTherm writes. It has not been validated on a physical R8810A; pairing may fail or affect your heating. Verify normal Evohome boiler control afterwards.</p>
+<p id="pairing-status" class="muted">Waiting for an observed Evohome controller and OpenTherm bridge...</p>
+<div class="controls"><label class="field">Unused virtual controller numeric ID (01:NNNNNN, different from Evohome)
+<input id="pairing-id" type="number" min="1" max="262142" step="1" placeholder="e.g. 62142" autocomplete="off"></label>
+<a href="/api/v1/opentherm/pairing" target="_blank">Pairing JSON</a></div>
+<label class="setting-check"><input id="pairing-confirm" type="checkbox"> I verified the R8810A and its existing Evohome controller ID, chose an unused 01: identity, put R8810A in 5-second bind mode without clearing existing bindings, and authorize one experimental 1FC9 bind transaction plus one read-only ID25 verification.</label>
+<div class="controls"><button type="button" id="pairing-start" disabled>Send one pairing offer</button></div>
+<pre id="pairing-result" aria-live="polite">No pairing attempted. Confirmation sent is NOT proof of binding; only a directed 3220 reply validates data communication.</pre>
 </details>
 <section class="panel" aria-label="Passive radio receive diagnostics">
 <h2>Passive radio receive diagnostics</h2>
@@ -310,6 +321,61 @@ async function otStatus(){
   set('ot-results',lines.length?lines.join('\n'):'No OpenTherm replies recorded.');
  }catch(e){set('ot-state','Profile unavailable: '+e.message)}
 }
+async function updatePairing(){
+ try{
+  const r=await fetch('/api/v1/opentherm/pairing',{cache:'no-store'});
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  const x=await r.json();
+  const candidate=Number(el('pairing-id').value);
+  const valid=Number.isInteger(candidate)&&candidate>0&&candidate<262143&&
+    candidate!==Number(x.existing_controller_id);
+  const active=['offer_queued','waiting_for_1fc9_response',
+    'confirmation_queued','verification_queued','waiting_for_3220_reply'].includes(x.state);
+  el('pairing-start').disabled=!x.ready||active||
+    Number(x.cooldown_ms)>0||!valid||!el('pairing-confirm').checked;
+  set('pairing-status',
+    'R8810A 10:'+String(x.bridge_id).padStart(6,'0')+
+    ' · observed Evohome 01:'+String(x.existing_controller_id).padStart(6,'0')+
+    ' · '+(x.controller_id_coverage_exhausted?'PAIRING BLOCKED: too many distinct 01: controllers observed; ID collision coverage exhausted (reboot after confirming identity)':
+      x.ready?'READY for deliberate bind':'Not ready: observe controller & bridge; disable scan/poll/automatic TX')+
+    ' · controller IDs observed '+x.controller_ids_seen+
+    ' · cooldown '+Math.ceil(x.cooldown_ms/1000)+'s');
+  set('pairing-result','State: '+x.state+
+    '\\n1FC9 response: '+x.offer_accepted+
+    ' · confirmation sent: '+x.confirmation_sent+
+    '\\nDirected OpenTherm reply verified: '+x.verified_reply+
+    ' · Read-Ack: '+x.read_ack+
+    '\\nTX local status: '+x.tx_phase+' ('+x.tx_bytes+' bytes)'+
+    '\\nThis is an experimental binding procedure; existing Evohome operation must be checked.');
+ }catch(e){
+  el('pairing-start').disabled=true;
+  set('pairing-status','Pairing status unavailable: '+e.message);
+ }
+}
+el('pairing-confirm').addEventListener('change',updatePairing);
+el('pairing-id').addEventListener('input',updatePairing);
+el('pairing-start').addEventListener('click',async()=>{
+ el('pairing-start').disabled=true;
+ try{
+  const data=new URLSearchParams({
+    virtual_controller_id:el('pairing-id').value,
+    confirm:'manual-1fc9-additional-controller'
+  });
+  const r=await fetch('/api/v1/opentherm/pairing',{
+   method:'POST',
+   headers:{'X-Gateway-Config':'opentherm-pairing',
+            'Content-Type':'application/x-www-form-urlencoded'},
+   body:data.toString()
+  });
+  const reply=await r.json();
+  if(!r.ok)throw new Error(reply.error||'HTTP '+r.status);
+  el('pairing-confirm').checked=false;
+  set('pairing-result','1FC9 offer queued. Waiting for bridge response...');
+ }catch(e){set('pairing-result','Pairing request rejected: '+e.message)}
+ finally{updatePairing()}
+});
+updatePairing();setInterval(updatePairing,5000);
+
 async function updateOneShot(){
  try{
   const r=await fetch('/api/v1/opentherm/one-shot',{cache:'no-store'});

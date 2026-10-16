@@ -84,7 +84,7 @@ constexpr uint8_t RING_SIZE = 12;
 constexpr uint32_t RX_IDLE_TIMEOUT_MS = 250;
 constexpr uint32_t HEARTBEAT_MS = 15000;
 constexpr uint8_t DEBUG_QUEUE_SIZE = 16;
-constexpr char FW_VERSION[] = "0.4.0-beta.9";
+constexpr char FW_VERSION[] = "0.4.0-beta.10";
 constexpr uint32_t MDNS_RETRY_MS = 15000;
 constexpr uint32_t MQTT_STATE_INTERVAL_MS = 15000;
 
@@ -378,6 +378,43 @@ void radioTask(void*) {
 void httpOtProfile(){
   if(!authorized())return;
   otGateway.sendProfile(web);
+}
+void httpOtPairing(){
+  if(!authorized())return;
+  if(web.method()==HTTP_GET){otGateway.sendBindingStatus(web);return;}
+  if(!web.hasHeader("X-Gateway-Config") ||
+     web.header("X-Gateway-Config")!="opentherm-pairing" ||
+     web.arg("confirm")!="manual-1fc9-additional-controller"){
+    web.send(403,"application/json",
+      "{\"error\":\"explicit_pairing_confirmation_required\"}");return;
+  }
+  if(!configuration.current.webUser[0] ||
+     strlen(configuration.current.webPassword)<12 ||
+     strcmp(configuration.current.webPassword,
+            "CHANGE_TO_A_STRONG_PRIVATE_PASSWORD")==0){
+    web.send(403,"application/json","{\"error\":\"strong_web_auth_required\"}");
+    return;
+  }
+  const String virtualId=web.arg("virtual_controller_id");
+  if(virtualId.length()<1 || virtualId.length()>6){
+    web.send(400,"application/json","{\"error\":\"invalid_virtual_controller_id\"}");
+    return;
+  }
+  for(size_t i=0;i<virtualId.length();i++)
+    if(virtualId[i]<'0'||virtualId[i]>'9'){
+      web.send(400,"application/json","{\"error\":\"invalid_virtual_controller_id\"}");
+      return;
+    }
+  const uint32_t id=static_cast<uint32_t>(virtualId.toInt());
+  if(!radioReady || !otGateway.requestBinding(id)){
+    web.send(409,"application/json",
+      "{\"error\":\"pairing_not_ready_or_in_cooldown_or_address_conflict\"}");
+    return;
+  }
+  recordLog(GatewayDebug::WARN,
+    "Manual 1FC9 additional-controller binding queued: one offer, one confirmation if accepted, one read verification");
+  web.send(202,"application/json",
+    "{\"queued\":true,\"protocol\":\"1FC9\",\"mode\":\"experimental\"}");
 }
 void httpOtOneShot(){
   if(!authorized())return;
@@ -1098,8 +1135,8 @@ void handlePacket(const PacketEvent& event) {
 void setup() {
   Serial.begin(115200);
   delay(250);
-  Serial.println("\n# RAMSES II Arduino v0.4.0-beta.9 (read-only OpenTherm discovery)");
-  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-beta.9");
+  Serial.println("\n# RAMSES II Arduino v0.4.0-beta.10 (read-only OpenTherm discovery)");
+  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-beta.10");
   char bootInfo[96];
   snprintf(bootInfo, sizeof(bootInfo), "Reset reason: %s", resetReason());
   recordLog(GatewayDebug::INFO, bootInfo);
@@ -1159,6 +1196,8 @@ void setup() {
   web.on("/api/v1/radio/diagnostics", HTTP_GET, httpRadioDiagnostics);
   web.on("/api/v1/radio/diagnostics", HTTP_POST, httpRadioDiagnostics);
   web.on("/api/v1/opentherm/profile", HTTP_GET, httpOtProfile);
+  web.on("/api/v1/opentherm/pairing", HTTP_GET, httpOtPairing);
+  web.on("/api/v1/opentherm/pairing", HTTP_POST, httpOtPairing);
   web.on("/api/v1/opentherm/one-shot", HTTP_GET, httpOtOneShot);
   web.on("/api/v1/opentherm/one-shot", HTTP_POST, httpOtOneShot);
   web.on("/api/v1/opentherm/scan", HTTP_POST, httpOtScan);

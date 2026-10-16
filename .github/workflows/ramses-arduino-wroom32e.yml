@@ -75,6 +75,11 @@ jobs:
           g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer \
             firmware/arduino-wroom32e/tests/test_opentherm.cpp -o /tmp/test-ramses-opentherm
           /tmp/test-ramses-opentherm
+      - name: Test bounded R8810A 1FC9 pairing and controller read verification
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer \
+            firmware/arduino-wroom32e/tests/test_pairing.cpp -o /tmp/test-ramses-pairing
+          /tmp/test-ramses-pairing
       - name: Test persistent gateway settings and CET/CEST timestamps
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer \

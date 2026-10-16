@@ -14,14 +14,17 @@ inline void putAddress(uint8_t* out,uint8_t type,uint32_t id){
   out[1]=static_cast<uint8_t>(id>>8);
   out[2]=static_cast<uint8_t>(id);
 }
-inline bool makeRequest(uint32_t source18,uint32_t bridge10,uint8_t id,
-                        uint8_t out[16],size_t& size){
+inline bool makeRequestTyped(uint8_t sourceType,uint32_t sourceId,
+                             uint32_t bridge10,uint8_t id,
+                             uint8_t out[16],size_t& size){
   size=0;
-  if (!out || !source18 || source18>=262143 || source18==730 ||
+  if (!out || (sourceType!=1 && sourceType!=18) ||
+      !sourceId || sourceId>=262143 ||
+      (sourceType==18 && sourceId==730) ||
       !bridge10 || bridge10>262143) return false;
   // Header 0x0C = verb RQ, addresses slots 0+1, no sequence parameters.
   out[0]=0x0c;
-  putAddress(out+1,18,source18);
+  putAddress(out+1,sourceType,sourceId);
   putAddress(out+4,10,bridge10);
   out[7]=0x32;out[8]=0x20;out[9]=5;
   if (!ot_readonly::request(id,out+10))return false;
@@ -29,6 +32,11 @@ inline bool makeRequest(uint32_t source18,uint32_t bridge10,uint8_t id,
   for(size_t i=0;i<15;i++)sum=static_cast<uint8_t>(sum+out[i]);
   out[15]=static_cast<uint8_t>(0u-sum);size=16;
   return true;
+}
+// Preserve existing gateway (18:) request encoding for compatibility.
+inline bool makeRequest(uint32_t source18,uint32_t bridge10,uint8_t id,
+                        uint8_t out[16],size_t& size){
+  return makeRequestTyped(18,source18,bridge10,id,out,size);
 }
 // For 16 bytes RAMSES frame: 5 preamble + 2 sync + 3 header +
 // 32 Manchester-coded bytes + 2 trailer = 44 UART bytes.

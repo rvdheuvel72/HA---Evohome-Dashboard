@@ -13,6 +13,8 @@
 #include "Cc1101Radio.h"
 #include "GatewayRuntimeConfig.h"
 #include "RamsesCodec.h"
+#include "RamsesBinding.h"
+#include "RamsesControllerIds.h"
 
 class OpenThermGateway {
  public:
@@ -29,17 +31,87 @@ class OpenThermGateway {
   bool transmitEnabled() const { return transmitConfigured() && bridgeSeen_; }
   // One-shot exception NEVER arms the existing scan/poll TX path.
   bool experimentalOneShotReady() const {
-    return config_ && config_->otTxEnabled==0 && config_->otAutoPoll==0 &&
-      config_->otScanAll==0 &&
-      config_->otBridge>0 && config_->otBridge<=262143 &&
-      config_->otSource>0 && config_->otSource<262143 &&
-      config_->otSource!=730 && bridgeSeen_ && !sourceConflict_ &&
-      radio_frequency::experimentalOneShotFrequency(
-        config_->rfFrequencyKhz,config_->rfModuleBand,
-        config_->rfExperimentalRx==1);
+    if(!config_ || config_->otTxEnabled!=0 || config_->otAutoPoll!=0 ||
+       config_->otScanAll!=0 || config_->otBridge==0 ||
+       config_->otBridge>262143 || !bridgeSeen_)return false;
+    portENTER_CRITICAL(&mutex_);
+    const bool verifiedBinding=binding_.state==ramses_bind::VERIFIED &&
+                               !binding_.virtualIdCollision;
+    portEXIT_CRITICAL(&mutex_);
+    // A verified 01: controller does not require the separate 18: source ID.
+    // Only the unpaired cross-band probe uses otSource/sourceConflict.
+    return radio_frequency::manualReadOneShotWithIdentity(
+       config_->rfFrequencyKhz,config_->rfModuleBand,
+       config_->rfExperimentalRx==1,verifiedBinding,
+       config_->otSource,sourceConflict_);
+  }
+  bool bindingReady() const {
+    // Read the bounded identity-coverage flag under the same mutex as note().
+    // requestBinding also checks eligible() under that lock, so no stale
+    // readiness snapshot can permit a collision-prone transmission.
+    if(!config_)return false;
+    portENTER_CRITICAL(&mutex_);
+    const bool coverageExhausted=seenControllers_.saturated();
+    portEXIT_CRITICAL(&mutex_);
+    if(!bridgeSeen_ || !observedController_ || coverageExhausted ||
+       config_->otTxEnabled || config_->otAutoPoll || config_->otScanAll ||
+       !config_->otBridge || sourceConflict_)return false;
+    return radio_frequency::evohomeTxFrequency(
+       config_->rfFrequencyKhz,config_->rfModuleBand) ||
+       radio_frequency::experimentalOneShotFrequency(
+       config_->rfFrequencyKhz,config_->rfModuleBand,
+       config_->rfExperimentalRx==1);
+  }
+  bool requestBinding(uint32_t virtualControllerId){
+    if(!bindingReady() || work_.active || requested_)return false;
+    portENTER_CRITICAL(&mutex_);
+    const bool blocked=singleProbe_.state==ot_single::QUEUED ||
+       singleProbe_.state==ot_single::WAITING;
+    const bool ok=!blocked && !binding_.busy() &&
+       seenControllers_.eligible(virtualControllerId) &&
+       virtualControllerId!=observedController_ &&
+       binding_.start(millis(),virtualControllerId,config_->otBridge,
+                      observedController_);
+    portEXIT_CRITICAL(&mutex_);
+    return ok;
+  }
+  void sendBindingStatus(WebServer& server) {
+    ramses_bind::Session snap;ot_tx::Report detail;
+    portENTER_CRITICAL(&mutex_);
+    snap=binding_;detail=bindingTx_;
+    const bool exhausted=seenControllers_.saturated();
+    const unsigned tracked=seenControllers_.count;
+    portEXIT_CRITICAL(&mutex_);
+    char body[640];
+    snprintf(body,sizeof(body),
+      "{\"state\":\"%s\",\"ready\":%s,\"bridge_seen\":%s,"
+      "\"bridge_id\":%lu,\"existing_controller_id\":%lu,"
+      "\"virtual_controller_id\":%lu,\"cooldown_ms\":%lu,"
+      "\"offer_accepted\":%s,\"confirmation_sent\":%s,"
+      "\"verified_reply\":%s,\"read_ack\":%s,"
+      "\"id_conflict\":%s,\"raw\":%u,"
+      "\"controller_id_coverage_exhausted\":%s,\"controller_ids_seen\":%u,"
+      "\"tx_phase\":\"%s\",\"tx_bytes\":%u}",
+      ramses_bind::name(snap.state),bindingReady()?"true":"false",
+      bridgeSeen_?"true":"false",
+      static_cast<unsigned long>(config_->otBridge),
+      static_cast<unsigned long>(observedController_),
+      static_cast<unsigned long>(snap.virtualId),
+      static_cast<unsigned long>(snap.cooldown(millis())),
+      snap.acceptedOffer?"true":"false",
+      snap.confirmationSent?"true":"false",
+      snap.state==ramses_bind::VERIFIED?"true":"false",
+      snap.verifiedReadAck?"true":"false",
+      snap.virtualIdCollision?"true":"false",
+      static_cast<unsigned>(snap.lastRaw),
+      exhausted?"true":"false",tracked,
+      ot_tx::phaseName(detail.phase),
+      static_cast<unsigned>(detail.written_bytes));
+    server.sendHeader("Cache-Control","no-store");
+    server.send(200,"application/json",body);
   }
   bool requestOneShot(ot_tx::Method method) {
-    if(!experimentalOneShotReady() || work_.active || requested_)return false;
+    if(!experimentalOneShotReady() || work_.active || requested_ || binding_.busy())return false;
     portENTER_CRITICAL(&mutex_);
     const bool ok=singleProbe_.request(millis(),method);
     portEXIT_CRITICAL(&mutex_);
@@ -122,6 +194,16 @@ class OpenThermGateway {
        rfType(msg.addresses[0])==10 &&
        rfId(msg.addresses[0])==config_->otBridge)
       bridgeSeen_=true;
+    if((msg.addrMask&1u) && rfType(msg.addresses[0])==1) {
+      const uint32_t id=rfId(msg.addresses[0]);
+      portENTER_CRITICAL(&mutex_);
+      seenControllers_.note(id);
+      portEXIT_CRITICAL(&mutex_);
+      if((msg.addrMask&3u)==3u &&
+          rfType(msg.addresses[1])==10 &&
+          rfId(msg.addresses[1])==config_->otBridge)
+        observedController_=id;
+    }
     // Check RF *sender* only. Replies addressed to our virtual ID are
     // expected and must never be misclassified as an address collision.
     if((msg.addrMask&1u) && config_->otSource &&
@@ -155,9 +237,9 @@ class OpenThermGateway {
     publishSnapshot();
   }
   bool requestScan() {
-    if(!transmitEnabled())return false;
+    if(!transmitEnabled() || binding_.busy())return false;
     portENTER_CRITICAL(&mutex_);
-    const bool ok=!published_.active && !requested_;
+    const bool ok=!published_.active && !requested_ && !binding_.busy();
     if(ok)requested_=true;
     portEXIT_CRITICAL(&mutex_);
     return ok;
@@ -165,14 +247,23 @@ class OpenThermGateway {
   // Must be called from the radioTask after a checksum-validated frame.
   bool observe(const ramses::Message& msg,uint8_t& id,
                ot_readonly::Result& r,uint16_t& raw) {
+    portENTER_CRITICAL(&mutex_);
+    binding_.observe(msg,millis());
+    portEXIT_CRITICAL(&mutex_);
     if(msg.opcode!=0x3220 || msg.messageType!=3 ||
        !(msg.addrMask&1) || rfType(msg.addresses[0])!=10 ||
        (config_->otBridge!=0 && rfId(msg.addresses[0])!=config_->otBridge) ||
        !ot_readonly::response(msg.payload,msg.length,id,r,raw))return false;
     // Only attribute scan results to our transaction when the reply
     // explicitly addresses the configured gateway RF identity.
-    if((msg.addrMask&2) && rfType(msg.addresses[1])==18 &&
-       rfId(msg.addresses[1])==config_->otSource) {
+    const bool directedGateway=(msg.addrMask&2) &&
+      rfType(msg.addresses[1])==18 &&
+      rfId(msg.addresses[1])==config_->otSource;
+    const bool directedPairedController=(msg.addrMask&2) &&
+      binding_.state==ramses_bind::VERIFIED &&
+      rfType(msg.addresses[1])==1 &&
+      rfId(msg.addresses[1])==binding_.virtualId;
+    if(directedGateway || directedPairedController) {
       portENTER_CRITICAL(&mutex_);
       if(singleProbe_.accept(id,r,raw,millis())) {
         ot_tx::Comparison& summary=comparisons_[singleProbe_.method];
@@ -218,6 +309,42 @@ class OpenThermGateway {
       if(ok)summary.local_completed++;
       else summary.tx_failures++;
       singleProbe_.sent(ok);
+      portEXIT_CRITICAL(&mutex_);
+    }
+    // Only the radio task sends the manually queued 1FC9 handshake.
+    ramses_bind::State bindingAction;
+    portENTER_CRITICAL(&mutex_);
+    binding_.tick(now);
+    bindingAction=binding_.state;
+    portEXIT_CRITICAL(&mutex_);
+    if(bindingAction==ramses_bind::OFFER_QUEUED ||
+       bindingAction==ramses_bind::CONFIRM_QUEUED ||
+       bindingAction==ramses_bind::VERIFY_QUEUED) {
+      uint8_t frame[64]={}; size_t length=0;
+      ramses_bind::Session snap;
+      portENTER_CRITICAL(&mutex_);
+      snap=binding_;
+      portEXIT_CRITICAL(&mutex_);
+      bool built=false;
+      if(bindingAction==ramses_bind::OFFER_QUEUED)
+        built=ramses_bind::makeOffer(snap.virtualId,snap.bridgeId,frame,length);
+      else if(bindingAction==ramses_bind::CONFIRM_QUEUED)
+        built=ramses_bind::makeConfirmation(snap.virtualId,snap.bridgeId,frame,length);
+      else {
+        uint8_t verify[16]={};
+        built=ramses_bind::makeVerifyRead(snap.virtualId,snap.bridgeId,verify,length);
+        if(built)memcpy(frame,verify,length);
+      }
+      ot_tx::Report tx;
+      const bool sent=built && bindingReady() &&
+         sendBindingFrame(radio,port,decoder,frame,length,tx);
+      portENTER_CRITICAL(&mutex_);
+      bindingTx_=tx;
+      if(bindingAction==ramses_bind::OFFER_QUEUED)
+        binding_.offered(sent,millis());
+      else if(bindingAction==ramses_bind::CONFIRM_QUEUED)
+        binding_.confirmed(sent);
+      else binding_.verifiedRequestSent(sent,millis());
       portEXIT_CRITICAL(&mutex_);
     }
     if(start) {
@@ -330,7 +457,7 @@ class OpenThermGateway {
   static constexpr uint32_t PROFILE_MAGIC=0x4f543034;
   const gw_config::Settings* config_=nullptr;
   uint16_t moduleBand_=868;
-  portMUX_TYPE mutex_=portMUX_INITIALIZER_UNLOCKED;
+  mutable portMUX_TYPE mutex_=portMUX_INITIALIZER_UNLOCKED;
   ot_scan::Scanner work_,published_;
   bool requested_=false;
   volatile bool bridgeSeen_=false;
@@ -338,6 +465,10 @@ class OpenThermGateway {
   ot_single::Probe singleProbe_;
   ot_tx::Report lastReports_[2];
   ot_tx::Comparison comparisons_[2];
+  ramses_bind::Session binding_;
+  ot_tx::Report bindingTx_;
+  volatile uint32_t observedController_=0;
+  ramses_ids::SeenControllers seenControllers_;
   bool wasCompleted_=false;
   uint32_t nextPolling_=0;
   uint32_t txFailures_=0;
@@ -367,6 +498,31 @@ class OpenThermGateway {
       p.end();
     }
   }
+  // Fixed permitted RF frames: offer, confirmation, one Read-Data ID25.
+  bool sendBindingFrame(Cc1101Radio& radio,HardwareSerial& port,
+                        ramses::FrameDecoder& decoder,
+                        const uint8_t* frame,size_t length,
+                        ot_tx::Report& diag) {
+    uint8_t wire[128]={};
+    const size_t wireLen=ramses_read::encodeUART(frame,length,wire,sizeof(wire));
+    if(!wireLen || wireLen>sizeof(wire)) {
+      diag.phase=ot_tx::TX_CONFIG_FAILED;return false;
+    }
+    diag.expected_bytes=static_cast<uint16_t>(wireLen);
+    const uint32_t begun=micros();
+    if(!radio.beginReadRequestTx(true,&diag))return false;
+    const size_t written=port.write(wire,wireLen);
+    port.flush();
+    delayMicroseconds(300);
+    const bool restored=radio.endReadRequestTx(&diag);
+    while(port.available())port.read();
+    decoder.reset();
+    diag.written_bytes=static_cast<uint16_t>(written);
+    diag.elapsed_us=micros()-begun;
+    diag.phase=!restored?ot_tx::RX_RESTORE_FAILED:
+      written!=wireLen?ot_tx::UART_WRITE_FAILED:ot_tx::LOCAL_COMPLETE;
+    return diag.phase==ot_tx::LOCAL_COMPLETE;
+  }
   bool transmit(Cc1101Radio& radio,HardwareSerial& port,
                 ramses::FrameDecoder& decoder,uint8_t id){
     if(!transmitEnabled())return false;
@@ -386,7 +542,16 @@ class OpenThermGateway {
       diag.phase=ot_tx::FREQUENCY_REJECTED;return false;
     }
     uint8_t frame[16],wire[44];size_t used=0;
-    if(!ramses_read::makeRequest(config_->otSource,config_->otBridge,id,frame,used)){
+    uint8_t sourceType=18;
+    uint32_t sourceId=config_->otSource;
+    portENTER_CRITICAL(&mutex_);
+    if(binding_.state==ramses_bind::VERIFIED){
+      sourceType=1;
+      sourceId=binding_.virtualId;
+    }
+    portEXIT_CRITICAL(&mutex_);
+    if(!ramses_read::makeRequestTyped(sourceType,sourceId,
+                                     config_->otBridge,id,frame,used)){
       diag.phase=ot_tx::TX_CONFIG_FAILED;return false;
     }
     const size_t wireLen=ramses_read::encodeUART(frame,used,wire,sizeof(wire));

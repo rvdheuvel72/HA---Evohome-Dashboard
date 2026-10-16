@@ -5,13 +5,11 @@ on:
       - "firmware/arduino-wroom32e/**"
       - ".github/workflows/publish-ramses-arduino-v0.4-beta.yml"
       - ".github/workflows/ramses-arduino-wroom32e.yml"
-      - ".github/workflows/publish-ramses-arduino-v0.4-beta.yml"
   pull_request:
     paths:
       - "firmware/arduino-wroom32e/**"
       - ".github/workflows/publish-ramses-arduino-v0.4-beta.yml"
       - ".github/workflows/ramses-arduino-wroom32e.yml"
-      - ".github/workflows/publish-ramses-arduino-v0.4-beta.yml"
   workflow_dispatch:
 
 permissions:

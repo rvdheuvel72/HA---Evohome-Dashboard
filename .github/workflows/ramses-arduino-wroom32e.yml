@@ -3,10 +3,12 @@ on:
   push:
     paths:
       - "firmware/arduino-wroom32e/**"
+      - ".github/workflows/publish-ramses-arduino-v0.4-beta.yml"
       - ".github/workflows/ramses-arduino-wroom32e.yml"
   pull_request:
     paths:
       - "firmware/arduino-wroom32e/**"
+      - ".github/workflows/publish-ramses-arduino-v0.4-beta.yml"
       - ".github/workflows/ramses-arduino-wroom32e.yml"
   workflow_dispatch:
 
@@ -88,6 +90,8 @@ jobs:
           Path('/tmp/gateway-page.js').write_text(js)
           PY
           node --check /tmp/gateway-page.js
+      - name: Validate standalone RAMSES release version contract
+        run: python3 firmware/arduino-wroom32e/tests/test_release_contract.py
       - name: Compile for ESP32-WROOM-32E
         run: |
           arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all firmware/arduino-wroom32e/RamsesGateway --output-dir "$RUNNER_TEMP/arduino-build"

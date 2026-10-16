@@ -43,7 +43,7 @@ int main(){
   ot_single::Probe shot;
   assert(shot.state==ot_single::IDLE && shot.request(10000,ot_tx::REFERENCE_FIFO));
   assert(shot.method==ot_tx::REFERENCE_FIFO);
-  assert(strcmp(ot_tx::methodName(shot.method),"fifo_fixed_44")==0);
+  assert(strcmp(ot_tx::methodName(shot.method),"fifo_uartframed_55")==0);
   assert(strcmp(ot_tx::phaseName(ot_tx::TX_UNDERFLOW),"tx_underflow")==0);
   assert(ot_tx::Report::PA_868_LOW==0x26);
   assert(ot_tx::Report::MAX_FIFO_TX_US==80000);

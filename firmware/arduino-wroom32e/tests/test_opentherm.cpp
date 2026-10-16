@@ -4,6 +4,7 @@
 #include <string.h>
 #include "../RamsesGateway/OpenThermReadOnly.h"
 #include "../RamsesGateway/OpenThermScan.h"
+#include "../RamsesGateway/OpenThermOneShot.h"
 #include "../RamsesGateway/RamsesReadRequest.h"
 #include "../RamsesGateway/RadioFrequency.h"
 #include "../RamsesGateway/RamsesCodec.h"
@@ -28,11 +29,38 @@ int main(){
   assert(!radio_frequency::synth(868300,433,freq));
   assert(!radio_frequency::synth(500000,433,freq,true)); // outside silicon range
   assert(!radio_frequency::evohomeTxFrequency(868300,433));
+  assert(radio_frequency::experimentalOneShotFrequency(868300,433,true));
+  assert(!radio_frequency::experimentalOneShotFrequency(868300,433,false));
+  assert(!radio_frequency::experimentalOneShotFrequency(868300,868,true));
+  assert(!radio_frequency::experimentalOneShotFrequency(868350,433,true));
   assert(radio_frequency::synth(433920,433,freq));
   assert(!radio_frequency::synth(867000,0,freq));
   assert(radio_frequency::evohomeTxFrequency(868300,868));
   assert(!radio_frequency::evohomeTxFrequency(868350,868));
   assert(!radio_frequency::evohomeTxFrequency(868300,915));
+  // A manual click only queues one fixed Data-ID 25 request.
+  ot_single::Probe shot;
+  assert(shot.state==ot_single::IDLE && shot.request(10000));
+  assert(!shot.request(10000));  // no double-click duplicate
+  assert(shot.begin(10000));
+  assert(!shot.begin(10000));
+  assert(!shot.accept(28,ot_readonly::READ_ACK,0x2580,10020)); // wrong ID
+  assert(!shot.accept(25,ot_readonly::NOT_TESTED,0x2580,10020));
+  assert(shot.accept(25,ot_readonly::READ_ACK,0x2580,10020));
+  assert(shot.state==ot_single::READ_ACK && shot.raw==0x2580);
+  assert(!shot.request(60000)); // less than 60s since TX
+  assert(shot.request(70000) && shot.begin(70000));
+  shot.tick(71800); // no response, no retry, terminal timeout
+  assert(shot.state==ot_single::TIMEOUT);
+  assert(!shot.request(71900));
+  assert(shot.request(130000) && shot.begin(130000));
+  shot.sent(false);
+  assert(shot.state==ot_single::TX_FAILED);
+  assert(!shot.accept(25,ot_readonly::READ_ACK,0x2580,130010));
+  assert(shot.request(190000) && shot.begin(190000));
+  assert(!shot.accept(25,ot_readonly::READ_ACK,0x2580,191800));
+  shot.tick(191800);
+  assert(shot.state==ot_single::TIMEOUT);
   uint8_t req[5]={};
   assert(ot_readonly::request(25,req));
   const uint8_t known[]={0x00,0x80,0x19,0x00,0x00};

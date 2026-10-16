@@ -6,7 +6,7 @@ Beta.7 captured ordinary R8810A `3EF0` replies, but its manual primed 60-byte FI
 ## Changes
 - The manually selected FIFO method now uses the exact upstream **MARK=1 / START=0 / eight data bits LSB first** bit sequence. Priming `00 FF 00 00` and final idle `FF` are retained, for **60 FIFO bytes total** in the CC1101 64-byte FIFO.
 - A separate host-test model of the upstream 16-bit shift-register `tx_byte()` logic compares the **entire 60-byte stream** byte-for-byte, including 4-byte primer and trailer. Test also decodes exactly **one** valid OpenTherm ID25 RQ/3220 request, with incorrect lengths rejected.
-- UART/GDO0 transmit code is **unchanged**. No heating writes, pairing, source-address impersonation, general RF TX, auto-retries, scans or polling were added. One-shot remains authentication protected, limited to R8810A, constrained to one ID25 Read-Data, 60-second cooldown and explicit physical-RF/module safety confirmation.
+- UART/GDO0 transmit code is **unchanged**. No heating writes, pairing, source-address impersonation, general RF TX, auto-retries, scans or polling were added. One-shot remains authentication protected, limited to R8810A, constrained to one ID25 Read-Data, 60-second cooldown and explicit user confirmation of RF identities and single-request authorization in the web interface. The separate physical-RF/module safety checkbox is only enforced for normal TX, which this experimental one-shot path forbids; no hardware-verification gate is enforced here.
 - RX Debug ON/OFF, bridge traffic counters and the signed RSSI correction from beta.6 remain available.
 
 ## Physical and protocol limitations

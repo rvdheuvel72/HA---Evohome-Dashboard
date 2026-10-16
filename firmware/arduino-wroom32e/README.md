@@ -4,7 +4,7 @@ Arduino IDE prototype, receive-only by default; optional guarded read-only RF di
 
 ## Download the standalone Arduino IDE ZIP
 
-[RAMSES Arduino Gateway v0.4.0-beta.4 release](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.4) — download the **RAMSES-Arduino-Gateway-v0.4.0-beta.4-ESP32-WROOM-32E.zip** asset (not the repository source-code ZIP). Unzip it, then open `RamsesGateway/RamsesGateway.ino` in Arduino IDE. This is a separately tagged **prerelease** for the radio gateway, not the Home Assistant integration.
+[RAMSES Arduino Gateway v0.4.0-beta.4 release](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.5) — download the **RAMSES-Arduino-Gateway-v0.4.0-beta.5-ESP32-WROOM-32E.zip** asset (not the repository source-code ZIP). Unzip it, then open `RamsesGateway/RamsesGateway.ino` in Arduino IDE. This is a separately tagged **prerelease** for the radio gateway, not the Home Assistant integration.
 
 ## Wiring (verify actual labels on CC1101 breakout)
 
@@ -188,6 +188,14 @@ radio, actual received bridge identity, 868.3 MHz matching hardware, and
 valid RF addresses. No boiler write commands are available.
 
 
+
+## Beta.5: A/B diagnostics for one-shot UART vs CC1101 TX FIFO
+
+The manual **one-shot** test now has two radio transport choices. The original **async UART / GDO0** path is retained for baseline comparison; the **reference-style fixed 44-byte FIFO** path places the same encoded RAMSES II `3220` / OpenTherm Read-Data ID25 frame into the 64-byte TX FIFO and waits (with a hard 80ms limit) for local completion. Each button click sends **at most ONE request via ONE selected method**, with the existing 60-second cooldown and strong-auth/bridge-ID/RF frequency protections. The implementation does **not** automatically send both, and it does not enable general RF TX, scans, retries, or boiler writes.
+
+Both methods explicitly program and verify the CC1101 PATABLE[0] to TI's nominal **868MHz -10dBm value (0x26)**. On a 433MHz-matched PCB actual RF output and legal compliance cannot be inferred from the PA register. The FIFO method keeps CC1101 GDO0 **high impedance** to avoid fighting the ESP32's existing UART TX wire, and polls MARCSTATE/TXBYTES over SPI rather than driving GDO0. FIFO mode uses bounded **fixed-length 44-byte packet mode** instead of the reference project's infinite-length streaming FIFO to prevent an unbounded RF stream on a stalled producer.
+
+Diagnostics at `/api/v1/opentherm/one-shot` show selected method, local TX phase, PA programmed/read-back value, CC1101 MARCSTATE before/during/after, TX FIFO byte counters, bytes written, elapsed transmission time, RX restoration, and per-method A/B totals: attempted, locally completed, OpenTherm Read-Ack, reply timeout, other replies, local TX failures. **Local completion is not RF acknowledgement**. Counters reset on ESP32 restart. Compare actual Read-Ack results over separate individually authorized tests; timeout can reflect RF, address/protocol, or receiver issues. UART may produce a different waveform due to asynchronous packet format and serial framing; compare only one request at a time.
 
 ## Manual experimental one-request 3220 test on the existing 433M V2.0 PCB
 

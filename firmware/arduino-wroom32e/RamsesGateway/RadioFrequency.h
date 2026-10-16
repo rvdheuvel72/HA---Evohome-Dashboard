@@ -28,6 +28,10 @@ inline bool synth(uint32_t khz,uint16_t band,uint32_t& word,bool experimentalRx=
   word=static_cast<uint32_t>(v);
   return true;
 }
+// Only for a single, manually authorized RQ 3220 Read-Data ID25.
+inline bool experimentalOneShotFrequency(uint32_t khz,uint16_t band,bool crossRx){
+  return khz==868300 && band==433 && crossRx;
+}
 inline bool evohomeTxFrequency(uint32_t khz,uint16_t band){
   // Avoid transmitting a RAMSES request on an arbitrary tuning.
   return band==868 && khz==868300;

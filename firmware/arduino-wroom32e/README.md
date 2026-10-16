@@ -4,7 +4,7 @@ Arduino IDE prototype, receive-only by default; optional guarded read-only RF di
 
 ## Download the standalone Arduino IDE ZIP
 
-[RAMSES Arduino Gateway v0.4.0-beta.3 release](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.3) — download the **RAMSES-Arduino-Gateway-v0.4.0-beta.3-ESP32-WROOM-32E.zip** asset (not the repository source-code ZIP). Unzip it, then open `RamsesGateway/RamsesGateway.ino` in Arduino IDE. This is a separately tagged **prerelease** for the radio gateway, not the Home Assistant integration.
+[RAMSES Arduino Gateway v0.4.0-beta.4 release](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.4) — download the **RAMSES-Arduino-Gateway-v0.4.0-beta.4-ESP32-WROOM-32E.zip** asset (not the repository source-code ZIP). Unzip it, then open `RamsesGateway/RamsesGateway.ino` in Arduino IDE. This is a separately tagged **prerelease** for the radio gateway, not the Home Assistant integration.
 
 ## Wiring (verify actual labels on CC1101 breakout)
 
@@ -187,6 +187,17 @@ remains off by default and additionally requires an explicitly confirmed
 radio, actual received bridge identity, 868.3 MHz matching hardware, and
 valid RF addresses. No boiler write commands are available.
 
+
+
+## Manual experimental one-request 3220 test on the existing 433M V2.0 PCB
+
+This feature intentionally does **not** turn the existing 433M PCB into a certified 868 MHz transmitter. Passive RX at 868.3 MHz is working in the user's installation, but outbound power, sensitivity, emissions and interoperability have not been bench-tested.
+
+On the ESP32 web **Settings** tab, retain **PCB: 433 MHz**, **868300 kHz**, **experimental cross-band RX: enabled**. Provide the *physically verified* R8810A decimal RF ID (e.g. packet source `10:048994` implies bridge ID `48994`) and a unique, unused 18: virtual RF source ID between 1 and 262142 (not reserved 730). **Do not reuse the MQTT gateway ID** (it may exceed RF address range). Leave **normal RF TX**, **automatic read polling** and **scan-all** OFF. Save and restart with strong HTTP authentication.
+
+On the **Diagnostics** tab, expand **Experimental one-request read test**, confirm your radio identity and click the explicitly consented button. The gateway requires an RF-verified observed bridge and no observed collision of the chosen 18: source ID. A click sends **at most one** `RQ 3220` / OpenTherm **Read-Data ID25** (boiler flow temperature), with no retransmission, retries, scans, writes or setpoint overrides. Rate limit: 60 seconds after an attempt. Use `GET /api/v1/opentherm/one-shot` for queued, awaiting_reply, read_ack, data_invalid, unknown_data_id, timeout or tx_failed, including any flow-temperature value. The Web API requires Basic authentication and a request-specific custom header for POST.
+
+This per-request diagnostic exception does **not** enable the existing bulk compatibility scanner, automatic RF requests, or a generic ability to transmit arbitrary RAMSES frames. On-air response and RF compliance are unverified until measured with the physical gateway and bridge. Do not assume a timeout proves unsupported OpenTherm ID25; it could be lost RF TX or RX.
 
 ## Browser Settings tab and experimental 868.3 MHz reception on 433M PCB
 

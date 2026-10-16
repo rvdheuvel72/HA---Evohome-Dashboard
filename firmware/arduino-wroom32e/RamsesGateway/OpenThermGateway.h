@@ -8,6 +8,7 @@
 #include <Preferences.h>
 #include <WebServer.h>
 #include "OpenThermScan.h"
+#include "OpenThermOneShot.h"
 #include "RamsesReadRequest.h"
 #include "Cc1101Radio.h"
 #include "GatewayRuntimeConfig.h"
@@ -26,6 +27,50 @@ class OpenThermGateway {
                                               moduleBand_);
   }
   bool transmitEnabled() const { return transmitConfigured() && bridgeSeen_; }
+  // One-shot exception NEVER arms the existing scan/poll TX path.
+  bool experimentalOneShotReady() const {
+    return config_ && config_->otTxEnabled==0 && config_->otAutoPoll==0 &&
+      config_->otScanAll==0 &&
+      config_->otBridge>0 && config_->otBridge<=262143 &&
+      config_->otSource>0 && config_->otSource<262143 &&
+      config_->otSource!=730 && bridgeSeen_ && !sourceConflict_ &&
+      radio_frequency::experimentalOneShotFrequency(
+        config_->rfFrequencyKhz,config_->rfModuleBand,
+        config_->rfExperimentalRx==1);
+  }
+  bool requestOneShot() {
+    if(!experimentalOneShotReady() || work_.active || requested_)return false;
+    portENTER_CRITICAL(&mutex_);
+    const bool ok=singleProbe_.request(millis());
+    portEXIT_CRITICAL(&mutex_);
+    return ok;
+  }
+  void sendOneShotStatus(WebServer& server) {
+    ot_single::Probe snapshot;
+    portENTER_CRITICAL(&mutex_);
+    snapshot=singleProbe_;
+    portEXIT_CRITICAL(&mutex_);
+    float degrees=0;
+    const bool hasValue=snapshot.state==ot_single::READ_ACK &&
+      ot_readonly::fixedPoint(ot_single::DATA_ID,snapshot.raw,degrees);
+    char response[550];
+    snprintf(response,sizeof(response),
+      "{\"data_id\":%u,\"name\":\"boiler_flow_c\",\"status\":\"%s\","
+      "\"ready\":%s,\"bridge_seen\":%s,\"source_conflict\":%s,"
+      "\"bridge_id\":%lu,\"source_id\":%lu,\"cooldown_ms\":%lu,"
+      "\"attempted\":%s,\"raw\":%u,\"value_c\":%.3f,\"has_value\":%s}",
+      static_cast<unsigned>(ot_single::DATA_ID),snapshot.label(),
+      experimentalOneShotReady()?"true":"false",
+      bridgeSeen_?"true":"false",sourceConflict_?"true":"false",
+      static_cast<unsigned long>(config_->otBridge),
+      static_cast<unsigned long>(config_->otSource),
+      static_cast<unsigned long>(snapshot.cooldown(millis())),
+      snapshot.attempted?"true":"false",
+      static_cast<unsigned>(snapshot.raw),
+      static_cast<double>(hasValue?degrees:0),hasValue?"true":"false");
+    server.sendHeader("Cache-Control","no-store");
+    server.send(200,"application/json",response);
+  }
   // Only RX-verified packets can establish the bridge identity. A configured
   // RF address alone is not permission to transmit into a heating system.
   void noteDevice(const ramses::Message& msg) {
@@ -33,6 +78,12 @@ class OpenThermGateway {
        rfType(msg.addresses[0])==10 &&
        rfId(msg.addresses[0])==config_->otBridge)
       bridgeSeen_=true;
+    // Check RF *sender* only. Replies addressed to our virtual ID are
+    // expected and must never be misclassified as an address collision.
+    if((msg.addrMask&1u) && config_->otSource &&
+       rfType(msg.addresses[0])==18 &&
+       rfId(msg.addresses[0])==config_->otSource)
+      sourceConflict_=true;
   }
   void begin() {
     Preferences p;
@@ -78,6 +129,9 @@ class OpenThermGateway {
     // explicitly addresses the configured gateway RF identity.
     if((msg.addrMask&2) && rfType(msg.addresses[1])==18 &&
        rfId(msg.addresses[1])==config_->otSource) {
+      portENTER_CRITICAL(&mutex_);
+      singleProbe_.accept(id,r,raw,millis());
+      portEXIT_CRITICAL(&mutex_);
       if(work_.accept(id,r,raw,millis()))publishSnapshot();
     }
     return true; // Still valid passive RF telemetry from configured bridge.
@@ -89,6 +143,18 @@ class OpenThermGateway {
     if(requested_){start=true;requested_=false;}
     portEXIT_CRITICAL(&mutex_);
     const uint32_t now=millis();
+    bool oneShot=false;
+    portENTER_CRITICAL(&mutex_);
+    oneShot=singleProbe_.begin(now);
+    singleProbe_.tick(now);
+    portEXIT_CRITICAL(&mutex_);
+    if(oneShot) {
+      const bool ok=experimentalOneShotReady() && !work_.active && !requested_ &&
+        sendReadRequest(radio,port,decoder,ot_single::DATA_ID,true);
+      portENTER_CRITICAL(&mutex_);
+      singleProbe_.sent(ok);
+      portEXIT_CRITICAL(&mutex_);
+    }
     if(start) {
       work_.reset(config_->otBridge,config_ && config_->otScanAll==1,now);
       wasCompleted_=false;
@@ -203,6 +269,8 @@ class OpenThermGateway {
   ot_scan::Scanner work_,published_;
   bool requested_=false;
   volatile bool bridgeSeen_=false;
+  volatile bool sourceConflict_=false;
+  ot_single::Probe singleProbe_;
   bool wasCompleted_=false;
   uint32_t nextPolling_=0;
   uint32_t txFailures_=0;
@@ -235,6 +303,13 @@ class OpenThermGateway {
   bool transmit(Cc1101Radio& radio,HardwareSerial& port,
                 ramses::FrameDecoder& decoder,uint8_t id){
     if(!transmitEnabled())return false;
+    return sendReadRequest(radio,port,decoder,id,false);
+  }
+  bool sendReadRequest(Cc1101Radio& radio,HardwareSerial& port,
+                ramses::FrameDecoder& decoder,uint8_t id,bool experimental){
+    if(experimental) {
+      if(id!=ot_single::DATA_ID || !experimentalOneShotReady())return false;
+    } else if(!transmitEnabled())return false;
     uint8_t frame[16],wire[44];size_t used=0;
     if(!ramses_read::makeRequest(config_->otSource,config_->otBridge,id,frame,used))
       return false;
@@ -242,7 +317,7 @@ class OpenThermGateway {
     if(!wireLen || wireLen!=44)return false;
     // CC1101 owns the asynchronous serial GDO0 input while transmitting.
     // No arbitrary RF packets are accepted from HTTP or MQTT.
-    if(!radio.beginReadRequestTx())return false;
+    if(!radio.beginReadRequestTx(experimental))return false;
     const size_t written=port.write(wire,wireLen);
     port.flush();
     delayMicroseconds(300);

@@ -83,7 +83,7 @@ constexpr uint8_t RING_SIZE = 12;
 constexpr uint32_t RX_IDLE_TIMEOUT_MS = 250;
 constexpr uint32_t HEARTBEAT_MS = 15000;
 constexpr uint8_t DEBUG_QUEUE_SIZE = 16;
-constexpr char FW_VERSION[] = "0.4.0-beta.3";
+constexpr char FW_VERSION[] = "0.4.0-beta.4";
 constexpr uint32_t MDNS_RETRY_MS = 15000;
 constexpr uint32_t MQTT_STATE_INTERVAL_MS = 15000;
 
@@ -296,6 +296,31 @@ void radioTask(void*) {
 void httpOtProfile(){
   if(!authorized())return;
   otGateway.sendProfile(web);
+}
+void httpOtOneShot(){
+  if(!authorized())return;
+  if(web.method()==HTTP_GET){otGateway.sendOneShotStatus(web);return;}
+  if(!web.hasHeader("X-Gateway-Config") ||
+     web.header("X-Gateway-Config")!="one-shot" ||
+     web.arg("confirm")!="experimental-single-read-25"){
+    web.send(403,"application/json",
+      "{\"error\":\"explicit_one_shot_confirmation_required\"}");
+    return;
+  }
+  if(!configuration.current.webUser[0] ||
+     strlen(configuration.current.webPassword)<12 ||
+     strcmp(configuration.current.webPassword,
+        "CHANGE_TO_A_STRONG_PRIVATE_PASSWORD")==0){
+    web.send(403,"application/json","{\"error\":\"strong_web_auth_required\"}");
+    return;
+  }
+  if(!radioReady || !otGateway.requestOneShot()){
+    web.send(409,"application/json",
+      "{\"error\":\"one_shot_not_ready_or_in_cooldown_check_status\"}");
+    return;
+  }
+  web.send(202,"application/json",
+    "{\"queued\":true,\"data_id\":25,\"attempt_limit\":1,\"mode\":\"experimental_read_only\"}");
 }
 void httpOtScan(){
   if(!authorized())return;
@@ -776,8 +801,8 @@ void handlePacket(const PacketEvent& event) {
 void setup() {
   Serial.begin(115200);
   delay(250);
-  Serial.println("\n# RAMSES II Arduino v0.4.0-beta.3 (read-only OpenTherm discovery)");
-  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-beta.3");
+  Serial.println("\n# RAMSES II Arduino v0.4.0-beta.4 (read-only OpenTherm discovery)");
+  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-beta.4");
   char bootInfo[96];
   snprintf(bootInfo, sizeof(bootInfo), "Reset reason: %s", resetReason());
   recordLog(GatewayDebug::INFO, bootInfo);
@@ -832,6 +857,8 @@ void setup() {
   web.on("/api/v1/config", HTTP_POST, httpConfigSave);
   web.on("/api/v1/packets", HTTP_GET, httpPackets);
   web.on("/api/v1/opentherm/profile", HTTP_GET, httpOtProfile);
+  web.on("/api/v1/opentherm/one-shot", HTTP_GET, httpOtOneShot);
+  web.on("/api/v1/opentherm/one-shot", HTTP_POST, httpOtOneShot);
   web.on("/api/v1/opentherm/scan", HTTP_POST, httpOtScan);
   web.on("/api/v1/debug/logs", HTTP_GET, httpDebugLogs);
   web.on("/api/v1/debug/download", HTTP_GET, httpDebugDownload);

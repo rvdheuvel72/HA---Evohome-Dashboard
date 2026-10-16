@@ -65,7 +65,7 @@ int main() {
   rp.messageType=3;rp.opcode=0x3220;rp.addrMask=3;rp.length=5;
   ramses_read::putAddress(rp.addresses[0],10,48994);
   ramses_read::putAddress(rp.addresses[1],1,62142);
-  const uint8_t otReply[5]={0x00,0xC0,0x19,0x25,0x80};
+  const uint8_t otReply[5]={0x00,0x40,0x19,0x25,0x80};
   memcpy(rp.payload,otReply,5);
   // Add OpenTherm parity as necessary.
   uint32_t bits=(static_cast<uint32_t>(rp.payload[1])<<24)|

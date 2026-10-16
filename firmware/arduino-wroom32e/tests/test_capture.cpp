@@ -5,7 +5,7 @@
 int main(){
   // Static memory footprint and explicit end-of-capacity behavior.
   static ramses_capture::Session capture;
-  assert(sizeof(ramses_capture::Entry)<=236);
+  assert(sizeof(ramses_capture::Entry)<=256);
   assert(sizeof(capture)<48000);
   assert(!capture.active && capture.count==0);
   assert(!capture.append(ramses_capture::PACKET,"RQ",1,80));

@@ -60,6 +60,87 @@ class GateTests(unittest.TestCase):
             state,_=gate.check("token","owner/repo",1,SHA)
         self.assertEqual(state,"passed")
 
+    def test_radio_compile_required_if_firmware_or_publisher_changes(self):
+        self.assertTrue(gate.arduino_validation_required([
+            "firmware/arduino-wroom32e/RamsesGateway/RamsesGateway.ino"
+        ]))
+        self.assertTrue(gate.arduino_validation_required([
+            ".github/workflows/publish-ramses-arduino-v0.4-beta.yml"
+        ]))
+        self.assertFalse(gate.arduino_validation_required([
+            "scripts/check_codex_review.py"
+        ]))
+
+        def ok(name):
+            return {"name": name, "status": "completed", "conclusion": "success",
+                    "started_at": "2026-10-16T08:00:00Z", "id": 1}
+        checks = [ok(name) for name in gate.REQUIRED_CHECKS]
+        with patch.object(gate, "pages", return_value=[{
+                "filename": "firmware/arduino-wroom32e/RamsesGateway/RamsesGateway.ino"
+             }]), patch.object(gate, "request", return_value={"check_runs": checks}):
+            self.assertEqual(gate.required_ci_state("token", "owner/repo",
+                                                    SHA, pr_number=7)[0], "pending")
+        compiled = dict(ok(gate.TRUSTED_ARDUINO_JOB),
+            id=12345, head_sha=SHA, app={"slug":"github-actions"},
+            details_url="https://github.com/owner/repo/actions/runs/33445/job/12345")
+        trusted_run = {"path":gate.TRUSTED_ARDUINO_WORKFLOW,
+                       "event":"pull_request_target", "head_sha":SHA,
+                       "repository":{"full_name":"owner/repo"}}
+        def trusted_request(token, path):
+            if path.endswith("/check-runs?per_page=100"):
+                return {"check_runs": checks+[compiled]}
+            if path.endswith("/actions/runs/33445"):
+                return trusted_run
+            raise AssertionError("Unexpected API path: " + path)
+        with patch.object(gate, "pages", return_value=[{
+                "filename": "firmware/arduino-wroom32e/RamsesGateway/RamsesGateway.ino"
+             }]), patch.object(gate, "request", side_effect=trusted_request):
+            self.assertEqual(gate.required_ci_state("token", "owner/repo",
+                                                    SHA, pr_number=7)[0], "passed")
+
+    def test_forged_compile_name_is_never_accepted(self):
+        check = {
+            "id": 12345, "name": gate.TRUSTED_ARDUINO_JOB,
+            "status": "completed", "conclusion": "success",
+            "head_sha": SHA, "app": {"slug":"github-actions"},
+            "details_url":"https://github.com/owner/repo/actions/runs/33445/job/12345"
+        }
+        trusted = {"path":gate.TRUSTED_ARDUINO_WORKFLOW,
+                   "event":"pull_request_target", "head_sha":SHA,
+                   "repository":{"full_name":"owner/repo"}}
+        for altered in [
+            dict(trusted, path=".github/workflows/ramses-arduino-wroom32e.yml"),
+            dict(trusted, event="pull_request"),
+            dict(trusted, head_sha="b"*40),
+            dict(trusted, repository={"full_name":"attacker/repo"}),
+        ]:
+            with patch.object(gate, "request", return_value=altered):
+                state,_=gate.trusted_arduino_provenance(
+                    "token", "owner/repo", SHA, check)
+            self.assertEqual(state, "blocked")
+        for altered_check in [
+            dict(check, app={"slug":"attacker-app"}),
+            dict(check, head_sha="b"*40),
+            dict(check, details_url="https://bad.example/actions/runs/33445/job/12345"),
+            dict(check, id=9999),
+        ]:
+            with patch.object(gate, "request") as req:
+                state,_=gate.trusted_arduino_provenance(
+                    "token", "owner/repo", SHA, altered_check)
+            self.assertEqual(state, "blocked")
+            req.assert_not_called()
+
+    def test_ci_preflight_does_not_consult_codex_threads(self):
+        with patch.object(gate, "request", return_value={
+                "head": {"sha": SHA}, "state": "open"}), \
+             patch.object(gate, "required_ci_state",
+                          return_value=("passed", "Build checks passed")) as ci, \
+             patch.object(gate, "blockers") as blockers:
+            self.assertEqual(gate.check_ci("token", "owner/repo", 7, SHA)[0],
+                             "passed")
+        ci.assert_called_once_with("token", "owner/repo", SHA, pr_number=7)
+        blockers.assert_not_called()
+
     def test_required_ci_fail_closed_on_failure_missing_and_pending(self):
         def sample(name, state="completed", conclusion="success"):
             return {"name": name, "status": state, "conclusion": conclusion,

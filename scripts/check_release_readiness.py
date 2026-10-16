@@ -45,7 +45,7 @@ def verify(token: str, full_repo: str, sha: str) -> list[int]:
             raise RuntimeError(
                 f"PR #{number} has unaddressed P1/P2: " + "; ".join(pending[:8])
             )
-        state, reason = required_ci_state(token, full_repo, head)
+        state, reason = required_ci_state(token, full_repo, head, pr_number=number)
         if state != "passed":
             raise RuntimeError(f"PR #{number} required CI not passed: {reason}")
         prefix = f"/repos/{full_repo}"

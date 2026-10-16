@@ -1,0 +1,51 @@
+name: Trusted RAMSES Arduino compile
+
+# Protected base workflow. Unlike pull_request this is read from main.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verified-arduino:
+    name: Trusted Arduino compile
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # No secrets, writes, persistent credentials or self-hosted runners.
+    steps:
+      - name: Checkout exact PR source without persistent credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: refs/pull/${{ github.event.pull_request.number }}/head
+          persist-credentials: false
+      - name: Validate exact checked-out head
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test ! -f firmware/arduino-wroom32e/RamsesGateway/GatewaySecrets.h
+      - name: Install Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+      - name: Install pinned ESP32 board core and PubSubClient
+        shell: bash
+        run: |
+          set -euo pipefail
+          arduino-cli config init
+          arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32@3.3.4
+          arduino-cli lib install "PubSubClient@2.8"
+      - name: Compile actual PR firmware for ESP32-WROOM-32E
+        shell: bash
+        run: |
+          set -euo pipefail
+          arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all \
+            firmware/arduino-wroom32e/RamsesGateway \
+            --output-dir "$RUNNER_TEMP/trusted-arduino"
+          test -n "$(find "$RUNNER_TEMP/trusted-arduino" -maxdepth 1 -name '*.bin' -print -quit)"

@@ -81,11 +81,11 @@ class Cc1101Radio {
     return idle && rx;
   }
 
-  // The reference RAMSES project converts each Manchester encoded UART byte
-  // into 8N1 serial bits before writing the CC1101 FIFO. 44 UART bytes become
-  // exactly 55 FIFO bytes (440 RF bits). Fixed-length FIFO transmission avoids
-  // infinite-streaming underrun risks. HW sync/CRC disabled: RAW RAMSES
-  // preamble/sync and frame checksum are already encoded in the waveform.
+  // The reference RAMSES project first primes its FIFO with a 4-byte
+  // start/break (00 FF 00 00), then sends 44 UART bytes as 55 8N1 RF
+  // bytes and ends with an FF idle MARK: 60 FIFO bytes total.
+  // Fixed-length FIFO transmission avoids infinite-streaming underrun risks.
+  // HW sync/CRC disabled: RAW RAMSES preamble/sync and checksum are included.
   bool sendOneShotFifo(const uint8_t* wire,size_t wireLength,
                        bool experimentalOneShot,ot_tx::Report& d) {
     d.method=ot_tx::REFERENCE_FIFO;
@@ -94,10 +94,11 @@ class Cc1101Radio {
        !txFrequencyAllowed(experimentalOneShot)) {
       d.phase=ot_tx::FREQUENCY_REJECTED;return false;
     }
-    uint8_t txFifo[ramses_uart_fifo::RF_LEN]={};
+    uint8_t txFifo[ramses_uart_fifo::REFERENCE_RF_LEN]={};
     size_t txLength=0;
-    if(!ramses_uart_fifo::encode(wire,wireLength,txFifo,sizeof(txFifo),txLength) ||
-       txLength!=ramses_uart_fifo::RF_LEN) {
+    if(!ramses_uart_fifo::encodePrimedReference(
+          wire,wireLength,txFifo,sizeof(txFifo),txLength) ||
+       txLength!=ramses_uart_fifo::REFERENCE_RF_LEN) {
       d.phase=ot_tx::TX_CONFIG_FAILED;return false;
     }
     d.expected_bytes=static_cast<uint16_t>(txLength);
@@ -120,7 +121,7 @@ class Cc1101Radio {
       d.phase=ot_tx::FIFO_PREFILL_FAILED;
       endReadRequestTx(&d);return false;
     }
-    if(!strobe(0x35)) { // STX, constrained to exactly 44 buffered bytes
+    if(!strobe(0x35)) { // STX, fixed length 60 FIFO bytes incl. priming
       d.phase=ot_tx::TX_START_FAILED;
       endReadRequestTx(&d);return false;
     }

@@ -31,14 +31,18 @@ class OpenThermGateway {
   bool transmitEnabled() const { return transmitConfigured() && bridgeSeen_; }
   // One-shot exception NEVER arms the existing scan/poll TX path.
   bool experimentalOneShotReady() const {
-    return config_ && config_->otTxEnabled==0 && config_->otAutoPoll==0 &&
-      config_->otScanAll==0 &&
-      config_->otBridge>0 && config_->otBridge<=262143 &&
-      config_->otSource>0 && config_->otSource<262143 &&
-      config_->otSource!=730 && bridgeSeen_ && !sourceConflict_ &&
-      radio_frequency::experimentalOneShotFrequency(
-        config_->rfFrequencyKhz,config_->rfModuleBand,
-        config_->rfExperimentalRx==1);
+    if(!config_ || config_->otTxEnabled!=0 || config_->otAutoPoll!=0 ||
+       config_->otScanAll!=0 || config_->otBridge==0 ||
+       config_->otBridge>262143 || config_->otSource==0 ||
+       config_->otSource>=262143 || config_->otSource==730 ||
+       !bridgeSeen_ || sourceConflict_)return false;
+    portENTER_CRITICAL(&mutex_);
+    const bool verifiedBinding=binding_.state==ramses_bind::VERIFIED &&
+                               !binding_.virtualIdCollision;
+    portEXIT_CRITICAL(&mutex_);
+    return radio_frequency::manualReadOneShotAllowed(
+       config_->rfFrequencyKhz,config_->rfModuleBand,
+       config_->rfExperimentalRx==1,verifiedBinding);
   }
   bool bindingReady() const {
     // Read the bounded identity-coverage flag under the same mutex as note().

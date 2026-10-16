@@ -83,7 +83,7 @@ constexpr uint8_t RING_SIZE = 12;
 constexpr uint32_t RX_IDLE_TIMEOUT_MS = 250;
 constexpr uint32_t HEARTBEAT_MS = 15000;
 constexpr uint8_t DEBUG_QUEUE_SIZE = 16;
-constexpr char FW_VERSION[] = "0.4.0-beta.5";
+constexpr char FW_VERSION[] = "0.4.0-beta.6";
 constexpr uint32_t MDNS_RETRY_MS = 15000;
 constexpr uint32_t MQTT_STATE_INTERVAL_MS = 15000;
 
@@ -130,6 +130,12 @@ volatile uint32_t rfUartBytes = 0;
 volatile uint32_t rfSyncs = 0;
 volatile uint32_t radioRxRecalibrations = 0;
 volatile uint32_t radioRxRecalibrationFailures = 0;
+// Low-cost receive accounting always runs; optional 15s log summaries can be
+// enabled or disabled instantly without writing NVS or restarting the ESP32.
+portMUX_TYPE rxDiagnosticsMux = portMUX_INITIALIZER_UNLOCKED;
+ramses_rx::Counters rxDiagnostics;
+volatile bool rxDebugEnabled=false;
+volatile uint32_t rxDebugEnabledAtMs=0;
 
 char deviceId[12] = {};
 char baseTopic[64] = {};
@@ -235,6 +241,7 @@ void radioTask(void*) {
 
   uint32_t lastByteMs = millis();
   uint32_t lastCalibrationMs = millis();
+  uint32_t lastRxDebugLogMs=millis();
   for (;;) {
     int processed = 0;
     while (rfUart.available() && processed < 512) {
@@ -242,10 +249,19 @@ void radioTask(void*) {
       ++processed;
       ++rfUartBytes;
       lastByteMs = millis();
-      const bool wasReceiving = decoder.receiving();
       const bool decoded = decoder.feed(byteIn, message);
+      const ramses::RejectReason error=decoder.takeError();
+      if(error!=ramses::NO_REJECTION) {
+        ++rejectedFrames;
+        portENTER_CRITICAL(&rxDiagnosticsMux);
+        rxDiagnostics.rejection(error,millis());
+        portEXIT_CRITICAL(&rxDiagnosticsMux);
+      }
       rfSyncs = decoder.syncCount();
       if (decoded) {
+        portENTER_CRITICAL(&rxDiagnosticsMux);
+        rxDiagnostics.packet(message,configuration.current.otBridge,millis());
+        portEXIT_CRITICAL(&rxDiagnosticsMux);
         otGateway.noteDevice(message);
         const uint8_t strength = radio.rssiMagnitude();
         PacketEvent packet = {};
@@ -267,16 +283,23 @@ void radioTask(void*) {
           if (xQueueSend(rxQueue, &packet, 0) != pdTRUE) ++droppedFrames;
         } else {
           ++rejectedFrames;
+          portENTER_CRITICAL(&rxDiagnosticsMux);
+          ++rxDiagnostics.formatFailure;
+          portEXIT_CRITICAL(&rxDiagnosticsMux);
         }
-      } else if (wasReceiving && !decoder.receiving()) {
-        ++rejectedFrames;
       }
     }
 
     const uint32_t now = millis();
     if (decoder.receiving() && (now - lastByteMs > RX_IDLE_TIMEOUT_MS)) {
-      decoder.reset();
-      ++rejectedFrames;
+      decoder.abortIdleTimeout();
+      const ramses::RejectReason reason=decoder.takeError();
+      if(reason!=ramses::NO_REJECTION) {
+        ++rejectedFrames;
+        portENTER_CRITICAL(&rxDiagnosticsMux);
+        rxDiagnostics.rejection(reason,now);
+        portEXIT_CRITICAL(&rxDiagnosticsMux);
+      }
     }
     if (!decoder.receiving() && (now - lastCalibrationMs > 30000)) {
       // The upstream gateway also periodically re-enters RX to recalibrate.
@@ -289,6 +312,27 @@ void radioTask(void*) {
       lastCalibrationMs = now;
     }
     otGateway.tick(radio,rfUart,decoder);
+    if(rxDebugEnabled && now-lastRxDebugLogMs>=15000) {
+      ramses_rx::Counters snapshot;
+      portENTER_CRITICAL(&rxDiagnosticsMux);
+      snapshot=rxDiagnostics;
+      portEXIT_CRITICAL(&rxDiagnosticsMux);
+      char line[GatewayDebug::LINE_BYTES]={};
+      snprintf(line,sizeof(line),
+        "RX debug: R8810A RQ=%lu received=%lu checksum=%lu symbol=%lu "
+        "structure=%lu incomplete=%lu oversize=%lu idle=%lu",
+        static_cast<unsigned long>(snapshot.requestsToBridge),
+        static_cast<unsigned long>(snapshot.messagesFromBridge),
+        static_cast<unsigned long>(snapshot.checksum),
+        static_cast<unsigned long>(snapshot.invalidSymbol),
+        static_cast<unsigned long>(snapshot.malformed),
+        static_cast<unsigned long>(snapshot.incomplete),
+        static_cast<unsigned long>(snapshot.oversized),
+        static_cast<unsigned long>(snapshot.idleTimeout));
+      radioLog(GatewayDebug::INFO,line);
+      lastRxDebugLogMs=now;
+    }
+    if(!rxDebugEnabled)lastRxDebugLogMs=now;
     vTaskDelay(pdMS_TO_TICKS(1));
   }
 }
@@ -558,6 +602,79 @@ void httpStatus() {
            resetReason());
   web.sendHeader("Cache-Control", "no-store");
   web.send(200, "application/json", json);
+}
+
+// Authenticated passive RX diagnostics. Debug toggle changes only log output;
+// safety-critical RF receive/TX behavior and configuration remain untouched.
+void httpRadioDiagnostics() {
+  if(!authorized())return;
+  if(web.method()==HTTP_POST) {
+    if(!web.hasHeader("X-Gateway-Config") ||
+       web.header("X-Gateway-Config")!="radio-debug" ||
+       (web.arg("enabled")!="1" && web.arg("enabled")!="0")) {
+      web.send(403,"application/json",
+        "{\\"error\\":\\"explicit_radio_debug_confirmation_required\\"}");
+      return;
+    }
+    const bool enable=web.arg("enabled")=="1";
+    rxDebugEnabled=enable;
+    rxDebugEnabledAtMs=enable?millis():0;
+    recordLog(GatewayDebug::INFO,enable?
+      "RAMSES RX debug enabled (summary every 15s; no restart or RF TX)":
+      "RAMSES RX debug disabled (no restart or RF TX)");
+  }
+  ramses_rx::Counters d;
+  portENTER_CRITICAL(&rxDiagnosticsMux);
+  d=rxDiagnostics;
+  portEXIT_CRITICAL(&rxDiagnosticsMux);
+  char body[1250];
+  const uint32_t now=millis();
+  const int written=snprintf(body,sizeof(body),
+    "{\\"debug_enabled\\":%s,\\"debug_since_uptime_ms\\":%lu,"
+    "\\"note\\":\\"Passive diagnostics; invalid frames cannot be assigned to an RF sender\\","
+    "\\"bridge_id\\":%lu,\\"requests_to_bridge\\":%lu,"
+    "\\"messages_from_bridge\\":%lu,\\"bridge_3ef0\\":%lu,"
+    "\\"bridge_3220\\":%lu,\\"last_bridge_uptime_ms\\":%lu,"
+    "\\"last_bridge_age_ms\\":%lu,\\"last_request_uptime_ms\\":%lu,"
+    "\\"last_request_age_ms\\":%lu,"
+    "\\"rejected\\":{\\"checksum\\":%lu,\\"invalid_manchester\\":%lu,"
+    "\\"malformed_structure\\":%lu,\\"oversized\\":%lu,"
+    "\\"incomplete\\":%lu,\\"idle_timeout\\":%lu,"
+    "\\"format_failure\\":%lu},"
+    "\\"last_rejection\\":\\"%s\\",\\"last_rejection_uptime_ms\\":%lu,"
+    "\\"last_rejection_age_ms\\":%lu,"
+    "\\"rssi_note\\":\\"CC1101 RSSI is read after frame, indicative not calibrated\\","
+    "\\"last_rssi_magnitude\\":%u,\\"valid_frames\\":%lu,\\"rejected_frames\\":%lu}",
+    rxDebugEnabled?"true":"false",
+    static_cast<unsigned long>(rxDebugEnabledAtMs),
+    static_cast<unsigned long>(configuration.current.otBridge),
+    static_cast<unsigned long>(d.requestsToBridge),
+    static_cast<unsigned long>(d.messagesFromBridge),
+    static_cast<unsigned long>(d.bridge3ef0),
+    static_cast<unsigned long>(d.bridge3220),
+    static_cast<unsigned long>(d.lastBridgeMs),
+    static_cast<unsigned long>(d.lastBridgeMs?now-d.lastBridgeMs:0),
+    static_cast<unsigned long>(d.lastRequestMs),
+    static_cast<unsigned long>(d.lastRequestMs?now-d.lastRequestMs:0),
+    static_cast<unsigned long>(d.checksum),
+    static_cast<unsigned long>(d.invalidSymbol),
+    static_cast<unsigned long>(d.malformed),
+    static_cast<unsigned long>(d.oversized),
+    static_cast<unsigned long>(d.incomplete),
+    static_cast<unsigned long>(d.idleTimeout),
+    static_cast<unsigned long>(d.formatFailure),
+    ramses::rejectName(d.lastReject),
+    static_cast<unsigned long>(d.lastRejectMs),
+    static_cast<unsigned long>(d.lastRejectMs?now-d.lastRejectMs:0),
+    static_cast<unsigned>(lastRssi),
+    static_cast<unsigned long>(validFrames),
+    static_cast<unsigned long>(rejectedFrames));
+  if(written<0 || static_cast<size_t>(written)>=sizeof(body)){
+    web.send(500,"application/json","{\\"error\\":\\"rx_diagnostics_overflow\\"}");
+    return;
+  }
+  web.sendHeader("Cache-Control","no-store");
+  web.send(200,"application/json",body);
 }
 
 void httpPackets() {
@@ -870,6 +987,8 @@ void setup() {
   web.on("/api/v1/config", HTTP_GET, httpConfigGet);
   web.on("/api/v1/config", HTTP_POST, httpConfigSave);
   web.on("/api/v1/packets", HTTP_GET, httpPackets);
+  web.on("/api/v1/radio/diagnostics", HTTP_GET, httpRadioDiagnostics);
+  web.on("/api/v1/radio/diagnostics", HTTP_POST, httpRadioDiagnostics);
   web.on("/api/v1/opentherm/profile", HTTP_GET, httpOtProfile);
   web.on("/api/v1/opentherm/one-shot", HTTP_GET, httpOtOneShot);
   web.on("/api/v1/opentherm/one-shot", HTTP_POST, httpOtOneShot);

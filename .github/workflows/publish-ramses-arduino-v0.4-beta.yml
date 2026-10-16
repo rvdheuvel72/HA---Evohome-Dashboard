@@ -102,7 +102,7 @@ jobs:
           required = {
               'RamsesGateway.ino', 'RamsesCodec.h', 'Cc1101Radio.h',
               'OpenThermGateway.h', 'OpenThermReadOnly.h',
-              'OpenThermScan.h', 'RamsesReadRequest.h', 'RamsesBinding.h', 'RadioFrequency.h',
+              'OpenThermScan.h', 'RamsesReadRequest.h', 'RamsesBinding.h', 'RamsesControllerIds.h', 'RadioFrequency.h',
               'GatewayWebPage.h', 'GatewayHostname.h',
               'GatewayDiscovery.h', 'GatewayRuntimeConfig.h',
               'GatewaySecrets.example.h',

@@ -336,7 +336,9 @@ async function updatePairing(){
   set('pairing-status',
     'R8810A 10:'+String(x.bridge_id).padStart(6,'0')+
     ' · observed Evohome 01:'+String(x.existing_controller_id).padStart(6,'0')+
-    ' · '+(x.ready?'READY for deliberate bind':'Not ready: observe controller & bridge; disable scan/poll/automatic TX')+
+    ' · '+(x.controller_id_coverage_exhausted?'PAIRING BLOCKED: too many distinct 01: controllers observed; ID collision coverage exhausted (reboot after confirming identity)':
+      x.ready?'READY for deliberate bind':'Not ready: observe controller & bridge; disable scan/poll/automatic TX')+
+    ' · controller IDs observed '+x.controller_ids_seen+
     ' · cooldown '+Math.ceil(x.cooldown_ms/1000)+'s');
   set('pairing-result','State: '+x.state+
     '\\n1FC9 response: '+x.offer_accepted+

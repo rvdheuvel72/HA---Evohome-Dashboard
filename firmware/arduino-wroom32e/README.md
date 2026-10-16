@@ -1,10 +1,18 @@
+## Beta.6: Live RX debug switch and R8810A receive diagnostics
+
+Open **Diagnostics → Passive radio receive diagnostics**. The **Enable detailed RX debug summaries** checkbox turns on/off rate-limited log summaries every 15 seconds **without saving settings or restarting**. OFF is the default after reboot. Even with debug OFF, lightweight receiver rejection and bridge counters are available from authenticated `GET /api/v1/radio/diagnostics`. The toggle uses `POST` to the same endpoint with `X-Gateway-Config: radio-debug` and `enabled=1` or `0`. It never transmits, changes RX filters or enables polling. Logs are exported through the existing debug download.
+
+The diagnostic response separates controller `3EF0 RQ` requests **addressed to** configured `10:048994` from valid frames whose **sender is** the R8810A, including `3EF0` and `3220`. It reports checksum, malformed structure, invalid Manchester symbol, oversized, incomplete, idle timeout and formatting failures. **Rejected/invalid RF frames have no trustworthy sender attribution**, so reject counters cannot alone prove which device's reply was missed. Counters are since boot. The gateway continues to capture packets from every RF sender regardless of the configured virtual `18:` gateway ID.
+
+CC1101 RSSI positive attenuation magnitude now uses **signed two's-complement** RSSI conversion rather than adding 256 to negative register values. This is a snapshot read after a frame, not a calibrated per-frame RF-power measurement. Existing passive heating operation and one-request safety gates remain unchanged. The compiler warning cleanup avoids deprecated `volatile++` expressions, fixes diagnostic printf argument types and bounds ISO UTC timestamp output.
+
 # Arduino-framework RAMSES II gateway for ESP32-WROOM-32E
 
 Arduino IDE prototype, receive-only by default; optional guarded read-only RF discovery for the 4 MB ESP32-WROOM-32E / NodeMCU-32, CC1101 868 MHz, Wi-Fi REST API and MQTT RX. **Not yet tested on physical hardware.**
 
 ## Download the standalone Arduino IDE ZIP
 
-[RAMSES Arduino Gateway v0.4.0-beta.4 release](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.5) — download the **RAMSES-Arduino-Gateway-v0.4.0-beta.5-ESP32-WROOM-32E.zip** asset (not the repository source-code ZIP). Unzip it, then open `RamsesGateway/RamsesGateway.ino` in Arduino IDE. This is a separately tagged **prerelease** for the radio gateway, not the Home Assistant integration.
+[RAMSES Arduino Gateway v0.4.0-beta.4 release](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.6) — download the **RAMSES-Arduino-Gateway-v0.4.0-beta.6-ESP32-WROOM-32E.zip** asset (not the repository source-code ZIP). Unzip it, then open `RamsesGateway/RamsesGateway.ino` in Arduino IDE. This is a separately tagged **prerelease** for the radio gateway, not the Home Assistant integration.
 
 ## Wiring (verify actual labels on CC1101 breakout)
 

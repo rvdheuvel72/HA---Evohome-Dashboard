@@ -36,4 +36,11 @@ inline bool evohomeTxFrequency(uint32_t khz,uint16_t band){
   // Avoid transmitting a RAMSES request on an arbitrary tuning.
   return band==868 && khz==868300;
 }
+ // Only bound 01: controllers may use the standard-band one-shot exception.
+ // Normal unpaired 18: one-shot path remains the existing guarded experiment.
+inline bool manualReadOneShotAllowed(uint32_t khz,uint16_t band,
+                                     bool crossBandRx,bool verifiedBinding) {
+  return experimentalOneShotFrequency(khz,band,crossBandRx) ||
+      (verifiedBinding && evohomeTxFrequency(khz,band));
+}
 } // namespace radio_frequency

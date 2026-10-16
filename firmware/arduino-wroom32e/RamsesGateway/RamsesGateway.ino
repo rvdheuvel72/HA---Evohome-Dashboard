@@ -814,7 +814,7 @@ void httpCaptureDownload(){
   snprintf(line,sizeof(line),"# export_utc=%s export_uptime_ms=%lu\n",
            anchor,static_cast<unsigned long>(millis()));
   web.sendContent(line);
-  web.sendContent("sequence\\tlocal_time\\tutc_epoch_ms\\tuptime_ms\\ttype\\trssi_magnitude\\tmessage\\n");
+  web.sendContent("sequence\tlocal_time\tutc_epoch_ms\tuptime_ms\ttype\trssi_magnitude\tmessage\n");
   for(size_t i=0;i<count;i++){
     ramses_capture::Entry row;
     portENTER_CRITICAL(&packetCaptureMux);
@@ -831,7 +831,7 @@ void httpCaptureDownload(){
                    "%Y-%m-%dT%H:%M:%S%z",&local))
         snprintf(localStamp,sizeof(localStamp),"time_format_error");
     }
-    const int n=snprintf(line,sizeof(line),"%lu\\t%s\\t%llu\\t%lu\\t%s\\t%u\\t%s\\n",
+    const int n=snprintf(line,sizeof(line),"%lu\t%s\t%llu\t%lu\t%s\t%u\t%s\n",
       static_cast<unsigned long>(row.sequence),localStamp,
       static_cast<unsigned long long>(row.utc_ms),
       static_cast<unsigned long>(row.uptime_ms),

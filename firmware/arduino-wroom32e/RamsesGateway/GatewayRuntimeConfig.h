@@ -178,10 +178,25 @@ inline bool loadLegacyRecord(Preferences& p,const char* key,Settings& dst,
      legacy.magic!=0x47574335 || legacy.version!=1 ||
      legacy.checksum!=legacyCrc(legacy))return false;
   Settings migrated=defaults();
-  // New fields were appended after all the v1 data fields.
-  static_assert(offsetof(Settings,rfModuleBand)>=offsetof(LegacySettingsV1,checksum),
-                "v1 NVS data must retain the same field offsets");
-  memcpy(&migrated,&legacy,offsetof(LegacySettingsV1,checksum));
+  // Copy named fields instead of object memory: safe across layout changes.
+  copy(migrated.wifiSSID,sizeof(migrated.wifiSSID),legacy.wifiSSID);
+  copy(migrated.wifiPassword,sizeof(migrated.wifiPassword),legacy.wifiPassword);
+  copy(migrated.hostname,sizeof(migrated.hostname),legacy.hostname);
+  copy(migrated.mqttHost,sizeof(migrated.mqttHost),legacy.mqttHost);
+  migrated.mqttPort=legacy.mqttPort;
+  copy(migrated.mqttUser,sizeof(migrated.mqttUser),legacy.mqttUser);
+  copy(migrated.mqttPassword,sizeof(migrated.mqttPassword),legacy.mqttPassword);
+  copy(migrated.timezone,sizeof(migrated.timezone),legacy.timezone);
+  copy(migrated.recoveryPassword,sizeof(migrated.recoveryPassword),legacy.recoveryPassword);
+  copy(migrated.webUser,sizeof(migrated.webUser),legacy.webUser);
+  copy(migrated.webPassword,sizeof(migrated.webPassword),legacy.webPassword);
+  migrated.rfFrequencyKhz=legacy.rfFrequencyKhz;
+  migrated.otBridge=legacy.otBridge;
+  migrated.otSource=legacy.otSource;
+  migrated.otScanAll=legacy.otScanAll;
+  migrated.otAutoPoll=legacy.otAutoPoll;
+  migrated.otTxEnabled=legacy.otTxEnabled;
+  migrated.mqttDiscovery=legacy.mqttDiscovery;
   migrated.version=2;
   migrated.rfModuleBand=defaultBand;
   migrated.rfExperimentalRx=0;

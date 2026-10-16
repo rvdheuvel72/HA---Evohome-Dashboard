@@ -76,7 +76,7 @@ class OpenThermGateway {
       "{\"method\":\"async_uart\",\"attempts\":%lu,\"local_completed\":%lu,"
       "\"read_acks\":%lu,\"timeouts\":%lu,\"other_replies\":%lu,\"tx_failures\":%lu,"
       "\"last_phase\":\"%s\",\"last_elapsed_us\":%lu},"
-      "{\"method\":\"fifo_uartframed_55\",\"attempts\":%lu,\"local_completed\":%lu,"
+      "{\"method\":\"fifo_reference_primed_60\",\"attempts\":%lu,\"local_completed\":%lu,"
       "\"read_acks\":%lu,\"timeouts\":%lu,\"other_replies\":%lu,\"tx_failures\":%lu,"
       "\"last_phase\":\"%s\",\"last_elapsed_us\":%lu}],"
       "\"caution\":\"Local TX success does not prove over-the-air delivery\"}",

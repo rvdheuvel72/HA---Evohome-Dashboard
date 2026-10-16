@@ -1,3 +1,9 @@
+## Beta.7: Test reference FIFO priming (single guarded Read-Data request)
+
+Beta.7 fixes a testable difference between our fixed-length FIFO RF waveform and `IndaloTech/ramses_esp`: the upstream reference primes FIFO with `00 FF 00 00` (startup/break) before the 8N1 RAMSES frame and ends with an idle `FF` byte. Our earlier beta.6 FIFO method directly sent 55 bytes, without the priming and trailing idle bytes. The beta.7 FIFO method now sends a **single 60-byte fixed-length waveform** (`4+55+1`), within the CC1101's 64-byte FIFO, while preserving the same **one RQ/3220 Read-Data ID25**, 60-second cooldown, TX safety gates, and independent UART selection. This change may improve CC1101 TX startup but **does not prove RF delivery or that the R8810A will accept our virtual `18:` sender**.
+
+The web interface names this method **Reference FIFO (primed + 55 RF bytes + idle = 60 bytes)**. Its JSON name is `fifo_reference_primed_60`, with 60 bytes expected. Use the existing one-shot button (explicit confirmation); never enable automatic scans or polling on an unverified 433-MHz-marked module at 868.3 MHz. Decoder test coverage confirms precisely one frame after stripping the on-air UART framing. Passive RX debug from beta.6 remains available.
+
 ## Beta.6: Live RX debug switch and R8810A receive diagnostics
 
 Open **Diagnostics → Passive radio receive diagnostics**. The **Enable detailed RX debug summaries** checkbox turns on/off rate-limited log summaries every 15 seconds **without saving settings or restarting**. OFF is the default after reboot. Even with debug OFF, lightweight receiver rejection and bridge counters are available from authenticated `GET /api/v1/radio/diagnostics`. The toggle uses `POST` to the same endpoint with `X-Gateway-Config: radio-debug` and `enabled=1` or `0`. It never transmits, changes RX filters or enables polling. Logs are exported through the existing debug download.
@@ -12,7 +18,7 @@ Arduino IDE prototype, receive-only by default; optional guarded read-only RF di
 
 ## Download the standalone Arduino IDE ZIP
 
-[RAMSES Arduino Gateway v0.4.0-beta.4 release](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.6) — download the **RAMSES-Arduino-Gateway-v0.4.0-beta.6-ESP32-WROOM-32E.zip** asset (not the repository source-code ZIP). Unzip it, then open `RamsesGateway/RamsesGateway.ino` in Arduino IDE. This is a separately tagged **prerelease** for the radio gateway, not the Home Assistant integration.
+[RAMSES Arduino Gateway v0.4.0-beta.7 release](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.7) — download the **RAMSES-Arduino-Gateway-v0.4.0-beta.7-ESP32-WROOM-32E.zip** asset (not the repository source-code ZIP). Unzip it, then open `RamsesGateway/RamsesGateway.ino` in Arduino IDE. This is a separately tagged **prerelease** for the radio gateway, not the Home Assistant integration.
 
 ## Wiring (verify actual labels on CC1101 breakout)
 

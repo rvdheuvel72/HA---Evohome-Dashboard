@@ -177,6 +177,34 @@ def arduino_validation_required(paths):
                for path in paths)
 
 
+TRUSTED_ARDUINO_WORKFLOW = ".github/workflows/trusted-ramses-compile.yml"
+TRUSTED_ARDUINO_JOB = "Trusted Arduino compile"
+
+
+def trusted_arduino_provenance(token, full_repo, sha, check):
+    """Reject spoofed compile checks originating from PR-controlled YAML."""
+    if (check.get("name") != TRUSTED_ARDUINO_JOB or
+            (check.get("app") or {}).get("slug") != "github-actions" or
+            check.get("head_sha") != sha):
+        return "blocked", "Untrusted Arduino check identity or commit SHA"
+    details = check.get("details_url") or ""
+    match = re.fullmatch(
+        r"https://github[.]com/" + re.escape(full_repo) +
+        r"/actions/runs/([0-9]+)/job/([0-9]+)", details)
+    if not match:
+        return "blocked", "Untrusted Arduino check URL"
+    run_id, job_id = int(match.group(1)), int(match.group(2))
+    if check.get("id") != job_id:
+        return "blocked", "Arduino check/job ID mismatch"
+    run = request(token, "/repos/" + full_repo + "/actions/runs/" + str(run_id))
+    if (run.get("path") != TRUSTED_ARDUINO_WORKFLOW or
+            run.get("event") != "pull_request_target" or
+            run.get("head_sha") != sha or
+            (run.get("repository") or {}).get("full_name") != full_repo):
+        return "blocked", "Arduino check not issued by trusted protected workflow"
+    return "passed", "Protected exact-head Arduino compile provenance verified"
+
+
 def required_ci_state(token, full_repo, sha, pr_number=None):
     """Require all relevant source tests, and a radio compile for firmware PRs."""
     required = list(REQUIRED_CHECKS)
@@ -184,7 +212,7 @@ def required_ci_state(token, full_repo, sha, pr_number=None):
         changed = pages(token, "/repos/" + full_repo +
                         "/pulls/" + str(pr_number) + "/files")
         if arduino_validation_required([f.get("filename", "") for f in changed]):
-            required.append("compile")
+            required.append("Trusted Arduino compile")
     response = request(
         token, "/repos/" + full_repo + "/commits/" + sha + "/check-runs?per_page=100"
     )
@@ -196,11 +224,16 @@ def required_ci_state(token, full_repo, sha, pr_number=None):
         if not matching:
             return "pending", "Waiting for required CI: " + name
         newest = max(matching, key=lambda run: (run.get("started_at") or "", run.get("id") or 0))
+        if name == "Trusted Arduino compile":
+            provenance, explanation = trusted_arduino_provenance(
+                token, full_repo, sha, newest)
+            if provenance != "passed":
+                return provenance, explanation
         if newest.get("status") != "completed":
             return "pending", "Waiting for required CI: " + name
         if newest.get("conclusion") != "success":
             return "blocked", "Required CI did not pass: " + name
-    return "passed", "Required source, transport, and HA runtime checks passed"
+    return "passed", "Required source, transport, HA runtime and trusted firmware checks passed"
 
 
 def check_ci(token, full_repo, number, sha):

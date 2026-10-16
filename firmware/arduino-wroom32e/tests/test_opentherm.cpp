@@ -40,7 +40,25 @@ int main(){
   assert(!radio_frequency::evohomeTxFrequency(868300,915));
   // A manual click only queues one fixed Data-ID 25 request.
   ot_single::Probe shot;
-  assert(shot.state==ot_single::IDLE && shot.request(10000));
+  assert(shot.state==ot_single::IDLE && shot.request(10000,ot_tx::REFERENCE_FIFO));
+  assert(shot.method==ot_tx::REFERENCE_FIFO);
+  assert(strcmp(ot_tx::methodName(shot.method),"fifo_fixed_44")==0);
+  assert(strcmp(ot_tx::phaseName(ot_tx::TX_UNDERFLOW),"tx_underflow")==0);
+  assert(ot_tx::Report::PA_868_LOW==0x26);
+  assert(ot_tx::Report::MAX_FIFO_TX_US==80000);
+  ot_tx::Report report;
+  assert(report.phase==ot_tx::NOT_STARTED);
+  report.method=ot_tx::REFERENCE_FIFO;
+  report.expected_bytes=44;
+  report.written_bytes=44;
+  report.phase=ot_tx::LOCAL_COMPLETE;
+  assert(report.expected_bytes==report.written_bytes);
+  ot_tx::Comparison foo;
+  foo.attempts++;foo.local_completed++;
+  assert(foo.attempts==1 && foo.local_completed==1);
+  ot_single::Probe invalid;
+  assert(!invalid.request(9999,static_cast<ot_tx::Method>(2)));
+  assert(invalid.state==ot_single::IDLE);
   assert(!shot.request(10000));  // no double-click duplicate
   assert(shot.begin(10000));
   assert(!shot.begin(10000));
@@ -49,7 +67,8 @@ int main(){
   assert(shot.accept(25,ot_readonly::READ_ACK,0x2580,10020));
   assert(shot.state==ot_single::READ_ACK && shot.raw==0x2580);
   assert(!shot.request(60000)); // less than 60s since TX
-  assert(shot.request(70000) && shot.begin(70000));
+  assert(shot.request(70000,ot_tx::ASYNC_UART) && shot.begin(70000));
+  assert(shot.method==ot_tx::ASYNC_UART);
   shot.tick(71800); // no response, no retry, terminal timeout
   assert(shot.state==ot_single::TIMEOUT);
   assert(!shot.request(71900));

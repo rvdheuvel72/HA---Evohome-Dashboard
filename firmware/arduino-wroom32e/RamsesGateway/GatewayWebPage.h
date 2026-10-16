@@ -227,10 +227,10 @@ async function updatePacketCapture(){
     set('capture-stats',
       p.count+' / '+p.limit+' entries · '+p.decoded+' valid decoded · '+
       p.rejected+' rejected frames'+
-      '\\nReceiver syncs during session: '+p.syncs_since_start+
-      '\\nRF UART bytes: '+p.radio_uart_bytes_since_start+
-      '\\nWeb/MQTT queue drops: '+p.main_queue_dropped_since_start+
-      '\\nCapture is RAM-only; start or clear discards unsaved entries.');
+      '\nReceiver syncs during session: '+p.syncs_since_start+
+      '\nRF UART bytes: '+p.radio_uart_bytes_since_start+
+      '\nWeb/MQTT queue drops: '+p.main_queue_dropped_since_start+
+      '\nCapture is RAM-only; start or clear discards unsaved entries.');
   }catch(e){set('capture-state','Capture status unavailable: '+e.message)}
 }
 async function changePacketCapture(action) {

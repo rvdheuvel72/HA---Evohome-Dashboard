@@ -81,11 +81,22 @@ a{color:#a9d5ff}
 </fieldset>
 <fieldset><legend>Radio and read-only OpenTherm</legend>
 <div class="fields">
-<label class="field">CC1101 frequency (kHz)<input id="cfg-rf_frequency_khz" name="rf_frequency_khz" type="number" min="300000" max="928000" required></label>
+<label class="field">Module marking / PCB RF hardware<select id="cfg-rf_module_band" name="rf_module_band">
+<option value="433">433 MHz (your photographed board)</option><option value="868">868 MHz</option>
+<option value="315">315 MHz</option><option value="915">915 MHz</option></select></label>
+<label class="field">Receiver frequency (kHz)<input id="cfg-rf_frequency_khz" name="rf_frequency_khz" type="number" min="300000" max="928000" list="rf-presets" required>
+<datalist id="rf-presets"><option value="868300">Evohome 868.3 MHz</option><option value="433920">433.92 MHz</option></datalist></label>
+<label class="setting-check"><input type="checkbox" id="cfg-rf_experimental_rx" name="rf_experimental_rx"> Allow experimental cross-band receive-only tuning</label>
 <label class="field">R8810A RF ID (decimal portion of 10:XXXXXX)<input id="cfg-ot_bridge" name="ot_bridge" type="number" min="0" max="262143" required></label>
 <label class="field">Virtual gateway RF ID (18:XXXXXX)<input id="cfg-ot_source" name="ot_source" type="number" min="0" max="262142" required></label>
 </div>
-<small id="cfg-rf-band">Hardware module band is immutable after firmware build.</small>
+<small id="cfg-rf-band">Software RF tuning does not guarantee reception on a PCB tuned for another band. Experimental RX can never transmit.</small>
+<details><summary>ESP32 ↔ CC1101 wiring (fixed GPIO assignments)</summary><table class="pin-map"><thead><tr><th>CC1101</th><th>Signal</th><th>ESP32</th></tr></thead><tbody>
+<tr><td>1</td><td>GND (brown)</td><td>GND</td></tr><tr><td>2</td><td>VCC (red)</td><td>3V3 only</td></tr>
+<tr><td>3</td><td>GDO0</td><td>GPIO26</td></tr><tr><td>4</td><td>CSN</td><td>GPIO5</td></tr>
+<tr><td>5</td><td>SCK</td><td>GPIO18</td></tr><tr><td>6</td><td>MOSI</td><td>GPIO23</td></tr>
+<tr><td>7</td><td>MISO</td><td>GPIO19</td></tr><tr><td>8</td><td>GDO2</td><td>GPIO27</td></tr>
+</tbody></table><small>Pin numbering for your photographed V2.0 board (component side toward you, antenna at top). GPIO mapping is fixed in firmware.</small></details>
 <div class="controls">
 <label class="setting-check"><input name="ot_scan_all" id="cfg-ot_scan_all" type="checkbox"> Scan all 256 Data-IDs</label>
 <label class="setting-check"><input name="ot_auto_poll" id="cfg-ot_auto_poll" type="checkbox"> Automatic read polling</label>
@@ -123,22 +134,35 @@ async function loadConfig(){
   if(!response.ok)throw new Error('HTTP '+response.status);
   const values=await response.json();
   for(const name of ['hostname','wifi_ssid','mqtt_host','mqtt_port',
-    'mqtt_user','ot_bridge','ot_source','rf_frequency_khz','web_user']){
+    'mqtt_user','ot_bridge','ot_source','rf_frequency_khz','rf_module_band','web_user']){
     const field=el('cfg-'+name);
     if(field && values[name]!==undefined)field.value=values[name];
   }
   el('cfg-timezone').value=values.timezone||'Europe/Amsterdam';
-  for(const name of ['mqtt_discovery','ot_scan_all','ot_auto_poll','ot_tx_enabled'])
+  for(const name of ['mqtt_discovery','ot_scan_all','ot_auto_poll','ot_tx_enabled','rf_experimental_rx'])
     el('cfg-'+name).checked=!!values[name];
-  set('cfg-rf-band','CC1101 hardware module band: '+values.rf_module_band+
-    ' MHz · frequency set after next restart · Radio detection not required to edit');
+  set('cfg-rf-band','Declared PCB marking: '+values.rf_module_band+
+    ' MHz · applied after restart · cross-band 868 MHz RX on 433 MHz board is experimental');
  }catch(e){set('cfg-message','Cannot load configuration: '+e.message)}
 }
 el('cfg').addEventListener('submit',async event=>{
  event.preventDefault();
  const button=el('cfg-submit');button.disabled=true;
  const data=new URLSearchParams(new FormData(el('cfg')));
- for(const name of ['mqtt_discovery','ot_scan_all','ot_auto_poll','ot_tx_enabled','rf_safety_confirm',
+ const band=Number(el('cfg-rf_module_band').value),khz=Number(el('cfg-rf_frequency_khz').value);
+ const matched=(band===315&&khz>=300000&&khz<=348000)||
+   (band===433&&khz>=387000&&khz<=464000)||
+   (band===868&&khz>=863000&&khz<=870000)||
+   (band===915&&khz>=902000&&khz<=928000);
+ if(!matched && !el('cfg-rf_experimental_rx').checked){
+   set('cfg-message','Enable experimental cross-band RX for a frequency outside the module marking.');
+   button.disabled=false;return;
+ }
+ if(el('cfg-ot_tx_enabled').checked && el('cfg-rf_experimental_rx').checked){
+   set('cfg-message','Disable RF transmission for experimental RX testing.');
+   button.disabled=false;return;
+ }
+ for(const name of ['mqtt_discovery','ot_scan_all','ot_auto_poll','ot_tx_enabled','rf_experimental_rx','rf_safety_confirm',
     'clear_wifi_password','clear_mqtt_password','clear_recovery_password'])
    data.set(name,el('cfg-'+name).checked?'1':'0');
  try{

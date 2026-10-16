@@ -89,7 +89,15 @@ int main(){
          persisted.current.mqttDiscovery==0);
   // Upgrade a genuine v1 binary record, preserving network credentials.
   LegacySettingsV1 old={};
-  memcpy(&old,&defaultsConfig,offsetof(LegacySettingsV1,checksum));
+  gw_config::copy(old.wifiSSID,sizeof(old.wifiSSID),defaultsConfig.wifiSSID);
+  gw_config::copy(old.wifiPassword,sizeof(old.wifiPassword),defaultsConfig.wifiPassword);
+  gw_config::copy(old.hostname,sizeof(old.hostname),defaultsConfig.hostname);
+  gw_config::copy(old.webUser,sizeof(old.webUser),defaultsConfig.webUser);
+  gw_config::copy(old.webPassword,sizeof(old.webPassword),defaultsConfig.webPassword);
+  gw_config::copy(old.timezone,sizeof(old.timezone),defaultsConfig.timezone);
+  old.mqttPort=defaultsConfig.mqttPort;
+  old.rfFrequencyKhz=defaultsConfig.rfFrequencyKhz;
+  old.mqttDiscovery=defaultsConfig.mqttDiscovery;
   old.version=1;
   old.checksum=legacyCrc(old);
   Preferences prefs;

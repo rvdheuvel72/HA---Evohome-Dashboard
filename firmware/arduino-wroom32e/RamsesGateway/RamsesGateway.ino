@@ -613,7 +613,7 @@ void httpRadioDiagnostics() {
        web.header("X-Gateway-Config")!="radio-debug" ||
        (web.arg("enabled")!="1" && web.arg("enabled")!="0")) {
       web.send(403,"application/json",
-        "{\\"error\\":\\"explicit_radio_debug_confirmation_required\\"}");
+        "{\"error\":\"explicit_radio_debug_confirmation_required\"}");
       return;
     }
     const bool enable=web.arg("enabled")=="1";
@@ -630,21 +630,21 @@ void httpRadioDiagnostics() {
   char body[1250];
   const uint32_t now=millis();
   const int written=snprintf(body,sizeof(body),
-    "{\\"debug_enabled\\":%s,\\"debug_since_uptime_ms\\":%lu,"
-    "\\"note\\":\\"Passive diagnostics; invalid frames cannot be assigned to an RF sender\\","
-    "\\"bridge_id\\":%lu,\\"requests_to_bridge\\":%lu,"
-    "\\"messages_from_bridge\\":%lu,\\"bridge_3ef0\\":%lu,"
-    "\\"bridge_3220\\":%lu,\\"last_bridge_uptime_ms\\":%lu,"
-    "\\"last_bridge_age_ms\\":%lu,\\"last_request_uptime_ms\\":%lu,"
-    "\\"last_request_age_ms\\":%lu,"
-    "\\"rejected\\":{\\"checksum\\":%lu,\\"invalid_manchester\\":%lu,"
-    "\\"malformed_structure\\":%lu,\\"oversized\\":%lu,"
-    "\\"incomplete\\":%lu,\\"idle_timeout\\":%lu,"
-    "\\"format_failure\\":%lu},"
-    "\\"last_rejection\\":\\"%s\\",\\"last_rejection_uptime_ms\\":%lu,"
-    "\\"last_rejection_age_ms\\":%lu,"
-    "\\"rssi_note\\":\\"CC1101 RSSI is read after frame, indicative not calibrated\\","
-    "\\"last_rssi_magnitude\\":%u,\\"valid_frames\\":%lu,\\"rejected_frames\\":%lu}",
+    "{\"debug_enabled\":%s,\"debug_since_uptime_ms\":%lu,"
+    "\"note\":\"Passive diagnostics; invalid frames cannot be assigned to an RF sender\","
+    "\"bridge_id\":%lu,\"requests_to_bridge\":%lu,"
+    "\"messages_from_bridge\":%lu,\"bridge_3ef0\":%lu,"
+    "\"bridge_3220\":%lu,\"last_bridge_uptime_ms\":%lu,"
+    "\"last_bridge_age_ms\":%lu,\"last_request_uptime_ms\":%lu,"
+    "\"last_request_age_ms\":%lu,"
+    "\"rejected\":{\"checksum\":%lu,\"invalid_manchester\":%lu,"
+    "\"malformed_structure\":%lu,\"oversized\":%lu,"
+    "\"incomplete\":%lu,\"idle_timeout\":%lu,"
+    "\"format_failure\":%lu},"
+    "\"last_rejection\":\"%s\",\"last_rejection_uptime_ms\":%lu,"
+    "\"last_rejection_age_ms\":%lu,"
+    "\"rssi_note\":\"CC1101 RSSI is read after frame, indicative not calibrated\","
+    "\"last_rssi_magnitude\":%u,\"valid_frames\":%lu,\"rejected_frames\":%lu}",
     rxDebugEnabled?"true":"false",
     static_cast<unsigned long>(rxDebugEnabledAtMs),
     static_cast<unsigned long>(configuration.current.otBridge),
@@ -670,7 +670,7 @@ void httpRadioDiagnostics() {
     static_cast<unsigned long>(validFrames),
     static_cast<unsigned long>(rejectedFrames));
   if(written<0 || static_cast<size_t>(written)>=sizeof(body)){
-    web.send(500,"application/json","{\\"error\\":\\"rx_diagnostics_overflow\\"}");
+    web.send(500,"application/json","{\"error\":\"rx_diagnostics_overflow\"}");
     return;
   }
   web.sendHeader("Cache-Control","no-store");

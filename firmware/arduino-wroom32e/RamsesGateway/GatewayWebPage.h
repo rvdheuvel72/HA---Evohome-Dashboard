@@ -24,8 +24,15 @@ pre{font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:420px;
 .controls{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:8px}
 .ok{color:#7be2a2}.bad{color:#ff9f9b}
 a{color:#a9d5ff}
+[hidden]{display:none!important}
+.tabs{display:flex;gap:8px;margin:18px 0;flex-wrap:wrap}
+.tabs button[aria-selected="true"]{border-color:#7bb7ed;background:#284b6a;font-weight:700}
+.pin-map{width:100%;border-collapse:collapse;font-size:.9rem}
+.pin-map td,.pin-map th{padding:6px;text-align:left;border-bottom:1px solid #334354}
 </style></head><body>
 <header><div><h1>RAMSES II Gateway</h1><small>ESP32-WROOM-32E · CC1101 · read-only OpenTherm diagnostics</small></div><span id="connection" class="muted">Connecting...</span></header>
+<nav class="tabs" role="tablist" aria-label="Gateway pages"><button type="button" id="tab-diagnostics" role="tab" aria-selected="true" aria-controls="page-diagnostics">Diagnostics</button><button type="button" id="tab-settings" role="tab" aria-selected="false" aria-controls="page-settings">Settings</button></nav>
+<div id="page-diagnostics" role="tabpanel" aria-labelledby="tab-diagnostics">
 <section class="grid">
 <div class="card">Radio / SPI<b id="radio">—</b><small id="chip"></small></div>
 <div class="card">RAMSES packets<b id="frames">—</b><small id="errors"></small></div>
@@ -41,6 +48,7 @@ a{color:#a9d5ff}
 <span id="ot-state" class="muted">Loading...</span></div>
 <pre id="ot-results">No compatibility scan requested.</pre>
 </section>
+</div><div id="page-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
 <section class="panel"><h2>Gateway configuration</h2>
 <p class="muted">Settings are saved on the ESP32 (NVS) and take precedence over the original GatewaySecrets.h defaults. Saving restarts the gateway. Leave password fields empty to KEEP existing passwords; secrets are never returned to the browser.</p>
 <form id="cfg">
@@ -86,13 +94,29 @@ a{color:#a9d5ff}
 </fieldset>
 <div class="controls"><button type="submit" id="cfg-submit">Save settings and restart</button><span id="cfg-message" aria-live="polite" class="muted"></span></div>
 </form></section>
+</div><div id="page-diagnostics-log">
 <section class="panel"><h2>Diagnostic log</h2>
 <div class="controls"><label>Severity <select id="level"><option value="2" selected>Info, warnings &amp; errors</option><option value="3">Include trace</option><option value="1">Warnings &amp; errors</option><option value="0">Errors only</option></select></label><button id="clear">Clear view</button><a href="/api/v1/debug/download" target="_blank">Export log</a><a href="/api/v1/status" target="_blank">JSON status</a></div>
 <pre id="logs" aria-live="polite">Waiting for gateway events...</pre>
 </section>
-<p class="muted">This page polls every 2 seconds. RF read requests are transmitted ONLY after manual enabling of the explicitly guarded diagnostic mode; no setpoint or heating-control writes are available. Keep the gateway on a trusted local network; do not expose HTTP port 80 to the Internet.</p>
+</div><p class="muted">This page polls every 2 seconds. RF read requests are transmitted ONLY after manual enabling of the explicitly guarded diagnostic mode; no setpoint or heating-control writes are available. Keep the gateway on a trusted local network; do not expose HTTP port 80 to the Internet.</p>
 <script>
 const el=id=>document.getElementById(id);
+function showPage(page){
+ const selected=page==='settings'?'settings':'diagnostics';
+ for(const name of ['diagnostics','settings']){
+  const active=name===selected;
+  el('tab-'+name).setAttribute('aria-selected',String(active));
+  el('page-'+name).hidden=!active;
+ }
+ el('page-diagnostics-log').hidden=selected!=='diagnostics';
+ if(location.hash!=='#'+selected)history.replaceState(null,'','#'+selected);
+}
+for(const name of ['diagnostics','settings'])
+ el('tab-'+name).addEventListener('click',()=>showPage(name));
+window.addEventListener('hashchange',()=>showPage(location.hash==='#settings'?'settings':'diagnostics'));
+showPage(location.hash==='#settings'?'settings':'diagnostics');
+
 async function loadConfig(){
  try{
   const response=await fetch('/api/v1/config',{cache:'no-store'});

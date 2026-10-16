@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <vector>
 #include "../RamsesGateway/OpenThermReadOnly.h"
 #include "../RamsesGateway/OpenThermScan.h"
 #include "../RamsesGateway/OpenThermOneShot.h"
@@ -20,6 +21,48 @@ static void reply(uint8_t type,uint8_t id,uint16_t value,uint8_t out[5]){
              (static_cast<uint32_t>(id)<<16)|value;
   if(ot_readonly::parity(v))out[1]|=0x80;
 }
+// Independent host-side model of IndaloTech/ramses_esp frame.c tx_byte(),
+// including the original 16-bit little-endian union, variable bit phase,
+// four initial FIFO primer bytes and final idle MARK. Do NOT call our encoder.
+static std::vector<uint8_t> upstreamReferenceBits(const uint8_t* bytes,size_t count) {
+  std::vector<uint8_t> out={0x00,0xFF,0x00,0x00};
+  uint16_t reg=0;
+  unsigned txBits=0;
+  const auto reverse8=[](uint8_t v)->uint8_t {
+    uint8_t result=0;
+    for(unsigned b=0;b<8;b++)result|=static_cast<uint8_t>(((v>>b)&1u)<<(7u-b));
+    return result;
+  };
+  const auto shift=[&](unsigned n){reg=static_cast<uint16_t>(reg<<n);};
+  const auto output=[&](){out.push_back(static_cast<uint8_t>(reg>>8));};
+  const auto insertPs=[&](){
+    uint8_t hi=static_cast<uint8_t>(reg>>8);
+    hi=static_cast<uint8_t>((hi<<1)|1u); // MARK
+    hi=static_cast<uint8_t>(hi<<1);      // SPACE
+    reg=static_cast<uint16_t>((reg&0xffu)|(static_cast<uint16_t>(hi)<<8));
+  };
+  for(size_t i=0;i<count;i++){
+    reg=static_cast<uint16_t>((reg&0xff00u)|reverse8(bytes[i]));
+    switch(txBits) {
+      case 0:
+        insertPs();shift(6);output();shift(2);txBits=2;break;
+      case 2:
+        insertPs();shift(4);output();shift(4);txBits=4;break;
+      case 4:
+        insertPs();shift(2);output();shift(6);
+        insertPs();output();txBits=8;break;
+      case 6:
+        insertPs();output();txBits=8;break;
+      case 8:
+        shift(8);output();txBits=0;break;
+      default:assert(false);
+    }
+  }
+  if(txBits){shift(8-txBits);output();}
+  out.push_back(0xff);
+  return out;
+}
+
 int main(){
   uint32_t freq=0;
   assert(radio_frequency::synth(868300,868,freq));
@@ -132,7 +175,15 @@ int main(){
   assert(refLength==60);
   const uint8_t prime[]={0x00,0xFF,0x00,0x00};
   assert(memcmp(refFifo,prime,sizeof(prime))==0);
-  assert(memcmp(refFifo+sizeof(prime),fifoFrame,sizeof(fifoFrame))==0);
+  // Before beta.8 our TX incorrectly matched START/DATA/STOP (0 8 1).
+  // The upstream wire sequence is MARK/START/DATA (1 0 8).
+  assert(memcmp(refFifo+sizeof(prime),fifoFrame,sizeof(fifoFrame))!=0);
+  const auto golden=upstreamReferenceBits(uart,sizeof(uart));
+  assert(golden.size()==ramses_uart_fifo::REFERENCE_RF_LEN);
+  assert(memcmp(refFifo,golden.data(),golden.size())==0);
+  // Five UART training 0x55 bytes give 0xAA reference FIFO octets:
+  // the difference at the very first bit after the BREAK is observable.
+  assert(refFifo[4]==0xAA && fifoFrame[0]==0x55);
   assert(refFifo[refLength-1]==0xFF);
   size_t primedInvalid=99;
   assert(!ramses_uart_fifo::encodePrimedReference(
@@ -149,9 +200,9 @@ int main(){
     const auto bit=[&](size_t offset)->uint8_t {
       return (refFifo[offset/8]>>(7-(offset%8)))&1u;
     };
-    assert(bit(start)==0 && bit(start+9)==1);
+    assert(bit(start)==1 && bit(start+1)==0);
     for(unsigned b=0;b<8;b++)
-      restored[n]|=static_cast<uint8_t>(bit(start+1+b)<<b);
+      restored[n]|=static_cast<uint8_t>(bit(start+2+b)<<b);
   }
   assert(memcmp(restored,uart,sizeof(uart))==0);
   ramses::FrameDecoder referenceDecoder;

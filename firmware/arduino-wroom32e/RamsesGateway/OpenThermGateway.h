@@ -14,6 +14,7 @@
 #include "GatewayRuntimeConfig.h"
 #include "RamsesCodec.h"
 #include "RamsesBinding.h"
+#include "RamsesControllerIds.h"
 
 class OpenThermGateway {
  public:
@@ -40,7 +41,9 @@ class OpenThermGateway {
         config_->rfExperimentalRx==1);
   }
   bool bindingReady() const {
+    // UI/readiness is conservative; requestBinding checks again under mutex.
     if(!config_ || !bridgeSeen_ || !observedController_ ||
+       seenControllers_.saturated() ||
        config_->otTxEnabled || config_->otAutoPoll || config_->otScanAll ||
        !config_->otBridge || sourceConflict_)return false;
     return radio_frequency::evohomeTxFrequency(
@@ -54,10 +57,8 @@ class OpenThermGateway {
     portENTER_CRITICAL(&mutex_);
     const bool blocked=singleProbe_.state==ot_single::QUEUED ||
        singleProbe_.state==ot_single::WAITING;
-    bool alreadySeen=false;
-    for(uint8_t i=0;i<seenControllerCount_;i++)
-      if(seenControllers_[i]==virtualControllerId)alreadySeen=true;
-    const bool ok=!blocked && !binding_.busy() && !alreadySeen &&
+    const bool ok=!blocked && !binding_.busy() &&
+       seenControllers_.eligible(virtualControllerId) &&
        virtualControllerId!=observedController_ &&
        binding_.start(millis(),virtualControllerId,config_->otBridge,
                       observedController_);
@@ -68,6 +69,8 @@ class OpenThermGateway {
     ramses_bind::Session snap;ot_tx::Report detail;
     portENTER_CRITICAL(&mutex_);
     snap=binding_;detail=bindingTx_;
+    const bool exhausted=seenControllers_.saturated();
+    const unsigned tracked=seenControllers_.count;
     portEXIT_CRITICAL(&mutex_);
     char body[640];
     snprintf(body,sizeof(body),
@@ -77,6 +80,7 @@ class OpenThermGateway {
       "\"offer_accepted\":%s,\"confirmation_sent\":%s,"
       "\"verified_reply\":%s,\"read_ack\":%s,"
       "\"id_conflict\":%s,\"raw\":%u,"
+      "\"controller_id_coverage_exhausted\":%s,\"controller_ids_seen\":%u,"
       "\"tx_phase\":\"%s\",\"tx_bytes\":%u}",
       ramses_bind::name(snap.state),bindingReady()?"true":"false",
       bridgeSeen_?"true":"false",
@@ -90,6 +94,7 @@ class OpenThermGateway {
       snap.verifiedReadAck?"true":"false",
       snap.virtualIdCollision?"true":"false",
       static_cast<unsigned>(snap.lastRaw),
+      exhausted?"true":"false",tracked,
       ot_tx::phaseName(detail.phase),
       static_cast<unsigned>(detail.written_bytes));
     server.sendHeader("Cache-Control","no-store");
@@ -182,11 +187,7 @@ class OpenThermGateway {
     if((msg.addrMask&1u) && rfType(msg.addresses[0])==1) {
       const uint32_t id=rfId(msg.addresses[0]);
       portENTER_CRITICAL(&mutex_);
-      bool found=false;
-      for(uint8_t i=0;i<seenControllerCount_;i++)
-        if(seenControllers_[i]==id)found=true;
-      if(!found && seenControllerCount_<12)
-        seenControllers_[seenControllerCount_++]=id;
+      seenControllers_.note(id);
       portEXIT_CRITICAL(&mutex_);
       if((msg.addrMask&3u)==3u &&
           rfType(msg.addresses[1])==10 &&
@@ -457,8 +458,7 @@ class OpenThermGateway {
   ramses_bind::Session binding_;
   ot_tx::Report bindingTx_;
   volatile uint32_t observedController_=0;
-  uint32_t seenControllers_[12]={};
-  uint8_t seenControllerCount_=0;
+  ramses_ids::SeenControllers seenControllers_;
   bool wasCompleted_=false;
   uint32_t nextPolling_=0;
   uint32_t txFailures_=0;

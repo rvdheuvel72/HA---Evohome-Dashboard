@@ -6,6 +6,7 @@
 #include "RadioFrequency.h"
 #include "OpenThermTxDiagnostics.h"
 #include "RamsesUartFifo.h"
+#include "RamsesRxDiagnostics.h"
 
 class Cc1101Radio {
  public:
@@ -155,13 +156,10 @@ class Cc1101Radio {
     return strobe(0x34); // SRX; never STX
   }
 
-  // Positive signal attenuation value resembling HGI80 RSSI (approximately -dBm).
-  // Precision and calibration remain to be established with hardware.
+  // HGI80-style positive attenuation magnitude; signed CC1101 RSSI.
+  // Sample is taken after a frame, so it is only an indicative RSSI.
   uint8_t rssiMagnitude() {
-    const int raw = static_cast<int8_t>(status(0x34));
-    const int dbm = raw >= 0 ? raw / 2 - 74 : (raw + 256) / 2 - 74;
-    const int magnitude = -dbm;
-    return static_cast<uint8_t>(constrain(magnitude, 0, 255));
+    return ramses_rx::rssiMagnitude(status(0x34));
   }
 
  private:

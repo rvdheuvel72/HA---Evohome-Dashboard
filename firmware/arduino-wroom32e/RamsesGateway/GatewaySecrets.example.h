@@ -28,9 +28,11 @@
 #define GW_RECOVERY_AP_PASSWORD ""
 
 
-// CC1101 tuning; these fields describe the PHYSICAL RF module and antenna.
- // The silicon supports multiple sub-GHz bands, but most modules are built
- // for ONE specific band. Do NOT set another band merely because the chip can.
+// CC1101 factory defaults. After first flash, the Settings tab can change the
+// declared PCB marking and tuned frequency without recompiling.
+ // The silicon can tune across bands, but the PCB RF matching is band-specific.
+ // Experimental out-of-band reception requires explicit RX-only opt-in in the UI.
+ // Never enable RF transmission on the photographed 433M board.
  // Frequency in kHz. Evohome RAMSES II defaults to 868300 kHz.
 #define GW_CC1101_MODULE_BAND 868
 #define GW_CC1101_FREQUENCY_KHZ 868300

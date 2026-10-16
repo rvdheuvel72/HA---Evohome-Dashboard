@@ -30,7 +30,7 @@ a{color:#a9d5ff}
 .pin-map{width:100%;border-collapse:collapse;font-size:.9rem}
 .pin-map td,.pin-map th{padding:6px;text-align:left;border-bottom:1px solid #334354}
 </style></head><body>
-<header><div><h1>RAMSES II Gateway</h1><small>ESP32-WROOM-32E · CC1101 · read-only OpenTherm diagnostics</small></div><span id="connection" class="muted">Connecting...</span></header>
+<header><div><h1>RAMSES II Gateway</h1><small>ESP32-WROOM-32E · CC1101 · OpenTherm read diagnostics · optional experimental pairing</small></div><span id="connection" class="muted">Connecting...</span></header>
 <nav class="tabs" role="tablist" aria-label="Gateway pages"><button type="button" id="tab-diagnostics" role="tab" aria-selected="true" aria-controls="page-diagnostics">Diagnostics</button><button type="button" id="tab-settings" role="tab" aria-selected="false" aria-controls="page-settings">Settings</button></nav>
 <div id="page-diagnostics" role="tabpanel" aria-labelledby="tab-diagnostics">
 <section class="grid">

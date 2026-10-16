@@ -118,7 +118,7 @@ struct Session {
   }
   bool observe(const ramses::Message& m,uint32_t now) {
     if(!busy() || !(m.addrMask&1))return false;
-    if(m.messageType==1 && type(m.addresses[0])==1 &&
+    if(type(m.addresses[0])==1 &&
        id(m.addresses[0])==virtualId) {
       virtualIdCollision=true;state=ID_CONFLICT;return false;
     }

@@ -11,6 +11,7 @@ enum Kind : uint8_t { PACKET=0, REJECTION=1 };
 inline const char* kindName(Kind k) {return k==PACKET?"packet":"rejected";}
 struct Entry {
   uint32_t uptime_ms=0;
+  uint64_t utc_ms=0; // Time when radio task decoded/rejected event, 0 if not synced
   uint32_t sequence=0;
   uint8_t rssi=0;
   Kind kind=PACKET;
@@ -34,11 +35,13 @@ struct Session {
     active=false;full=false;started_ms=0;stopped_ms=0;
     start_uart_bytes=0;start_syncs=0;start_dropped=0;
   }
-  bool append(Kind kind,const char* text,uint32_t now,uint8_t rssi) {
+  bool append(Kind kind,const char* text,uint32_t now,uint8_t rssi,
+              uint64_t utcMs=0) {
     if(!active || !text)return false;
     if(count>=MAX_ITEMS){active=false;full=true;stopped_ms=now;return false;}
     Entry& entry=entries[count];
     entry.uptime_ms=now;
+    entry.utc_ms=utcMs;
     entry.sequence=static_cast<uint32_t>(count+1);
     entry.rssi=rssi;
     entry.kind=kind;

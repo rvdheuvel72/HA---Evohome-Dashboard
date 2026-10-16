@@ -232,8 +232,15 @@ void makeTimestamp(char* out, size_t size) {
 
 void appendCapture(ramses_capture::Kind kind,const char* message,
                    uint32_t uptime,uint8_t rssi) {
+  uint64_t utcMs=0;
+  if(timeSynchronized()) {
+    struct timeval tv={};
+    gettimeofday(&tv,nullptr);
+    utcMs=static_cast<uint64_t>(tv.tv_sec)*1000u+
+          static_cast<uint32_t>(tv.tv_usec/1000);
+  }
   portENTER_CRITICAL(&packetCaptureMux);
-  packetCapture.append(kind,message,uptime,rssi);
+  packetCapture.append(kind,message,uptime,rssi,utcMs);
   portEXIT_CRITICAL(&packetCaptureMux);
 }
 
@@ -807,7 +814,7 @@ void httpCaptureDownload(){
   snprintf(line,sizeof(line),"# export_utc=%s export_uptime_ms=%lu\n",
            anchor,static_cast<unsigned long>(millis()));
   web.sendContent(line);
-  web.sendContent("sequence\tuptime_ms\ttype\trssi_magnitude\tmessage\n");
+  web.sendContent("sequence\\tlocal_time\\tutc_epoch_ms\\tuptime_ms\\ttype\\trssi_magnitude\\tmessage\\n");
   for(size_t i=0;i<count;i++){
     ramses_capture::Entry row;
     portENTER_CRITICAL(&packetCaptureMux);
@@ -815,8 +822,18 @@ void httpCaptureDownload(){
     portEXIT_CRITICAL(&packetCaptureMux);
     if(!present)break;
     // Input strings are generated internally (no tab/CR/LF).
-    const int n=snprintf(line,sizeof(line),"%lu\t%lu\t%s\t%u\t%s\n",
-      static_cast<unsigned long>(row.sequence),
+    char localStamp[48]="unsynced";
+    if(row.utc_ms>0) {
+      const time_t seconds=static_cast<time_t>(row.utc_ms/1000u);
+      tm local={};
+      localtime_r(&seconds,&local);
+      if(!strftime(localStamp,sizeof(localStamp),
+                   "%Y-%m-%dT%H:%M:%S%z",&local))
+        snprintf(localStamp,sizeof(localStamp),"time_format_error");
+    }
+    const int n=snprintf(line,sizeof(line),"%lu\\t%s\\t%llu\\t%lu\\t%s\\t%u\\t%s\\n",
+      static_cast<unsigned long>(row.sequence),localStamp,
+      static_cast<unsigned long long>(row.utc_ms),
       static_cast<unsigned long>(row.uptime_ms),
       ramses_capture::kindName(row.kind),
       static_cast<unsigned>(row.rssi),row.message);

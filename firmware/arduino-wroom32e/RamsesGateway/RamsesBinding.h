@@ -116,7 +116,12 @@ struct Session {
     state=sent?WAIT_RESPONSE:TX_FAILED;
     deadline=now+RESPONSE_TIMEOUT_MS;
   }
-  bool observe(const ramses::Message& m,uint32_t /*now*/) {
+  bool observe(const ramses::Message& m,uint32_t now) {
+    // RX can be drained before the next radio-task tick. Never accept a
+    // binding or verification reply at/after its deadline, even when
+    // the radio task was starved. Signed subtraction also handles millis()
+    // rollover for the short (15s / 2.5s) bounded wait windows.
+    tick(now);
     if((!busy() && state!=VERIFIED) || !(m.addrMask&1))return false;
     if(type(m.addresses[0])==1 &&
        id(m.addresses[0])==virtualId) {

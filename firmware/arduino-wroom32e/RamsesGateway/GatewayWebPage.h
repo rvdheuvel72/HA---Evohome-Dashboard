@@ -55,7 +55,7 @@ a{color:#a9d5ff}
 <div class="controls"><label class="field">Single-test transmit method
 <select id="one-shot-method" aria-label="One-shot transmit method">
 <option value="uart">Original asynchronous UART / GDO0</option>
-<option value="fifo">Reference FIFO (primed + 55 RF bytes + idle = 60 bytes)</option>
+<option value="fifo">Reference FIFO (upstream bit-aligned, 60 RF bytes)</option>
 </select></label><button type="button" id="one-shot-send" disabled>Transmit ONE Read-Data ID25</button><a href="/api/v1/opentherm/one-shot" target="_blank">One-shot diagnostic JSON</a></div>
 <small>One click = exactly one RF request using the selected method; never both. Each method shares a fixed nominal -10 dBm 868 MHz PATABLE value. The unmatched 433M PCB's radiated power remains unknown. Keep automatic scans/polling off.</small>
 <p id="one-shot-result" aria-live="polite" class="muted">No request attempted.</p>

@@ -43,4 +43,23 @@ inline uint32_t controllerLinkedToBridge(const ramses::Message& message,
     return id(message.addresses[0]);
   return controllerFromBridgeReply(message,bridge);
 }
+
+// Reply-only observations are provisional. An explicitly observed controller
+// request to the bridge is stronger evidence and replaces an earlier RP-only
+// guess, but later replies cannot overwrite a directly observed controller.
+struct ExistingController {
+  uint32_t id=0;
+  bool directRequestSeen=false;
+  void note(const ramses::Message& message,uint32_t bridge) {
+    const bool direct=isControllerRequestToBridge(message,bridge);
+    const uint32_t candidate=controllerLinkedToBridge(message,bridge);
+    if(!candidate || candidate>=262143)return;
+    if(direct && !directRequestSeen) {
+      id=candidate;
+      directRequestSeen=true;
+    } else if(!id) {
+      id=candidate;
+    }
+  }
+};
 } // namespace ramses_peer

@@ -70,6 +70,21 @@ int main(){
   virtualReply.opcode=0x1FD4;
   another.note(virtualReply,BRIDGE);
   assert(another.id==0 && !another.directRequestSeen);
+  // P2: the maximum 18-bit bridge ID is allowed by gateway configuration.
+  ramses::Message maxBridge{};
+  maxBridge.messageType=3;maxBridge.addrMask=3;maxBridge.opcode=0x3EF0;
+  ramses_read::putAddress(maxBridge.addresses[0],10,262143);
+  ramses_read::putAddress(maxBridge.addresses[1],1,CONTROLLER);
+  assert(ramses_peer::isBridgeSender(maxBridge,262143));
+  assert(ramses_peer::controllerFromBridgeReply(maxBridge,262143)==CONTROLLER);
+  assert(ramses_peer::controllerLinkedToBridge(maxBridge,262143)==CONTROLLER);
+  ramses_read::putAddress(maxBridge.addresses[0],1,CONTROLLER);
+  ramses_read::putAddress(maxBridge.addresses[1],10,262143);
+  maxBridge.messageType=0;
+  assert(ramses_peer::isControllerRequestToBridge(maxBridge,262143));
+  assert(ramses_peer::controllerLinkedToBridge(maxBridge,262143)==CONTROLLER);
+  assert(ramses_peer::controllerLinkedToBridge(maxBridge,262142)==0);
+  assert(!ramses_peer::isBridgeSender(maxBridge,0));
   printf("RAMSES bridge-to-controller passive 3EF0 inference PASS\n");
   return 0;
 }

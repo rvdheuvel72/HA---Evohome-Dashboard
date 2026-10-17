@@ -40,6 +40,36 @@ int main(){
   ramses_read::putAddress(m.addresses[0],1,CONTROLLER);
   ramses_read::putAddress(m.addresses[1],10,BRIDGE+1);
   assert(ramses_peer::controllerLinkedToBridge(m,BRIDGE)==0);
+  // Codex P2: a reply to a pre-reboot virtual 01: is only provisional.
+  ramses_peer::ExistingController observed{};
+  ramses::Message virtualReply{};
+  virtualReply.messageType=3; virtualReply.addrMask=3;
+  virtualReply.opcode=0x3EF0;
+  ramses_read::putAddress(virtualReply.addresses[0],10,BRIDGE);
+  ramses_read::putAddress(virtualReply.addresses[1],1,160001);
+  observed.note(virtualReply,BRIDGE);
+  assert(observed.id==160001 && !observed.directRequestSeen);
+  // The real Evohome 01:245914 emits its ordinary RQ and must prevail.
+  ramses::Message realRequest{};
+  realRequest.messageType=0;realRequest.addrMask=3;
+  realRequest.opcode=0x3EF0;
+  ramses_read::putAddress(realRequest.addresses[0],1,CONTROLLER);
+  ramses_read::putAddress(realRequest.addresses[1],10,BRIDGE);
+  observed.note(realRequest,BRIDGE);
+  assert(observed.id==CONTROLLER && observed.directRequestSeen);
+  // No later RP or unrelated bridge can displace direct controller evidence.
+  observed.note(virtualReply,BRIDGE);
+  observed.note(virtualReply,BRIDGE+1);
+  assert(observed.id==CONTROLLER && observed.directRequestSeen);
+  // A later different 01: request cannot mutate the first real controller.
+  ramses_read::putAddress(realRequest.addresses[0],1,160001);
+  observed.note(realRequest,BRIDGE);
+  assert(observed.id==CONTROLLER);
+  // Negative: an unrelated 1FD4 information packet yields no candidate.
+  ramses_peer::ExistingController another{};
+  virtualReply.opcode=0x1FD4;
+  another.note(virtualReply,BRIDGE);
+  assert(another.id==0 && !another.directRequestSeen);
   printf("RAMSES bridge-to-controller passive 3EF0 inference PASS\n");
   return 0;
 }

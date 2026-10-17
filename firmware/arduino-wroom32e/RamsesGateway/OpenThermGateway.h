@@ -62,8 +62,42 @@ class OpenThermGateway {
        config_->rfFrequencyKhz,config_->rfModuleBand,
        config_->rfExperimentalRx==1);
   }
+  // Human-readable, fail-closed preflight reason for the manual binding UI.
+  // This is observational only and NEVER authorizes RF by itself.
+  // The radio task still rechecks bindingReady() before transmitting.
+  const char* bindingBlockReason() const {
+    if(!config_)return "configuration_unavailable";
+    if(!config_->otBridge || config_->otBridge>262143)
+      return "configure_bridge_id";
+    if(!bridgeSeen_)return "bridge_not_observed";
+    if(!observedController_)return "evohome_controller_not_observed";
+    if(config_->otTxEnabled)return "automatic_tx_enabled";
+    if(config_->otAutoPoll)return "automatic_polling_enabled";
+    if(config_->otScanAll)return "full_scan_enabled";
+    if(sourceConflict_)return "gateway_source_collision";
+    const bool standard=radio_frequency::evohomeTxFrequency(
+      config_->rfFrequencyKhz,config_->rfModuleBand);
+    const bool experimental=radio_frequency::experimentalOneShotFrequency(
+      config_->rfFrequencyKhz,config_->rfModuleBand,
+      config_->rfExperimentalRx==1);
+    if(!standard && !experimental)return "radio_configuration_not_supported";
+    portENTER_CRITICAL(&mutex_);
+    const bool saturated=seenControllers_.saturated();
+    const bool bindingBusy=binding_.busy();
+    const bool probeBusy=singleProbe_.state==ot_single::QUEUED ||
+                         singleProbe_.state==ot_single::WAITING;
+    const bool cooling=binding_.cooldown(millis())>0;
+    portEXIT_CRITICAL(&mutex_);
+    if(saturated)return "controller_id_coverage_exhausted";
+    if(work_.active)return "opentherm_scan_active";
+    if(requested_)return "opentherm_scan_requested";
+    if(probeBusy)return "opentherm_one_shot_active";
+    if(bindingBusy)return "pairing_already_running";
+    if(cooling)return "pairing_cooldown";
+    return nullptr;
+  }
   bool requestBinding(uint32_t virtualControllerId){
-    if(!bindingReady() || work_.active || requested_)return false;
+    if(bindingBlockReason()!=nullptr || !bindingReady())return false;
     portENTER_CRITICAL(&mutex_);
     const bool blocked=singleProbe_.state==ot_single::QUEUED ||
        singleProbe_.state==ot_single::WAITING;
@@ -75,16 +109,18 @@ class OpenThermGateway {
     portEXIT_CRITICAL(&mutex_);
     return ok;
   }
-  void sendBindingStatus(WebServer& server) {
+  void sendBindingStatus(WebServer& server,bool radioReady) {
     ramses_bind::Session snap;ot_tx::Report detail;
     portENTER_CRITICAL(&mutex_);
     snap=binding_;detail=bindingTx_;
     const bool exhausted=seenControllers_.saturated();
     const unsigned tracked=seenControllers_.count;
     portEXIT_CRITICAL(&mutex_);
-    char body[640];
+    const char* reason=radioReady?bindingBlockReason():"radio_not_ready";
+    const bool mayStart=(reason==nullptr);
+    char body[832];
     snprintf(body,sizeof(body),
-      "{\"state\":\"%s\",\"ready\":%s,\"bridge_seen\":%s,"
+      "{\"state\":\"%s\",\"ready\":%s,\"block_reason\":\"%s\",\"radio_ready\":%s,\"bridge_seen\":%s,"
       "\"bridge_id\":%lu,\"existing_controller_id\":%lu,"
       "\"virtual_controller_id\":%lu,\"cooldown_ms\":%lu,"
       "\"offer_accepted\":%s,\"confirmation_sent\":%s,"
@@ -92,7 +128,8 @@ class OpenThermGateway {
       "\"id_conflict\":%s,\"raw\":%u,"
       "\"controller_id_coverage_exhausted\":%s,\"controller_ids_seen\":%u,"
       "\"tx_phase\":\"%s\",\"tx_bytes\":%u}",
-      ramses_bind::name(snap.state),bindingReady()?"true":"false",
+      ramses_bind::name(snap.state),mayStart?"true":"false",
+      reason?reason:"",radioReady?"true":"false",
       bridgeSeen_?"true":"false",
       static_cast<unsigned long>(config_->otBridge),
       static_cast<unsigned long>(observedController_),

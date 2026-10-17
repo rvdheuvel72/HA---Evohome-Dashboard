@@ -64,8 +64,9 @@ a{color:#a9d5ff}
 </details>
 <details class="panel" id="pairing-panel">
 <summary>Experimental R8810A pairing — additional virtual controller (01:)</summary>
-<p class="muted">Manual RAMSES 1FC9 three-step bind experiment. Existing Evohome controller stays paired: do NOT hold the R8810A button for 15 seconds or reset existing bindings. Use its 5-second bind-mode press ONLY. This feature does not impersonate your Evohome controller, alter heating demands, or transmit OpenTherm writes. It has not been validated on a physical R8810A; pairing may fail or affect your heating. Verify normal Evohome boiler control afterwards.</p>
+<p class="muted">Manual RAMSES 1FC9 binding experiment. Honeywell's Evohome installation procedure specifies a 15-second CLEAR followed by a 5-second bind press; resetting the bridge would erase its existing Evohome binding. <strong>Do NOT perform the 15-second reset for this experiment.</strong> If a 5-second press does not show a slowly flashing red LED, STOP: the bridge is not visibly in binding mode and no safe alternative rebind procedure has been verified for this installation. No automatic heating changes, no guaranteed dual-controller pairing.</p>
 <p id="pairing-status" class="muted">Waiting for an observed Evohome controller and OpenTherm bridge...</p>
+<p id="pairing-blocker" aria-live="polite">Pairing preflight not yet checked.</p>
 <div class="controls"><label class="field">Unused virtual controller numeric ID (01:NNNNNN, different from Evohome)
 <input id="pairing-id" type="number" min="1" max="262142" step="1" placeholder="e.g. 62142" autocomplete="off"></label>
 <a href="/api/v1/opentherm/pairing" target="_blank">Pairing JSON</a></div>
@@ -321,18 +322,49 @@ async function otStatus(){
   set('ot-results',lines.length?lines.join('\n'):'No OpenTherm replies recorded.');
  }catch(e){set('ot-state','Profile unavailable: '+e.message)}
 }
+const pairingBlockMessages={
+  configuration_unavailable:'Gateway configuration has not loaded.',
+  configure_bridge_id:'Settings: enter the numeric RF address of YOUR observed R8810A (10:xxxxxx, without the 10: prefix), not another installation\'s ID.',
+  bridge_not_observed:'The R8810A has not yet been heard. Wait for valid RAMSES traffic.',
+  evohome_controller_not_observed:'The normal Evohome controller has not yet been observed talking to the R8810A. Wait for normal boiler RF traffic.',
+  automatic_tx_enabled:'Settings: turn automatic OpenTherm RF transmission OFF.',
+  automatic_polling_enabled:'Settings: turn automatic OpenTherm polling OFF.',
+  full_scan_enabled:'Settings: turn full OpenTherm scan OFF.',
+  gateway_source_collision:'Your configured 18: gateway source ID was observed on the network. Choose a unique ID; do not use the Evohome ID.',
+  radio_configuration_not_supported:'RF configuration is not accepted for this experimental pairing mode.',
+  controller_id_coverage_exhausted:'More controller IDs have been seen than can safely be tracked. Pairing is blocked to avoid ID collisions.',
+  opentherm_scan_active:'An OpenTherm scan is already active; stop it before pairing.',
+  opentherm_scan_requested:'An OpenTherm scan is queued. Wait for it to finish.',
+  opentherm_one_shot_active:'An OpenTherm read test is running. Wait for it to finish.',
+  pairing_already_running:'A pairing transaction is already underway.',
+  pairing_cooldown:'A previous pairing attempt is cooling down. Wait for the timer.',
+  radio_not_ready:'The CC1101 radio is not initialized. Check the radio diagnostic panel.'
+};
+let pairingPostError='';
 async function updatePairing(){
  try{
   const r=await fetch('/api/v1/opentherm/pairing',{cache:'no-store'});
   if(!r.ok)throw new Error('HTTP '+r.status);
   const x=await r.json();
-  const candidate=Number(el('pairing-id').value);
-  const valid=Number.isInteger(candidate)&&candidate>0&&candidate<262143&&
+  const entered=el('pairing-id').value.trim();
+  const candidate=Number(entered);
+  const valid=entered.length>0 && Number.isInteger(candidate)&&
+    candidate>0&&candidate<262143&&
     candidate!==Number(x.existing_controller_id);
   const active=['offer_queued','waiting_for_1fc9_response',
     'confirmation_queued','verification_queued','waiting_for_3220_reply'].includes(x.state);
-  el('pairing-start').disabled=!x.ready||active||
-    Number(x.cooldown_ms)>0||!valid||!el('pairing-confirm').checked;
+  const blockers=[];
+  if(!x.ready)blockers.push(pairingBlockMessages[x.block_reason]||
+      'Gateway rejected pairing preflight: '+(x.block_reason||'unknown'));
+  if(active && x.ready)blockers.push('Pairing already in progress.');
+  if(x.cooldown_ms>0 && x.block_reason!=='pairing_cooldown')
+    blockers.push('Wait '+Math.ceil(x.cooldown_ms/1000)+'s before retrying.');
+  if(!valid)blockers.push('Enter a NEW unused 01: ID (1–262142), different from the observed Evohome controller.');
+  if(!el('pairing-confirm').checked)blockers.push('Tick the explicit authorization checkbox after checking the physical bridge.');
+  el('pairing-start').disabled=blockers.length>0;
+  set('pairing-blocker',(pairingPostError?pairingPostError+' ':'')+
+    (blockers.length?'Pairing blocked: '+blockers.join(' '):
+      'Software preflight READY. Send only if the R8810A red LED is visibly flashing in binding mode.'));
   set('pairing-status',
     'R8810A 10:'+String(x.bridge_id).padStart(6,'0')+
     ' · observed Evohome 01:'+String(x.existing_controller_id).padStart(6,'0')+
@@ -350,10 +382,11 @@ async function updatePairing(){
  }catch(e){
   el('pairing-start').disabled=true;
   set('pairing-status','Pairing status unavailable: '+e.message);
+  set('pairing-blocker','Pairing blocked: cannot read /api/v1/opentherm/pairing. Check firmware version, gateway connectivity and web authentication.');
  }
 }
-el('pairing-confirm').addEventListener('change',updatePairing);
-el('pairing-id').addEventListener('input',updatePairing);
+el('pairing-confirm').addEventListener('change',()=>{pairingPostError='';updatePairing()});
+el('pairing-id').addEventListener('input',()=>{pairingPostError='';updatePairing()});
 el('pairing-start').addEventListener('click',async()=>{
  el('pairing-start').disabled=true;
  try{
@@ -370,8 +403,13 @@ el('pairing-start').addEventListener('click',async()=>{
   const reply=await r.json();
   if(!r.ok)throw new Error(reply.error||'HTTP '+r.status);
   el('pairing-confirm').checked=false;
+  pairingPostError='';
   set('pairing-result','1FC9 offer queued. Waiting for bridge response...');
- }catch(e){set('pairing-result','Pairing request rejected: '+e.message)}
+ }catch(e){
+  el('pairing-confirm').checked=false;
+  pairingPostError='Pairing request rejected: '+e.message+'.';
+  set('pairing-blocker',pairingPostError);
+ }
  finally{updatePairing()}
 });
 updatePairing();setInterval(updatePairing,5000);

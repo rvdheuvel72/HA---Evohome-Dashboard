@@ -1,3 +1,7 @@
+## Beta.11: Pairing button diagnostics and existing-bridge safety
+
+**Diagnostics → Experimental R8810A pairing** now explains **why the button cannot be used** and identifies the exact missing prerequisite: bridge/controller RF observation, radio readiness, preflight configuration, unique 01: ID, authorization, busy state or cooldown. `GET /api/v1/opentherm/pairing` provides `ready`, `radio_ready` and `block_reason`. This does not make an already-bound R8810A accept another controller. **Manufacturer warning:** Resideo's Evohome R8810 setup guide instructs a 15-second *binding erase* before the 5-second bind-mode press. Do not perform that erase just for the ESP32 experiment: it can disconnect normal heating. If 5 seconds does not start the slow red LED blink, stop, gather the diagnostics and retain your working binding.
+
 ## Beta.10: Experimental manual 1FC9 pairing with R8810A
 
 **Diagnostics → Experimental R8810A pairing** provides a deliberate, one-attempt additional virtual controller binding (01:). The ESP32 first observes the existing controller and bridge, then offers 1FC9, verifies the R8810A's addressed response, confirms the binding, and sends a single read-only OpenTherm ID25 verification request. It reports **verified** only for a valid reply addressed to its separate virtual controller ID; confirmation transmission alone is **not** proof of pairing. No automatic retries, writes, heating commands or replacement of the existing Evohome controller. **Do not reset the R8810A's bindings with a 15-second press.** This method is unverified on the physical R8810A; use the 5-second bind mode only and check Evohome boiler control after the experiment. Pairing identity is not persisted across ESP32 reboots.
@@ -34,7 +38,7 @@ Arduino IDE prototype, receive-only by default; optional guarded read-only RF di
 
 ## Download the standalone Arduino IDE ZIP
 
-[RAMSES Arduino Gateway v0.4.0-beta.10 release](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.10) — download the **RAMSES-Arduino-Gateway-v0.4.0-beta.10-ESP32-WROOM-32E.zip** asset (not the repository source-code ZIP). Unzip it, then open `RamsesGateway/RamsesGateway.ino` in Arduino IDE. This is a separately tagged **prerelease** for the radio gateway, not the Home Assistant integration.
+[RAMSES Arduino Gateway v0.4.0-beta.10 release](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.11) — download the **RAMSES-Arduino-Gateway-v0.4.0-beta.11-ESP32-WROOM-32E.zip** asset (not the repository source-code ZIP). Unzip it, then open `RamsesGateway/RamsesGateway.ino` in Arduino IDE. This is a separately tagged **prerelease** for the radio gateway, not the Home Assistant integration.
 
 ## Wiring (verify actual labels on CC1101 breakout)
 

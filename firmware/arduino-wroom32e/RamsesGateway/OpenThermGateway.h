@@ -243,10 +243,11 @@ class OpenThermGateway {
     if(linkedController) {
       portENTER_CRITICAL(&mutex_);
       seenControllers_.note(linkedController);
-      // Learn the original controller even if a controller->bridge request
-      // was missed by the receiver. Never replace an already-established
-      // identity with a later reply to our experimental virtual controller.
-      if(!observedController_)observedController_=linkedController;
+      // An RP-only 3EF0 address is provisional: if an old virtual 01: was
+      // once bound and still replies after reboot, a real controller RQ must
+      // be allowed to replace that weaker evidence.
+      controllerEvidence_.note(msg,config_->otBridge);
+      observedController_=controllerEvidence_.id;
       portEXIT_CRITICAL(&mutex_);
     }
     // Check RF *sender* only. Replies addressed to our virtual ID are
@@ -513,6 +514,7 @@ class OpenThermGateway {
   ramses_bind::Session binding_;
   ot_tx::Report bindingTx_;
   volatile uint32_t observedController_=0;
+  ramses_peer::ExistingController controllerEvidence_;
   ramses_ids::SeenControllers seenControllers_;
   bool wasCompleted_=false;
   uint32_t nextPolling_=0;

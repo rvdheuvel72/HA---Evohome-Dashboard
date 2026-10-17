@@ -324,7 +324,7 @@ async function otStatus(){
 }
 const pairingBlockMessages={
   configuration_unavailable:'Gateway configuration has not loaded.',
-  configure_bridge_id:'Settings: configure the R8810A bridge ID (for your installation: 48994).',
+  configure_bridge_id:'Settings: enter the numeric RF address of YOUR observed R8810A (10:xxxxxx, without the 10: prefix), not another installation\'s ID.',
   bridge_not_observed:'The R8810A has not yet been heard. Wait for valid RAMSES traffic.',
   evohome_controller_not_observed:'The normal Evohome controller has not yet been observed talking to the R8810A. Wait for normal boiler RF traffic.',
   automatic_tx_enabled:'Settings: turn automatic OpenTherm RF transmission OFF.',

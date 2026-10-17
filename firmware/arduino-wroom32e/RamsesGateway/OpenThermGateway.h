@@ -14,6 +14,7 @@
 #include "GatewayRuntimeConfig.h"
 #include "RamsesCodec.h"
 #include "RamsesBinding.h"
+#include "RamsesPeerDetection.h"
 #include "RamsesControllerIds.h"
 
 class OpenThermGateway {
@@ -231,15 +232,23 @@ class OpenThermGateway {
        rfType(msg.addresses[0])==10 &&
        rfId(msg.addresses[0])==config_->otBridge)
       bridgeSeen_=true;
+    const uint32_t linkedController=
+        ramses_peer::controllerLinkedToBridge(msg,config_->otBridge);
     if((msg.addrMask&1u) && rfType(msg.addresses[0])==1) {
       const uint32_t id=rfId(msg.addresses[0]);
       portENTER_CRITICAL(&mutex_);
       seenControllers_.note(id);
       portEXIT_CRITICAL(&mutex_);
-      if((msg.addrMask&3u)==3u &&
-          rfType(msg.addresses[1])==10 &&
-          rfId(msg.addresses[1])==config_->otBridge)
-        observedController_=id;
+    }
+    if(linkedController) {
+      portENTER_CRITICAL(&mutex_);
+      seenControllers_.note(linkedController);
+      // An RP-only 3EF0 address is provisional: if an old virtual 01: was
+      // once bound and still replies after reboot, a real controller RQ must
+      // be allowed to replace that weaker evidence.
+      controllerEvidence_.note(msg,config_->otBridge);
+      observedController_=controllerEvidence_.id;
+      portEXIT_CRITICAL(&mutex_);
     }
     // Check RF *sender* only. Replies addressed to our virtual ID are
     // expected and must never be misclassified as an address collision.
@@ -505,6 +514,7 @@ class OpenThermGateway {
   ramses_bind::Session binding_;
   ot_tx::Report bindingTx_;
   volatile uint32_t observedController_=0;
+  ramses_peer::ExistingController controllerEvidence_;
   ramses_ids::SeenControllers seenControllers_;
   bool wasCompleted_=false;
   uint32_t nextPolling_=0;

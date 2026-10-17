@@ -80,6 +80,11 @@ jobs:
           g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer \
             firmware/arduino-wroom32e/tests/test_pairing.cpp -o /tmp/test-ramses-pairing
           /tmp/test-ramses-pairing
+      - name: Test R8810A bridge-reply discovery of existing Evohome controller
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer \
+            firmware/arduino-wroom32e/tests/test_peer_detection.cpp -o /tmp/test-ramses-peer-detection
+          /tmp/test-ramses-peer-detection
       - name: Test persistent gateway settings and CET/CEST timestamps
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer \

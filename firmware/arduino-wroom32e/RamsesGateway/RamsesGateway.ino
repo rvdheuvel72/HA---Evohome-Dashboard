@@ -381,7 +381,7 @@ void httpOtProfile(){
 }
 void httpOtPairing(){
   if(!authorized())return;
-  if(web.method()==HTTP_GET){otGateway.sendBindingStatus(web);return;}
+  if(web.method()==HTTP_GET){otGateway.sendBindingStatus(web,radioReady);return;}
   if(!web.hasHeader("X-Gateway-Config") ||
      web.header("X-Gateway-Config")!="opentherm-pairing" ||
      web.arg("confirm")!="manual-1fc9-additional-controller"){

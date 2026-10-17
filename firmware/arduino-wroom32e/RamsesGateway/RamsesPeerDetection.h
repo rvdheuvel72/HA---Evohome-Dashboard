@@ -14,13 +14,13 @@ inline uint32_t id(const uint8_t* address) {
          (static_cast<uint32_t>(address[1]) << 8) | address[2];
 }
 inline bool isBridgeSender(const ramses::Message& message,uint32_t bridge) {
-  return bridge>0 && bridge<262143 && (message.addrMask&1u) &&
+  return bridge>0 && bridge<=262143 && (message.addrMask&1u) &&
          type(message.addresses[0])==10 &&
          id(message.addresses[0])==bridge;
 }
 inline bool isControllerRequestToBridge(const ramses::Message& message,
                                        uint32_t bridge) {
-  return bridge>0 && bridge<262143 && (message.addrMask&3u)==3u &&
+  return bridge>0 && bridge<=262143 && (message.addrMask&3u)==3u &&
          type(message.addresses[0])==1 &&
          type(message.addresses[1])==10 &&
          id(message.addresses[1])==bridge;

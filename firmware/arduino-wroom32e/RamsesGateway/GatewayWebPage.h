@@ -340,6 +340,7 @@ const pairingBlockMessages={
   pairing_cooldown:'A previous pairing attempt is cooling down. Wait for the timer.',
   radio_not_ready:'The CC1101 radio is not initialized. Check the radio diagnostic panel.'
 };
+let pairingPostError='';
 async function updatePairing(){
  try{
   const r=await fetch('/api/v1/opentherm/pairing',{cache:'no-store'});
@@ -361,9 +362,9 @@ async function updatePairing(){
   if(!valid)blockers.push('Enter a NEW unused 01: ID (1–262142), different from the observed Evohome controller.');
   if(!el('pairing-confirm').checked)blockers.push('Tick the explicit authorization checkbox after checking the physical bridge.');
   el('pairing-start').disabled=blockers.length>0;
-  set('pairing-blocker',blockers.length?
-      'Pairing blocked: '+blockers.join(' '):
-      'Software preflight READY. Send only if the R8810A red LED is visibly flashing in binding mode.');
+  set('pairing-blocker',(pairingPostError?pairingPostError+' ':'')+
+    (blockers.length?'Pairing blocked: '+blockers.join(' '):
+      'Software preflight READY. Send only if the R8810A red LED is visibly flashing in binding mode.'));
   set('pairing-status',
     'R8810A 10:'+String(x.bridge_id).padStart(6,'0')+
     ' · observed Evohome 01:'+String(x.existing_controller_id).padStart(6,'0')+
@@ -384,8 +385,8 @@ async function updatePairing(){
   set('pairing-blocker','Pairing blocked: cannot read /api/v1/opentherm/pairing. Check firmware version, gateway connectivity and web authentication.');
  }
 }
-el('pairing-confirm').addEventListener('change',updatePairing);
-el('pairing-id').addEventListener('input',updatePairing);
+el('pairing-confirm').addEventListener('change',()=>{pairingPostError='';updatePairing()});
+el('pairing-id').addEventListener('input',()=>{pairingPostError='';updatePairing()});
 el('pairing-start').addEventListener('click',async()=>{
  el('pairing-start').disabled=true;
  try{
@@ -402,10 +403,12 @@ el('pairing-start').addEventListener('click',async()=>{
   const reply=await r.json();
   if(!r.ok)throw new Error(reply.error||'HTTP '+r.status);
   el('pairing-confirm').checked=false;
+  pairingPostError='';
   set('pairing-result','1FC9 offer queued. Waiting for bridge response...');
  }catch(e){
   el('pairing-confirm').checked=false;
-  set('pairing-blocker','Pairing request rejected: '+e.message);
+  pairingPostError='Pairing request rejected: '+e.message+'.';
+  set('pairing-blocker',pairingPostError);
  }
  finally{updatePairing()}
 });

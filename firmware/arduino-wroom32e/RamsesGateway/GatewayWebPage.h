@@ -64,7 +64,7 @@ a{color:#a9d5ff}
 </details>
 <details class="panel" id="tx-loopback-panel">
 <summary>ESP32 UART TX loopback — GPIO26 → GPIO25 (NO RF transmit)</summary>
-<p class="muted">Bench wiring: connect ESP32 GPIO26 to ESP32 GPIO25. You may leave CC1101 GDO0 disconnected as in your current test. This diagnostic sends a fixed 70-byte encoded RAMSES 1FC9 test frame over the ESP32 UART TX pin only, reads the electrical bytes through UART2 RX on GPIO25, and compares and decodes them. It DOES NOT enter CC1101 transmit mode, transmit an RF packet, bind to R8810A, or affect stored settings.</p>
+<p class="muted">Bench wiring: connect ESP32 GPIO26 to ESP32 GPIO25. You may leave CC1101 GDO0 disconnected as in your current test. This diagnostic sends a fixed 82-byte encoded OpenTherm RAMSES 1FC9 test frame over the ESP32 UART TX pin only, reads the electrical bytes through UART2 RX on GPIO25, and compares and decodes them. It DOES NOT enter CC1101 transmit mode, transmit an RF packet, bind to R8810A, or affect stored settings.</p>
 <p class="muted">The CC1101 must be in receive mode with automatic polling, scanning and RF TX disabled, and no other RF transaction pending. Do not use the R8810A pairing button for this test. Restore GPIO26 → CC1101 GDO0 before testing actual RF later.</p>
 <label class="setting-check"><input type="checkbox" id="loopback-confirm"> GPIO26 is jumpered to GPIO25 and I authorize ONE GPIO-only UART transmission; no RF test or pairing.</label>
 <div class="controls"><button type="button" id="loopback-start" disabled>Test GPIO26 → GPIO25</button><a href="/api/v1/radio/tx-loopback" target="_blank">Loopback JSON</a></div>

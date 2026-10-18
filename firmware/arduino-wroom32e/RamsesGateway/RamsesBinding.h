@@ -44,26 +44,34 @@ inline bool makeOffer(uint32_t virtualId,uint32_t bridgeId,
                       uint8_t out[64],size_t& used) {
   used=0;
   if(!out || !candidate(virtualId,bridgeId,0))return false;
-  // Observed actuator binding pattern for a 01: controller:
-  // 0008 + 3B00 + 1FC9 capability triplets; R8810A acceptance is experimental.
-  // 'I' from 01:X, unused addr1, 01:X as third address (header 0x18).
+  // Real controller -> OpenTherm bridge 1FC9 offer, NOT a BDR relay
+  // heating-valve offer. Independent upstream capture:
+  // ramses-rf/ramses_rf tests/tests_rf/data_driven/parsers/code_1fc9.log
+  // 2020-11-23 14:35:23: 01:078710 -> 10:067219
+  //   1FC9 024 FC|0008 FC|3150 FB|3150 FC|1FC9 (each has controller ID).
+  // No additional-controller coexistence is established by this capture.
+  // I from 01:X, unset second address, 01:X as third address.
+  static constexpr uint8_t DOMAINS[4]={0xFC,0xFC,0xFB,0xFC};
+  static constexpr uint16_t CODES[4]={0x0008,0x3150,0x3150,0x1FC9};
+  static constexpr size_t ENTRY_COUNT=4;
+  static constexpr size_t PAYLOAD_LEN=ENTRY_COUNT*6;
+  static constexpr size_t HEADER_LEN=10;
   out[0]=0x18;
   ramses_read::putAddress(out+1,1,virtualId);
   ramses_read::putAddress(out+4,1,virtualId);
-  out[7]=0x1F;out[8]=0xC9;out[9]=18;
-  const uint8_t zones[3]={0x00,0xFC,0x00};
-  const uint16_t opcodes[3]={0x0008,0x3B00,0x1FC9};
-  for(unsigned i=0;i<3;i++) {
-    const size_t p=10+i*6;
-    out[p]=zones[i];
-    out[p+1]=static_cast<uint8_t>(opcodes[i]>>8);
-    out[p+2]=static_cast<uint8_t>(opcodes[i]);
+  out[7]=0x1F;out[8]=0xC9;out[9]=static_cast<uint8_t>(PAYLOAD_LEN);
+  for(size_t i=0;i<ENTRY_COUNT;i++) {
+    const size_t p=HEADER_LEN+i*6;
+    out[p]=DOMAINS[i];
+    out[p+1]=static_cast<uint8_t>(CODES[i]>>8);
+    out[p+2]=static_cast<uint8_t>(CODES[i]);
     ramses_read::putAddress(out+p+3,1,virtualId);
   }
   uint8_t sum=0;
-  for(size_t i=0;i<28;i++)sum=static_cast<uint8_t>(sum+out[i]);
-  out[28]=static_cast<uint8_t>(0u-sum);
-  used=29;
+  for(size_t i=0;i<HEADER_LEN+PAYLOAD_LEN;i++)
+    sum=static_cast<uint8_t>(sum+out[i]);
+  out[HEADER_LEN+PAYLOAD_LEN]=static_cast<uint8_t>(0u-sum);
+  used=HEADER_LEN+PAYLOAD_LEN+1;
   return true;
 }
 inline bool makeConfirmation(uint32_t virtualId,uint32_t bridgeId,

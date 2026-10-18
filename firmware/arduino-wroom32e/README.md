@@ -1,14 +1,24 @@
+## Beta.15: Corrected OpenTherm bridge (R8810A) binding offer
+
+**Release:** [RAMSES Arduino Gateway v0.4.0-beta.15](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.15) — `RAMSES-Arduino-Gateway-v0.4.0-beta.15-ESP32-WROOM-32E.zip`.
+
+The original experimental binding offer was derived from a *heating-valve relay* (0008/3B00/1FC9), not an OpenTherm bridge. We now encode the **observed controller-to-OpenTherm bridge** `1FC9 024` offer: `FC0008`, `FC3150`, `FB3150`, `FC1FC9`, each followed by the controller's RF address. The frame length is **35 RAMSES bytes / 82 encoded 38,400-baud UART bytes**. The final checksum is regenerated for the selected virtual controller. The upstream source is [ramses_rf's actual OTB offer/accept/confirm capture](https://github.com/ramses-rf/ramses_rf/blob/master/tests/tests_rf/data_driven/parsers/code_1fc9.log), dated 2020-11-23, with controller `01:078710` and bridge `10:067219`. Tests compare our output to that independent capture and its checksum, not just to our own decoder.
+
+The **ESP32 GPIO26 → GPIO25 loopback** now sends 82 bytes when you explicitly request that separate **GPIO-only** test. It still performs **no radio STX**, no RF emission, no pairing and no NVS writes. The experimental R8810A RF binding path remains **manual-only**: the existing explicit authorization, controller-ID protection, response validation and 60-second cooldown remain unchanged. No pairing attempt or R8810A reset is initiated by installing the release.
+
+**Safety caveat:** The upstream capture proves a controller-to-OpenTherm binding sequence, but does **not** prove that an R8810A can retain an additional controller while the original Evohome controller remains bound. Do **not** reset the R8810A or assume a second binding cannot displace the original. The payload fix alone cannot prove RF emission or successful communication.
+
 ## Beta.14: GPIO26 → GPIO25 electrical UART loopback (no RF transmission)
 
 **Download**: [RAMSES Arduino Gateway v0.4.0-beta.14](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.14) — `RAMSES-Arduino-Gateway-v0.4.0-beta.14-ESP32-WROOM-32E.zip` (published after exact-head CI and Codex approval).
 
-Use the **ESP32 GPIO26 → GPIO25 jumper** to test the actual UART TX pin electrically. Disconnect CC1101 GDO0 from GPIO26 for this bench test as you have done; CC1101 GDO2/RX and SPI can remain connected. In gateway Diagnostics expand **ESP32 UART TX loopback**, confirm the jumper and click **Test GPIO26 → GPIO25**. It sends one fixed 70-byte Manchester-encoded RAMSES `1FC9` offer *on the wire from GPIO26*, listens with ESP32 UART2 RX on GPIO25, compares every captured byte and checks decoding. **The CC1101 stays in RX and the test NEVER issues an STX strobe, transmits RF, sends a pairing request over RF or changes the R8810A.** No R8810A button press is needed.
+Use the **ESP32 GPIO26 → GPIO25 jumper** to test the actual UART TX pin electrically. Disconnect CC1101 GDO0 from GPIO26 for this bench test as you have done; CC1101 GDO2/RX and SPI can remain connected. In gateway Diagnostics expand **ESP32 UART TX loopback**, confirm the jumper and click **Test GPIO26 → GPIO25**. It sends one fixed 82-byte Manchester-encoded RAMSES `1FC9` OpenTherm offer *on the wire from GPIO26*, listens with ESP32 UART2 RX on GPIO25, compares every captured byte and checks decoding. **The CC1101 stays in RX and the test NEVER issues an STX strobe, transmits RF, sends a pairing request over RF or changes the R8810A.** No R8810A button press is needed.
 
 View `GET /api/v1/radio/tx-loopback` (authenticated) for `status`, `expected_bytes`, `uart_written_bytes`, `captured_bytes`, `first_mismatch_index`, `decoded_1fc9`, transfer timing, and full `expected_hex` / `captured_hex`. A successful `pass` verifies GPIO26 output, the installed jumper to GPIO25 and UART2 decode; it still **does not prove CC1101 GDO0 reception or radio-frequency transmission**. No new hardware is necessary. Reconnect GPIO26 → CC1101 GDO0 before attempting any future RF command.
 
 The bench test is only available with automatic RF TX, scanning, polling, and in-flight binding/one-shot requests disabled. A separate POST confirmation is required; all activity is RAM-only, one test per click, no automatic repeats.
 
-**Beta.13 release:** [RAMSES Arduino Gateway beta.14](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.14) · `RAMSES-Arduino-Gateway-v0.4.0-beta.14-ESP32-WROOM-32E.zip`. The release and binary are available only after checks and publishing have completed.
+**Beta.13 release:** [RAMSES Arduino Gateway beta.13](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.13) · `RAMSES-Arduino-Gateway-v0.4.0-beta.13-ESP32-WROOM-32E.zip`. The release and binary are available only after checks and publishing have completed.
 
 ## Beta.13: Verified-local CC1101 TX diagnostics (no new RF commands)
 
@@ -60,7 +70,7 @@ Arduino IDE prototype, receive-only by default; optional guarded read-only RF di
 
 ## Download the standalone Arduino IDE ZIP
 
-[RAMSES Arduino Gateway v0.4.0-beta.14 release](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.14) — download the **RAMSES-Arduino-Gateway-v0.4.0-beta.14-ESP32-WROOM-32E.zip** asset (not the repository source-code ZIP). Unzip it, then open `RamsesGateway/RamsesGateway.ino` in Arduino IDE. This is a separately tagged **prerelease** for the radio gateway, not the Home Assistant integration.
+[RAMSES Arduino Gateway v0.4.0-beta.15 release](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.15) — download the **RAMSES-Arduino-Gateway-v0.4.0-beta.15-ESP32-WROOM-32E.zip** asset (not the repository source-code ZIP). Unzip it, then open `RamsesGateway/RamsesGateway.ino` in Arduino IDE. This is a separately tagged **prerelease** for the radio gateway, not the Home Assistant integration.
 
 ## Wiring (verify actual labels on CC1101 breakout)
 

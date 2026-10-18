@@ -70,6 +70,48 @@ int main(){
   assert(prefers3150.id==CONTROLLER && prefers3150.bridgeDemandSeen);
   prefers3150.note(provisionalReply,BRIDGE);
   assert(prefers3150.id==CONTROLLER);
+  // Codex P2: a previously bound virtual 01: can appear in the FIRST 3150
+  // after reboot. When the real Evohome appears later, the two competing
+  // 3150 targets are ambiguous: never enable pairing using a guessed ID.
+  ramses_peer::ExistingController competing{};
+  ramses_read::putAddress(demand.addresses[2],1,160001);
+  competing.note(demand,BRIDGE);
+  assert(competing.id==160001 && competing.bridgeDemandSeen);
+  assert(!competing.ambiguous);
+  ramses_read::putAddress(demand.addresses[2],1,CONTROLLER);
+  competing.note(demand,BRIDGE);
+  assert(competing.id==0 && competing.ambiguous);
+  competing.note(demand,BRIDGE);
+  assert(competing.id==0 && competing.ambiguous);
+  // Neither a 3EF0 RP nor an unrelated bridge can clear that blocker.
+  competing.note(provisionalReply,BRIDGE);
+  competing.note(demand,BRIDGE+1);
+  assert(competing.id==0 && competing.ambiguous);
+  // Only a directly heard 01: -> configured bridge RQ resolves it.
+  ramses::Message clearConflict{};
+  clearConflict.messageType=0;clearConflict.addrMask=3;
+  clearConflict.opcode=0x3EF0;
+  ramses_read::putAddress(clearConflict.addresses[0],1,CONTROLLER);
+  ramses_read::putAddress(clearConflict.addresses[1],10,BRIDGE);
+  competing.note(clearConflict,BRIDGE);
+  assert(competing.id==CONTROLLER && competing.directRequestSeen);
+  assert(!competing.ambiguous);
+  ramses_read::putAddress(demand.addresses[2],1,160001);
+  competing.note(demand,BRIDGE);
+  assert(competing.id==CONTROLLER && !competing.ambiguous);
+  // The reverse order is also ambiguous, not merely first-virtual-first-real.
+  ramses_peer::ExistingController reversed{};
+  ramses_read::putAddress(demand.addresses[2],1,CONTROLLER);
+  reversed.note(demand,BRIDGE);
+  ramses_read::putAddress(demand.addresses[2],1,160001);
+  reversed.note(demand,BRIDGE);
+  assert(reversed.id==0 && reversed.ambiguous);
+  // A repeated 3150 for one controller alone is not a conflict.
+  ramses_peer::ExistingController repeated{};
+  repeated.note(demand,BRIDGE);
+  repeated.note(demand,BRIDGE);
+  assert(repeated.id==160001 && !repeated.ambiguous);
+  ramses_read::putAddress(demand.addresses[2],1,CONTROLLER);
 
   // A request addressed to the configured R8810A remains sufficient.
   m={};

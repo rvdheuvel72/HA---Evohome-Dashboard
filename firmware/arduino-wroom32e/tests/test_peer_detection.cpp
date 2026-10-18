@@ -58,18 +58,42 @@ int main(){
   learnedFrom3150.note(demand,BRIDGE);
   assert(learnedFrom3150.id==CONTROLLER);
   assert(learnedFrom3150.bridgeDemandSeen && !learnedFrom3150.directRequestSeen);
-  ramses_peer::ExistingController prefers3150{};
+  // Codex P2: RP-first and 3150-second target mismatch must fail closed,
+  // even when the RP is a stale virtual and the 3150 is the real Evohome.
+  ramses_peer::ExistingController rpThenDemand{};
   ramses::Message provisionalReply{};
   provisionalReply.messageType=3; provisionalReply.addrMask=3;
   provisionalReply.opcode=0x3EF0;
   ramses_read::putAddress(provisionalReply.addresses[0],10,BRIDGE);
   ramses_read::putAddress(provisionalReply.addresses[1],1,160001);
-  prefers3150.note(provisionalReply,BRIDGE);
-  assert(prefers3150.id==160001);
-  prefers3150.note(demand,BRIDGE);
-  assert(prefers3150.id==CONTROLLER && prefers3150.bridgeDemandSeen);
-  prefers3150.note(provisionalReply,BRIDGE);
-  assert(prefers3150.id==CONTROLLER);
+  rpThenDemand.note(provisionalReply,BRIDGE);
+  assert(rpThenDemand.id==160001 && !rpThenDemand.ambiguous);
+  rpThenDemand.note(demand,BRIDGE);
+  assert(rpThenDemand.id==0 && rpThenDemand.ambiguous);
+  rpThenDemand.note(provisionalReply,BRIDGE);
+  assert(rpThenDemand.id==0 && rpThenDemand.ambiguous);
+  // RP real first, then a 3150 to a retained virtual controller: same block.
+  ramses_peer::ExistingController realRpThenVirtualDemand{};
+  ramses_read::putAddress(provisionalReply.addresses[1],1,CONTROLLER);
+  realRpThenVirtualDemand.note(provisionalReply,BRIDGE);
+  ramses_read::putAddress(demand.addresses[2],1,160001);
+  realRpThenVirtualDemand.note(demand,BRIDGE);
+  assert(realRpThenVirtualDemand.id==0 && realRpThenVirtualDemand.ambiguous);
+  // 3150 real first, then an RP to a virtual: also ambiguous.
+  ramses_peer::ExistingController realDemandThenVirtualRp{};
+  ramses_read::putAddress(demand.addresses[2],1,CONTROLLER);
+  realDemandThenVirtualRp.note(demand,BRIDGE);
+  ramses_read::putAddress(provisionalReply.addresses[1],1,160001);
+  realDemandThenVirtualRp.note(provisionalReply,BRIDGE);
+  assert(realDemandThenVirtualRp.id==0 && realDemandThenVirtualRp.ambiguous);
+  // Matching 3EF0 and 3150 evidence for one 01: stays unambiguous.
+  ramses_peer::ExistingController matchingEvidence{};
+  ramses_read::putAddress(provisionalReply.addresses[1],1,CONTROLLER);
+  matchingEvidence.note(provisionalReply,BRIDGE);
+  matchingEvidence.note(demand,BRIDGE);
+  assert(matchingEvidence.id==CONTROLLER);
+  assert(matchingEvidence.bridgeDemandSeen && !matchingEvidence.ambiguous);
+  ramses_read::putAddress(provisionalReply.addresses[1],1,160001);
   // Codex P2: a previously bound virtual 01: can appear in the FIRST 3150
   // after reboot. When the real Evohome appears later, the two competing
   // 3150 targets are ambiguous: never enable pairing using a guessed ID.

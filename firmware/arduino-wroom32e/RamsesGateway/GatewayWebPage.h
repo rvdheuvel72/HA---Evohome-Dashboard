@@ -377,8 +377,17 @@ async function updatePairing(){
     ' · confirmation sent: '+x.confirmation_sent+
     '\\nDirected OpenTherm reply verified: '+x.verified_reply+
     ' · Read-Ack: '+x.read_ack+
-    '\\nTX local status: '+x.tx_phase+' ('+x.tx_bytes+' bytes)'+
-    '\\nThis is an experimental binding procedure; existing Evohome operation must be checked.');
+    '\\nTX last step: '+x.tx_step+' · '+x.tx_phase+' · '+x.tx_bytes+'/'+x.tx_expected_bytes+' bytes'+
+    '\\nLOCAL TX VERIFIED: '+(x.tx_local_verified?'YES':'NO')+' · '+x.tx_local_verification_reason+
+    '\\nUART: '+x.tx_uart_elapsed_us+' µs (minimum '+x.tx_uart_min_expected_us+' µs) · total '+x.tx_elapsed_us+' µs'+
+    '\\nFrequency synthesizer expected/readback: 0x'+Number(x.tx_frequency_expected||0).toString(16).toUpperCase()+
+      ' / 0x'+Number(x.tx_frequency_readback||0).toString(16).toUpperCase()+
+    '\\nCC1101 PKTCTRL0='+x.tx_pktctrl0+' IOCFG0='+x.tx_iocfg0+
+      ' MDMCFG4/3/2='+x.tx_mdmcfg4+'/'+x.tx_mdmcfg3+'/'+x.tx_mdmcfg2+
+      ' PA='+x.tx_pa_expected+'/'+x.tx_pa_readback+
+    '\\nMARCSTATE before/TX/after UART/after RX: '+x.tx_marc_before+'/'+x.tx_marc_during+'/'+x.tx_marc_after_uart+'/'+x.tx_marc_after+
+      ' · RX confirmed '+x.tx_rx_state_confirmed+
+    '\\nThis is local radio/UART verification only: not proof of RF delivery, physical GPIO wire or R8810A acceptance.');
  }catch(e){
   el('pairing-start').disabled=true;
   set('pairing-status','Pairing status unavailable: '+e.message);

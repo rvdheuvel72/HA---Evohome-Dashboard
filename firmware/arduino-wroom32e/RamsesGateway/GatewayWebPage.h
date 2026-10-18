@@ -62,6 +62,14 @@ a{color:#a9d5ff}
 <pre id="one-shot-diag" aria-live="polite">TX diagnostic data appears after one request.</pre>
 <pre id="one-shot-compare">UART/FIFO A-B comparison will appear here.</pre>
 </details>
+<details class="panel" id="tx-loopback-panel">
+<summary>ESP32 UART TX loopback — GPIO26 → GPIO25 (NO RF transmit)</summary>
+<p class="muted">Bench wiring: connect ESP32 GPIO26 to ESP32 GPIO25. You may leave CC1101 GDO0 disconnected as in your current test. This diagnostic sends a fixed 70-byte encoded RAMSES 1FC9 test frame over the ESP32 UART TX pin only, reads the electrical bytes through UART2 RX on GPIO25, and compares and decodes them. It DOES NOT enter CC1101 transmit mode, transmit an RF packet, bind to R8810A, or affect stored settings.</p>
+<p class="muted">The CC1101 must be in receive mode with automatic polling, scanning and RF TX disabled, and no other RF transaction pending. Do not use the R8810A pairing button for this test. Restore GPIO26 → CC1101 GDO0 before testing actual RF later.</p>
+<label class="setting-check"><input type="checkbox" id="loopback-confirm"> GPIO26 is jumpered to GPIO25 and I authorize ONE GPIO-only UART transmission; no RF test or pairing.</label>
+<div class="controls"><button type="button" id="loopback-start" disabled>Test GPIO26 → GPIO25</button><a href="/api/v1/radio/tx-loopback" target="_blank">Loopback JSON</a></div>
+<pre id="loopback-result" aria-live="polite">No GPIO loopback attempted.</pre>
+</details>
 <details class="panel" id="pairing-panel">
 <summary>Experimental R8810A pairing — additional virtual controller (01:)</summary>
 <p class="muted">Experimental RAMSES 1FC9 binding. The <strong>Honeywell R8810A1018 device installation guide</strong>, page 2, says to press its button for <strong>5 seconds</strong> to enter binding mode: the red LED alternates 0.5 seconds ON / 0.5 seconds OFF. The manual does <strong>not</strong> require a preceding 15-second reset for this procedure. <strong>Do not clear existing bindings.</strong> Clicking the ESP32 button only queues an RF offer; it does not put the physical R8810A into binding mode. This manual documents a CM957 thermostat, not the safety or feasibility of adding a second virtual controller to an existing Evohome system. If the red LED does not flash after a deliberate 5-second press, stop the experiment and keep normal Evohome boiler control.</p>
@@ -341,6 +349,49 @@ const pairingBlockMessages={
   radio_not_ready:'The CC1101 radio is not initialized. Check the radio diagnostic panel.'
 };
 let pairingPostError='';
+let loopbackPostError='';
+async function updateLoopback(){
+ try {
+  const r=await fetch('/api/v1/radio/tx-loopback',{cache:'no-store'});
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  const d=await r.json();
+  el('loopback-start').disabled=!d.ready||!el('loopback-confirm').checked;
+  set('loopback-result',
+    'Status: '+d.status+(loopbackPostError?' · '+loopbackPostError:'')+
+    '\nLocal UART: '+d.uart_written_bytes+'/'+d.expected_bytes+' sent · '+d.captured_bytes+' captured'+
+    (d.first_mismatch_index>=0?' · first byte mismatch at '+d.first_mismatch_index:'')+
+    '\n1FC9 decoded: '+d.decoded_1fc9+' · UART '+d.uart_elapsed_us+' µs · total '+d.capture_elapsed_us+' µs'+
+    '\nCC1101 MARCSTATE before/after: '+d.radio_marc_before+'/'+d.radio_marc_after+
+    '\nExpected hex: '+(d.expected_hex||'—')+
+    '\nCaptured hex: '+(d.captured_hex||'—')+
+    '\nOnly verifies electrical pin-to-pin UART; NOT an RF or R8810A acknowledgment.');
+ }catch(e){
+  el('loopback-start').disabled=true;
+  set('loopback-result','GPIO loopback status unavailable: '+e.message);
+ }
+}
+el('loopback-confirm').addEventListener('change',updateLoopback);
+el('loopback-start').addEventListener('click',async()=>{
+ el('loopback-start').disabled=true;
+ try{
+  const r=await fetch('/api/v1/radio/tx-loopback',{
+   method:'POST',
+   headers:{'X-Gateway-Config':'tx-loopback','Content-Type':'application/x-www-form-urlencoded'},
+   body:new URLSearchParams({confirm:'gpio26-gpio25-no-rf'}).toString()
+  });
+  const d=await r.json();
+  if(!r.ok)throw new Error(d.error||'HTTP '+r.status);
+  el('loopback-confirm').checked=false;
+  loopbackPostError='';
+  set('loopback-result','GPIO loopback queued. Reading GPIO25; NO RF transmission...');
+ }catch(e){
+  el('loopback-confirm').checked=false;
+  loopbackPostError='Test rejected: '+e.message;
+ }
+ finally{updateLoopback()}
+});
+updateLoopback();setInterval(updateLoopback,2500);
+
 async function updatePairing(){
  try{
   const r=await fetch('/api/v1/opentherm/pairing',{cache:'no-store'});

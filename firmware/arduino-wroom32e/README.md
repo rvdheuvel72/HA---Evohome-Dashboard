@@ -1,4 +1,14 @@
-**Beta.13 release:** [RAMSES Arduino Gateway beta.13](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.13) · `RAMSES-Arduino-Gateway-v0.4.0-beta.13-ESP32-WROOM-32E.zip`. The release and binary are available only after checks and publishing have completed.
+## Beta.14: GPIO26 → GPIO25 electrical UART loopback (no RF transmission)
+
+**Download**: [RAMSES Arduino Gateway v0.4.0-beta.14](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.14) — `RAMSES-Arduino-Gateway-v0.4.0-beta.14-ESP32-WROOM-32E.zip` (published after exact-head CI and Codex approval).
+
+Use the **ESP32 GPIO26 → GPIO25 jumper** to test the actual UART TX pin electrically. Disconnect CC1101 GDO0 from GPIO26 for this bench test as you have done; CC1101 GDO2/RX and SPI can remain connected. In gateway Diagnostics expand **ESP32 UART TX loopback**, confirm the jumper and click **Test GPIO26 → GPIO25**. It sends one fixed 70-byte Manchester-encoded RAMSES `1FC9` offer *on the wire from GPIO26*, listens with ESP32 UART2 RX on GPIO25, compares every captured byte and checks decoding. **The CC1101 stays in RX and the test NEVER issues an STX strobe, transmits RF, sends a pairing request over RF or changes the R8810A.** No R8810A button press is needed.
+
+View `GET /api/v1/radio/tx-loopback` (authenticated) for `status`, `expected_bytes`, `uart_written_bytes`, `captured_bytes`, `first_mismatch_index`, `decoded_1fc9`, transfer timing, and full `expected_hex` / `captured_hex`. A successful `pass` verifies GPIO26 output, the installed jumper to GPIO25 and UART2 decode; it still **does not prove CC1101 GDO0 reception or radio-frequency transmission**. No new hardware is necessary. Reconnect GPIO26 → CC1101 GDO0 before attempting any future RF command.
+
+The bench test is only available with automatic RF TX, scanning, polling, and in-flight binding/one-shot requests disabled. A separate POST confirmation is required; all activity is RAM-only, one test per click, no automatic repeats.
+
+**Beta.13 release:** [RAMSES Arduino Gateway beta.14](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.14) · `RAMSES-Arduino-Gateway-v0.4.0-beta.14-ESP32-WROOM-32E.zip`. The release and binary are available only after checks and publishing have completed.
 
 ## Beta.13: Verified-local CC1101 TX diagnostics (no new RF commands)
 
@@ -50,7 +60,7 @@ Arduino IDE prototype, receive-only by default; optional guarded read-only RF di
 
 ## Download the standalone Arduino IDE ZIP
 
-[RAMSES Arduino Gateway v0.4.0-beta.13 release](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.13) — download the **RAMSES-Arduino-Gateway-v0.4.0-beta.13-ESP32-WROOM-32E.zip** asset (not the repository source-code ZIP). Unzip it, then open `RamsesGateway/RamsesGateway.ino` in Arduino IDE. This is a separately tagged **prerelease** for the radio gateway, not the Home Assistant integration.
+[RAMSES Arduino Gateway v0.4.0-beta.14 release](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.14) — download the **RAMSES-Arduino-Gateway-v0.4.0-beta.14-ESP32-WROOM-32E.zip** asset (not the repository source-code ZIP). Unzip it, then open `RamsesGateway/RamsesGateway.ino` in Arduino IDE. This is a separately tagged **prerelease** for the radio gateway, not the Home Assistant integration.
 
 ## Wiring (verify actual labels on CC1101 breakout)
 

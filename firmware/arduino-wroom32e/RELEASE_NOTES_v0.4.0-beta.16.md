@@ -14,6 +14,7 @@ The beta.15 pairing preflight continued to say `evohome_controller_not_observed`
 
 - Passive controller inference now accepts strictly matched `3150 I` status from the **configured** `10:` bridge, with the `01:` controller in address slot 3, expected address mask, length 2, and `FC` domain.
 - Existing explicit `01: → 10:` controller requests take precedence over this evidence, which in turn takes precedence over provisional `3EF0 RP` inference.
+- **Codex P2 addressed:** conflicting `3150 I` controller targets (e.g. a retained virtual controller and the real Evohome) now make identity **ambiguous** and block any new pairing. The API exposes `controller_ambiguous` and `block_reason=evohome_controller_ambiguous`; only a subsequently received direct controller request to the configured bridge can resolve it. Negative and recovery tests cover both arrival orders.
 - Negative tests reject wrong bridge, radiator sender, invalid message verb/addresses/opcode/domain/length, and a non-controller in address slot 3.
 - A received `3150` does not prove the bridge supports a second controller, and does not validate over-the-air transmit performance.
 

@@ -464,9 +464,91 @@ void httpOtProfile(){
   if(!authorized())return;
   otGateway.sendProfile(web);
 }
+// Local GPIO-only diagnostic. This endpoint never configures CC1101 TX.
+void httpTxLoopback() {
+  if(!authorized())return;
+  if(web.method()==HTTP_POST) {
+    if(!web.hasHeader("X-Gateway-Config") ||
+       web.header("X-Gateway-Config")!="tx-loopback" ||
+       web.arg("confirm")!="gpio26-gpio25-no-rf") {
+      web.send(403,"application/json",
+        "{\"error\":\"explicit_bench_loopback_confirmation_required\"}");
+      return;
+    }
+    if(!configuration.current.webUser[0] ||
+       strlen(configuration.current.webPassword)<12 ||
+       strcmp(configuration.current.webPassword,
+              "CHANGE_TO_A_STRONG_PRIVATE_PASSWORD")==0) {
+      web.send(403,"application/json","{\"error\":\"strong_web_auth_required\"}");
+      return;
+    }
+    if(!radioReady || !otGateway.loopbackAllowed()) {
+      web.send(409,"application/json",
+        "{\"error\":\"radio_not_ready_or_rf_tx_not_disabled_or_command_pending\"}");
+      return;
+    }
+    portENTER_CRITICAL(&loopbackMux);
+    const bool busy=loopbackReport.state==ramses_loopback::QUEUED ||
+       loopbackReport.state==ramses_loopback::RUNNING;
+    if(!busy) {
+      loopbackReport=ramses_loopback::Report{};
+      loopbackReport.state=ramses_loopback::QUEUED;
+    }
+    portEXIT_CRITICAL(&loopbackMux);
+    if(busy) {
+      web.send(409,"application/json","{\"error\":\"loopback_already_running\"}");
+      return;
+    }
+    recordLog(GatewayDebug::INFO,
+       "Single GPIO26->GPIO25 UART loopback queued; NO CC1101 RF transmit");
+    web.send(202,"application/json",
+       "{\"queued\":true,\"type\":\"gpio_uart_only\",\"no_rf_stx\":true}");
+    return;
+  }
+  ramses_loopback::Report d;
+  portENTER_CRITICAL(&loopbackMux);
+  d=loopbackReport;
+  portEXIT_CRITICAL(&loopbackMux);
+  char expected[2*ramses_loopback::MAX_WIRE+1]={};
+  char captured[2*ramses_loopback::MAX_WIRE+1]={};
+  ramses_loopback::hexBytes(d.expected,d.expected_len,expected,sizeof(expected));
+  ramses_loopback::hexBytes(d.captured,d.captured_len,captured,sizeof(captured));
+  char body[1150];
+  const int n=snprintf(body,sizeof(body),
+    "{\"status\":\"%s\",\"ready\":%s,\"tx_gpio\":%u,\"rx_gpio\":%u,"
+    "\"baud\":38400,\"framing\":\"8N1\",\"radio_stx_issued\":false,"
+    "\"fixture\":\"fixed_1FC9_offer_160001_to_48994\","
+    "\"expected_bytes\":%u,\"uart_written_bytes\":%u,\"captured_bytes\":%u,"
+    "\"first_mismatch_index\":%d,\"decoded_1fc9\":%s,"
+    "\"uart_elapsed_us\":%lu,\"capture_elapsed_us\":%lu,"
+    "\"radio_marc_before\":%u,\"radio_marc_after\":%u,"
+    "\"completed_uptime_ms\":%lu,"
+    "\"expected_hex\":\"%s\",\"captured_hex\":\"%s\","
+    "\"note\":\"Pin-to-pin UART verification only; does not test RF or R8810A reception\"}",
+    ramses_loopback::name(d.state),
+    radioReady && otGateway.loopbackAllowed() && !loopbackBusy()?"true":"false",
+    static_cast<unsigned>(ramses_loopback::TX_GPIO),
+    static_cast<unsigned>(ramses_loopback::RX_GPIO),
+    static_cast<unsigned>(d.expected_len),static_cast<unsigned>(d.uart_written),
+    static_cast<unsigned>(d.captured_len),static_cast<int>(d.first_difference),
+    d.decoded_1fc9?"true":"false",
+    static_cast<unsigned long>(d.uart_elapsed_us),
+    static_cast<unsigned long>(d.capture_elapsed_us),
+    static_cast<unsigned>(d.radio_marc_before),
+    static_cast<unsigned>(d.radio_marc_after),
+    static_cast<unsigned long>(d.completed_ms),expected,captured);
+  if(n<0 || static_cast<size_t>(n)>=sizeof(body)) {
+    web.send(500,"application/json","{\"error\":\"loopback_json_overflow\"}");
+    return;
+  }
+  web.sendHeader("Cache-Control","no-store");
+  web.send(200,"application/json",body);
+}
+
 void httpOtPairing(){
   if(!authorized())return;
   if(web.method()==HTTP_GET){otGateway.sendBindingStatus(web,radioReady);return;}
+  if(loopbackBusy()){web.send(409,"application/json","{\"error\":\"gpio_loopback_in_progress\"}");return;}
   if(!web.hasHeader("X-Gateway-Config") ||
      web.header("X-Gateway-Config")!="opentherm-pairing" ||
      web.arg("confirm")!="manual-1fc9-additional-controller"){
@@ -504,6 +586,7 @@ void httpOtPairing(){
 void httpOtOneShot(){
   if(!authorized())return;
   if(web.method()==HTTP_GET){otGateway.sendOneShotStatus(web);return;}
+  if(loopbackBusy()){web.send(409,"application/json","{\"error\":\"gpio_loopback_in_progress\"}");return;}
   if(!web.hasHeader("X-Gateway-Config") ||
      web.header("X-Gateway-Config")!="one-shot" ||
      web.arg("confirm")!="experimental-single-read-25"){
@@ -542,6 +625,7 @@ void httpOtOneShot(){
 }
 void httpOtScan(){
   if(!authorized())return;
+  if(loopbackBusy()){web.send(409,"application/json","{\"error\":\"gpio_loopback_in_progress\"}");return;}
   if(!web.hasHeader("X-Gateway-Config") ||
      web.header("X-Gateway-Config")!="scan"){
     web.send(403,"application/json",
@@ -1281,6 +1365,8 @@ void setup() {
   web.on("/api/v1/radio/diagnostics", HTTP_GET, httpRadioDiagnostics);
   web.on("/api/v1/radio/diagnostics", HTTP_POST, httpRadioDiagnostics);
   web.on("/api/v1/opentherm/profile", HTTP_GET, httpOtProfile);
+  web.on("/api/v1/radio/tx-loopback", HTTP_GET, httpTxLoopback);
+  web.on("/api/v1/radio/tx-loopback", HTTP_POST, httpTxLoopback);
   web.on("/api/v1/opentherm/pairing", HTTP_GET, httpOtPairing);
   web.on("/api/v1/opentherm/pairing", HTTP_POST, httpOtPairing);
   web.on("/api/v1/opentherm/one-shot", HTTP_GET, httpOtOneShot);

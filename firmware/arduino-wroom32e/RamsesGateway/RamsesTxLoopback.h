@@ -18,6 +18,7 @@ constexpr uint32_t FIXTURE_BRIDGE_ID=48994;
 enum State : uint8_t {
   NOT_RUN, QUEUED, RUNNING, PASS, NO_SIGNAL, SHORT_CAPTURE,
   DIFFERENT_BYTES, EXTRA_BYTES, UART_WRITE_FAILED, INVALID_FIXTURE,
+  DECODE_FAILED,
   UNSAFE_RF_STATE, UART_START_FAILED
 };
 inline const char* name(State state) {
@@ -32,6 +33,7 @@ inline const char* name(State state) {
     case EXTRA_BYTES:return "extra_bytes";
     case UART_WRITE_FAILED:return "uart_write_failed";
     case INVALID_FIXTURE:return "invalid_fixture";
+    case DECODE_FAILED:return "decode_failed";
     case UNSAFE_RF_STATE:return "unsafe_radio_state";
     case UART_START_FAILED:return "uart_start_failed";
   }

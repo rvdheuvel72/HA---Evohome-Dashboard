@@ -80,6 +80,12 @@ jobs:
           g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer \
             firmware/arduino-wroom32e/tests/test_pairing.cpp -o /tmp/test-ramses-pairing
           /tmp/test-ramses-pairing
+      - name: Test strict local CC1101 TX verification
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror \
+            firmware/arduino-wroom32e/tests/test_tx_local_verification.cpp \
+            -o /tmp/test-tx-local-verification
+          /tmp/test-tx-local-verification
       - name: Test R8810A bridge-reply discovery of existing Evohome controller
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer \

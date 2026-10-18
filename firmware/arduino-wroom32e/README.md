@@ -1,3 +1,11 @@
+**Beta.13 release:** [RAMSES Arduino Gateway beta.13](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.13) · `RAMSES-Arduino-Gateway-v0.4.0-beta.13-ESP32-WROOM-32E.zip`. The release and binary are available only after checks and publishing have completed.
+
+## Beta.13: Verified-local CC1101 TX diagnostics (no new RF commands)
+
+The manual `1FC9` binding attempt now records **live CC1101 SPI register readbacks** for the tuned synthesizer frequency, async-PKTCTRL0, GDO0 IOCFG0, 38.4kbps modem setup and power amplifier, as well as the MARCSTATE during TX, immediately after UART flush and after returning to stable RX. Records expected/written bytes, UART transfer time and minimum expected on-wire UART duration (38400 baud, 8N1). `GET /api/v1/opentherm/pairing` adds `tx_step`, `tx_local_verified`, `tx_local_verification_reason`, raw chip registers, MARC state and timing, and the Diagnostics pairing panel shows them.
+
+The strict `local_tx_verified` verdict means only that the CC1101 register/state and **local UART timing checks** passed. It cannot verify the actual external GPIO26→GDO0 physical connection, RF output at the antenna, protocol compatibility or reception by R8810A. `tx_phase:local_complete` is preserved independently to aid comparison. No extra RF transmissions, retries or bind-mode commands were added; existing safeguards/cooldown and native Evohome binding remain unchanged.
+
 ## Beta.12: R8810A bridge-reply controller detection and 5-second binding manual correction
 
 A received checksum-valid `3EF0 RP` addressed **from the configured `10:` R8810A to the original `01:` Evohome controller** now identifies that controller even when the preceding controller request is missed. This is receive-only identity inference; it does not prove an experimental virtual-controller binding or send RF. The R8810A1018 manufacturer's own device installation instructions say **hold its button for 5 seconds** and look for alternating red LED 0.5 seconds on/0.5 seconds off: **they do not require clearing old bindings first**. The previous beta.11 wording suggesting a required 15-second clear was incorrect. The device manual describes a CM957 thermostat and does not prove an additional virtual controller can be bound without disturbing the existing Evohome. The ESP32 **Send one pairing offer** button queues a transaction but does not switch the physical bridge into pairing mode. Do not erase working bindings.
@@ -42,7 +50,7 @@ Arduino IDE prototype, receive-only by default; optional guarded read-only RF di
 
 ## Download the standalone Arduino IDE ZIP
 
-[RAMSES Arduino Gateway v0.4.0-beta.10 release](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.12) — download the **RAMSES-Arduino-Gateway-v0.4.0-beta.12-ESP32-WROOM-32E.zip** asset (not the repository source-code ZIP). Unzip it, then open `RamsesGateway/RamsesGateway.ino` in Arduino IDE. This is a separately tagged **prerelease** for the radio gateway, not the Home Assistant integration.
+[RAMSES Arduino Gateway v0.4.0-beta.13 release](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.13) — download the **RAMSES-Arduino-Gateway-v0.4.0-beta.13-ESP32-WROOM-32E.zip** asset (not the repository source-code ZIP). Unzip it, then open `RamsesGateway/RamsesGateway.ino` in Arduino IDE. This is a separately tagged **prerelease** for the radio gateway, not the Home Assistant integration.
 
 ## Wiring (verify actual labels on CC1101 breakout)
 

@@ -6,21 +6,58 @@
 #include "../RamsesGateway/RamsesControllerIds.h"
 int main() {
   uint8_t f[64]={}; size_t n=0;
-  assert(ramses_bind::makeOffer(62142,48994,f,n) && n==29);
+  assert(ramses_bind::makeOffer(62142,48994,f,n) && n==35);
   ramses::Message offer{};
   assert(ramses::decode(f,n,offer));
-  assert(offer.messageType==1 && offer.opcode==0x1FC9 && offer.length==18);
+  assert(offer.messageType==1 && offer.opcode==0x1FC9 && offer.length==24);
   assert(offer.addrMask==5 && ramses_bind::type(offer.addresses[0])==1);
   assert(ramses_bind::id(offer.addresses[0])==62142);
   assert(ramses_bind::id(offer.addresses[2])==62142);
-  assert(offer.payload[0]==0 && offer.payload[1]==0 && offer.payload[2]==8);
-  assert(offer.payload[6]==0xfc && offer.payload[7]==0x3b);
-  assert(offer.payload[13]==0x1f && offer.payload[14]==0xc9);
+  const uint8_t domains[4]={0xfc,0xfc,0xfb,0xfc};
+  const uint16_t codes[4]={0x0008,0x3150,0x3150,0x1fc9};
+  for(size_t i=0;i<4;i++) {
+    const uint8_t* entry=offer.payload+i*6;
+    assert(entry[0]==domains[i]);
+    assert((static_cast<uint16_t>(entry[1])<<8|entry[2])==codes[i]);
+    assert(ramses_bind::type(entry+3)==1);
+    assert(ramses_bind::id(entry+3)==62142);
+  }
   uint8_t wire[128]={}; size_t len=ramses_read::encodeUART(f,n,wire,sizeof(wire));
-  assert(len==70);
+  assert(len==82);
   ramses::FrameDecoder decoder; ramses::Message decoded{};bool good=false;
   for(size_t i=0;i<len;i++)if(decoder.feed(wire[i],decoded))good=true;
   assert(good && decoded.opcode==0x1fc9 && decoded.messageType==1);
+  // Independent observed controller -> OpenTherm bridge offer:
+  // ramses-rf/ramses_rf tests/tests_rf/data_driven/parsers/code_1fc9.log,
+  // 2020-11-23 14:35:23, 01:078710 -> 10:067219.
+  // Source's HGI 1FC9 024 payload: FC0008053376FC3150053376FB3150053376FC1FC9053376.
+  // Header and checksum are reconstructed directly from that record,
+  // rather than sharing any fixture generator with makeOffer().
+  const uint8_t capturedOffer[35]={
+    0x18,0x05,0x33,0x76,0x05,0x33,0x76,0x1F,0xC9,0x18,
+    0xFC,0x00,0x08,0x05,0x33,0x76,
+    0xFC,0x31,0x50,0x05,0x33,0x76,
+    0xFB,0x31,0x50,0x05,0x33,0x76,
+    0xFC,0x1F,0xC9,0x05,0x33,0x76,0xF3};
+  assert(ramses_bind::makeOffer(78710,67219,f,n));
+  assert(n==sizeof(capturedOffer) && memcmp(f,capturedOffer,n)==0);
+  ramses::Message capturedDecoded{};
+  assert(ramses::decode(capturedOffer,sizeof(capturedOffer),capturedDecoded));
+  assert(capturedDecoded.length==24 && capturedDecoded.opcode==0x1FC9);
+  assert(ramses_bind::id(capturedDecoded.addresses[0])==78710);
+  // User's configured virtual controller, tested against an independently
+  // derived byte vector (not a round trip through the same encoder).
+  const uint8_t expectedVirtualOffer[35]={
+    0x18,0x06,0x71,0x01,0x06,0x71,0x01,0x1F,0xC9,0x18,
+    0xFC,0x00,0x08,0x06,0x71,0x01,
+    0xFC,0x31,0x50,0x06,0x71,0x01,
+    0xFB,0x31,0x50,0x06,0x71,0x01,
+    0xFC,0x1F,0xC9,0x06,0x71,0x01,0x37};
+  assert(ramses_bind::makeOffer(160001,48994,f,n));
+  assert(n==sizeof(expectedVirtualOffer) && memcmp(f,expectedVirtualOffer,n)==0);
+  assert(!ramses::decode(f,n-1,capturedDecoded)); // checksum is mandatory
+  assert(ramses_read::encodeUART(f,n,wire,81)==0); // 82 bytes needed
+  assert(ramses_read::encodeUART(f,n,wire,sizeof(wire))==82);
   assert(ramses_bind::makeConfirmation(62142,48994,f,n) && n==17);
   ramses::Message confirm{};
   assert(ramses::decode(f,n,confirm) && confirm.messageType==1);

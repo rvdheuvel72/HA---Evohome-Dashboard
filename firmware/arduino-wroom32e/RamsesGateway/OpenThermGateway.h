@@ -107,6 +107,7 @@ class OpenThermGateway {
        virtualControllerId!=observedController_ &&
        binding_.start(millis(),virtualControllerId,config_->otBridge,
                       observedController_);
+    if(ok) { bindingTx_=ot_tx::Report{}; bindingTxStep_=0; }
     portEXIT_CRITICAL(&mutex_);
     return ok;
   }
@@ -114,21 +115,37 @@ class OpenThermGateway {
     ramses_bind::Session snap;ot_tx::Report detail;
     portENTER_CRITICAL(&mutex_);
     snap=binding_;detail=bindingTx_;
+    const uint8_t lastStep=bindingTxStep_;
     const bool exhausted=seenControllers_.saturated();
     const unsigned tracked=seenControllers_.count;
     portEXIT_CRITICAL(&mutex_);
     const char* reason=radioReady?bindingBlockReason():"radio_not_ready";
     const bool mayStart=(reason==nullptr);
-    char body[832];
-    snprintf(body,sizeof(body),
-      "{\"state\":\"%s\",\"ready\":%s,\"block_reason\":\"%s\",\"radio_ready\":%s,\"bridge_seen\":%s,"
-      "\"bridge_id\":%lu,\"existing_controller_id\":%lu,"
-      "\"virtual_controller_id\":%lu,\"cooldown_ms\":%lu,"
-      "\"offer_accepted\":%s,\"confirmation_sent\":%s,"
-      "\"verified_reply\":%s,\"read_ack\":%s,"
-      "\"id_conflict\":%s,\"raw\":%u,"
-      "\"controller_id_coverage_exhausted\":%s,\"controller_ids_seen\":%u,"
-      "\"tx_phase\":\"%s\",\"tx_bytes\":%u}",
+    // Status is a snapshot: all diagnostics refer to the last locally
+    // attempted handshake step. "verified" here is LOCAL ONLY.
+    const char* step=lastStep==1?"offer":lastStep==2?"confirmation":
+       lastStep==3?"verification_read":"not_started";
+    char body[1740];
+    const int n=snprintf(body,sizeof(body),
+      "{\\"state\\":\\"%s\\",\\"ready\\":%s,\\"block_reason\\":\\"%s\\",\\"radio_ready\\":%s,\\"bridge_seen\\":%s,"
+      "\\"bridge_id\\":%lu,\\"existing_controller_id\\":%lu,"
+      "\\"virtual_controller_id\\":%lu,\\"cooldown_ms\\":%lu,"
+      "\\"offer_accepted\\":%s,\\"confirmation_sent\\":%s,"
+      "\\"verified_reply\\":%s,\\"read_ack\\":%s,"
+      "\\"id_conflict\\":%s,\\"raw\\":%u,"
+      "\\"controller_id_coverage_exhausted\\":%s,\\"controller_ids_seen\\":%u,"
+      "\\"tx_step\\":\\"%s\\",\\"tx_phase\\":\\"%s\\",\\"tx_bytes\\":%u,"
+      "\\"tx_expected_bytes\\":%u,\\"tx_elapsed_us\\":%lu,"
+      "\\"tx_uart_elapsed_us\\":%lu,\\"tx_uart_min_expected_us\\":%lu,"
+      "\\"tx_frequency_expected\\":%lu,\\"tx_frequency_readback\\":%lu,"
+      "\\"tx_pktctrl0\\":%u,\\"tx_iocfg0\\":%u,"
+      "\\"tx_mdmcfg4\\":%u,\\"tx_mdmcfg3\\":%u,\\"tx_mdmcfg2\\":%u,"
+      "\\"tx_pa_expected\\":%u,\\"tx_pa_readback\\":%u,"
+      "\\"tx_marc_before\\":%u,\\"tx_marc_during\\":%u,"
+      "\\"tx_marc_after_uart\\":%u,\\"tx_marc_after\\":%u,"
+      "\\"tx_saw_tx\\":%s,\\"tx_rx_restored\\":%s,\\"tx_rx_state_confirmed\\":%s,"
+      "\\"tx_local_verified\\":%s,\\"tx_local_verification_reason\\":\\"%s\\","
+      "\\"tx_scope\\":\\"Local chip/UART checks only; RF delivery and GPIO wiring unverified\\"}",
       ramses_bind::name(snap.state),mayStart?"true":"false",
       reason?reason:"",radioReady?"true":"false",
       bridgeSeen_?"true":"false",
@@ -143,8 +160,34 @@ class OpenThermGateway {
       snap.virtualIdCollision?"true":"false",
       static_cast<unsigned>(snap.lastRaw),
       exhausted?"true":"false",tracked,
-      ot_tx::phaseName(detail.phase),
-      static_cast<unsigned>(detail.written_bytes));
+      step,ot_tx::phaseName(detail.phase),
+      static_cast<unsigned>(detail.written_bytes),
+      static_cast<unsigned>(detail.expected_bytes),
+      static_cast<unsigned long>(detail.elapsed_us),
+      static_cast<unsigned long>(detail.uart_elapsed_us),
+      static_cast<unsigned long>(detail.uart_min_expected_us),
+      static_cast<unsigned long>(detail.frequency_expected),
+      static_cast<unsigned long>(detail.frequency_readback),
+      static_cast<unsigned>(detail.pktctrl0_readback),
+      static_cast<unsigned>(detail.iocfg0_readback),
+      static_cast<unsigned>(detail.mdmcfg4_readback),
+      static_cast<unsigned>(detail.mdmcfg3_readback),
+      static_cast<unsigned>(detail.mdmcfg2_readback),
+      static_cast<unsigned>(detail.pa_configured),
+      static_cast<unsigned>(detail.pa_readback),
+      static_cast<unsigned>(detail.marc_before),
+      static_cast<unsigned>(detail.marc_during),
+      static_cast<unsigned>(detail.marc_after_uart),
+      static_cast<unsigned>(detail.marc_after),
+      detail.saw_tx?"true":"false",
+      detail.rx_restored?"true":"false",
+      detail.rx_state_confirmed?"true":"false",
+      ot_tx::localVerified(detail)?"true":"false",
+      ot_tx::localVerificationReason(detail));
+    if(n<0 || static_cast<size_t>(n)>=sizeof(body)) {
+      server.send(500,"application/json","{\\"error\\":\\"pairing_diagnostics_overflow\\"}");
+      return;
+    }
     server.sendHeader("Cache-Control","no-store");
     server.send(200,"application/json",body);
   }
@@ -386,6 +429,8 @@ class OpenThermGateway {
          sendBindingFrame(radio,port,decoder,frame,length,tx);
       portENTER_CRITICAL(&mutex_);
       bindingTx_=tx;
+      bindingTxStep_=bindingAction==ramses_bind::OFFER_QUEUED?1:
+          bindingAction==ramses_bind::CONFIRM_QUEUED?2:3;
       if(bindingAction==ramses_bind::OFFER_QUEUED)
         binding_.offered(sent,millis());
       else if(bindingAction==ramses_bind::CONFIRM_QUEUED)
@@ -513,6 +558,7 @@ class OpenThermGateway {
   ot_tx::Comparison comparisons_[2];
   ramses_bind::Session binding_;
   ot_tx::Report bindingTx_;
+  uint8_t bindingTxStep_=0;
   volatile uint32_t observedController_=0;
   ramses_peer::ExistingController controllerEvidence_;
   ramses_ids::SeenControllers seenControllers_;
@@ -556,12 +602,22 @@ class OpenThermGateway {
       diag.phase=ot_tx::TX_CONFIG_FAILED;return false;
     }
     diag.expected_bytes=static_cast<uint16_t>(wireLen);
+    // 38400 baud / 8N1 => ten UART bits per byte. 90% of the nominal
+    // wire time is a conservative minimum for a completed flush.
+    diag.uart_min_expected_us=static_cast<uint32_t>(
+      (static_cast<uint64_t>(wireLen)*10000000ULL*9ULL)/
+      (38400ULL*10ULL));
     const uint32_t begun=micros();
     if(!radio.beginReadRequestTx(true,&diag))return false;
+    const uint32_t uartStart=micros();
     const size_t written=port.write(wire,wireLen);
     port.flush();
+    diag.uart_elapsed_us=micros()-uartStart;
+    // Observe TX before SIDLE; this is not an over-the-air acknowledgment.
+    diag.marc_after_uart=radio.txMarcState();
     delayMicroseconds(300);
     const bool restored=radio.endReadRequestTx(&diag);
+    radio.verifyPostTxRx(diag);
     while(port.available())port.read();
     decoder.reset();
     diag.written_bytes=static_cast<uint16_t>(written);

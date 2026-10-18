@@ -76,10 +76,10 @@ inline State compare(Report& result) {
 }
 inline bool hexBytes(const uint8_t* src,size_t len,char* out,size_t cap) {
   if(!src || !out || len>MAX_WIRE || cap<2*len+1)return false;
-  static constexpr char HEX[]="0123456789ABCDEF";
+  static constexpr char HEX_DIGITS[]="0123456789ABCDEF";
   for(size_t i=0;i<len;i++) {
-    out[2*i]=HEX[src[i]>>4];
-    out[2*i+1]=HEX[src[i]&15u];
+    out[2*i]=HEX_DIGITS[src[i]>>4];
+    out[2*i+1]=HEX_DIGITS[src[i]&15u];
   }
   out[2*len]=0;
   return true;

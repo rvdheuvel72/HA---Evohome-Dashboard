@@ -1,3 +1,11 @@
+## Beta.16: Recognize R8810A 3150 status addressed to existing Evohome controller
+
+The normal Evohome controller can be identified from a **checksum-valid** bridge-originated `3150 I` status packet, even if the receiver misses controller `RQ` messages and `3EF0 RP` replies. Actual diagnostic capture: `I --- 10:048994 --:------ 01:245914 3150 002 FC00`. This address is in the **third address field**, not the second. Passive detection checks the configured bridge ID, `I` verb, `3150` opcode, exact address layout, 2-byte payload and `FC` domain; packets from radiator devices (such as `04:253821`) are not accepted as controller evidence.
+
+A directly observed controller request retains higher priority than inferred status packets. **Codex P2 hardening:** if indirect `3EF0 RP` and/or `3150 I` evidence points to different `01:` controller IDs, pairing now fails closed with `evohome_controller_ambiguous` until a direct Evohome-to-R8810A request identifies the controller. This avoids locking onto an old virtual ID after restart. The change does **not** bypass ID-collision checks, RF frequency limits, authorization, automatic TX disabling, cooldown or manual 1FC9 safeguards. Installing this beta does not transmit RF, put the R8810A into binding mode or change your existing Evohome heating control.
+
+**Release:** [RAMSES Arduino Gateway v0.4.0-beta.16](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.16), published only after the required CI and review gates succeed.
+
 ## Beta.15: Corrected OpenTherm bridge (R8810A) binding offer
 
 **Release:** [RAMSES Arduino Gateway v0.4.0-beta.15](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.15) — `RAMSES-Arduino-Gateway-v0.4.0-beta.15-ESP32-WROOM-32E.zip`.
@@ -70,7 +78,7 @@ Arduino IDE prototype, receive-only by default; optional guarded read-only RF di
 
 ## Download the standalone Arduino IDE ZIP
 
-[RAMSES Arduino Gateway v0.4.0-beta.15 release](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.15) — download the **RAMSES-Arduino-Gateway-v0.4.0-beta.15-ESP32-WROOM-32E.zip** asset (not the repository source-code ZIP). Unzip it, then open `RamsesGateway/RamsesGateway.ino` in Arduino IDE. This is a separately tagged **prerelease** for the radio gateway, not the Home Assistant integration.
+[RAMSES Arduino Gateway v0.4.0-beta.16 release](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.16) — download the **RAMSES-Arduino-Gateway-v0.4.0-beta.16-ESP32-WROOM-32E.zip** asset (not the repository source-code ZIP). Unzip it, then open `RamsesGateway/RamsesGateway.ino` in Arduino IDE. This is a separately tagged **prerelease** for the radio gateway, not the Home Assistant integration.
 
 ## Wiring (verify actual labels on CC1101 breakout)
 

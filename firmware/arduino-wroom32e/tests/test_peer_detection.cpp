@@ -25,6 +25,118 @@ int main(){
   ramses_read::putAddress(m.addresses[1],1,CONTROLLER);
   m.addrMask=5;
   assert(ramses_peer::controllerLinkedToBridge(m,BRIDGE)==0);
+
+  // Real R8810A 3150 I status (2026-10-18): controller is in addr3.
+  // Unlike a 3EF0 RP there is no addr2, so pre-beta.16 never learned 01:.
+  ramses::Message demand{};
+  demand.messageType=1; demand.addrMask=5; demand.opcode=0x3150;
+  demand.length=2; demand.payload[0]=0xFC; demand.payload[1]=0x00;
+  ramses_read::putAddress(demand.addresses[0],10,BRIDGE);
+  ramses_read::putAddress(demand.addresses[2],1,CONTROLLER);
+  assert(ramses_peer::isBridgeDemandToController(demand,BRIDGE));
+  assert(ramses_peer::controllerLinkedToBridge(demand,BRIDGE)==CONTROLLER);
+  assert(ramses_peer::controllerLinkedToBridge(demand,BRIDGE+1)==0);
+  // Identical 3150 from the heating valve 04:253821 is NOT bridge evidence.
+  ramses_read::putAddress(demand.addresses[0],4,253821);
+  assert(ramses_peer::controllerLinkedToBridge(demand,BRIDGE)==0);
+  ramses_read::putAddress(demand.addresses[0],10,BRIDGE);
+  demand.payload[0]=0x04;
+  assert(ramses_peer::controllerLinkedToBridge(demand,BRIDGE)==0);
+  demand.payload[0]=0xFC; demand.messageType=3;
+  assert(ramses_peer::controllerLinkedToBridge(demand,BRIDGE)==0);
+  demand.messageType=1; demand.opcode=0x2309;
+  assert(ramses_peer::controllerLinkedToBridge(demand,BRIDGE)==0);
+  demand.opcode=0x3150; demand.addrMask=3;
+  assert(ramses_peer::controllerLinkedToBridge(demand,BRIDGE)==0);
+  demand.addrMask=5; demand.length=1;
+  assert(ramses_peer::controllerLinkedToBridge(demand,BRIDGE)==0);
+  demand.length=2;
+  ramses_read::putAddress(demand.addresses[2],18,CONTROLLER);
+  assert(ramses_peer::controllerLinkedToBridge(demand,BRIDGE)==0);
+  ramses_read::putAddress(demand.addresses[2],1,CONTROLLER);
+  ramses_peer::ExistingController learnedFrom3150{};
+  learnedFrom3150.note(demand,BRIDGE);
+  assert(learnedFrom3150.id==CONTROLLER);
+  assert(learnedFrom3150.bridgeDemandSeen && !learnedFrom3150.directRequestSeen);
+  // Codex P2: RP-first and 3150-second target mismatch must fail closed,
+  // even when the RP is a stale virtual and the 3150 is the real Evohome.
+  ramses_peer::ExistingController rpThenDemand{};
+  ramses::Message provisionalReply{};
+  provisionalReply.messageType=3; provisionalReply.addrMask=3;
+  provisionalReply.opcode=0x3EF0;
+  ramses_read::putAddress(provisionalReply.addresses[0],10,BRIDGE);
+  ramses_read::putAddress(provisionalReply.addresses[1],1,160001);
+  rpThenDemand.note(provisionalReply,BRIDGE);
+  assert(rpThenDemand.id==160001 && !rpThenDemand.ambiguous);
+  rpThenDemand.note(demand,BRIDGE);
+  assert(rpThenDemand.id==0 && rpThenDemand.ambiguous);
+  rpThenDemand.note(provisionalReply,BRIDGE);
+  assert(rpThenDemand.id==0 && rpThenDemand.ambiguous);
+  // RP real first, then a 3150 to a retained virtual controller: same block.
+  ramses_peer::ExistingController realRpThenVirtualDemand{};
+  ramses_read::putAddress(provisionalReply.addresses[1],1,CONTROLLER);
+  realRpThenVirtualDemand.note(provisionalReply,BRIDGE);
+  ramses_read::putAddress(demand.addresses[2],1,160001);
+  realRpThenVirtualDemand.note(demand,BRIDGE);
+  assert(realRpThenVirtualDemand.id==0 && realRpThenVirtualDemand.ambiguous);
+  // 3150 real first, then an RP to a virtual: also ambiguous.
+  ramses_peer::ExistingController realDemandThenVirtualRp{};
+  ramses_read::putAddress(demand.addresses[2],1,CONTROLLER);
+  realDemandThenVirtualRp.note(demand,BRIDGE);
+  ramses_read::putAddress(provisionalReply.addresses[1],1,160001);
+  realDemandThenVirtualRp.note(provisionalReply,BRIDGE);
+  assert(realDemandThenVirtualRp.id==0 && realDemandThenVirtualRp.ambiguous);
+  // Matching 3EF0 and 3150 evidence for one 01: stays unambiguous.
+  ramses_peer::ExistingController matchingEvidence{};
+  ramses_read::putAddress(provisionalReply.addresses[1],1,CONTROLLER);
+  matchingEvidence.note(provisionalReply,BRIDGE);
+  matchingEvidence.note(demand,BRIDGE);
+  assert(matchingEvidence.id==CONTROLLER);
+  assert(matchingEvidence.bridgeDemandSeen && !matchingEvidence.ambiguous);
+  ramses_read::putAddress(provisionalReply.addresses[1],1,160001);
+  // Codex P2: a previously bound virtual 01: can appear in the FIRST 3150
+  // after reboot. When the real Evohome appears later, the two competing
+  // 3150 targets are ambiguous: never enable pairing using a guessed ID.
+  ramses_peer::ExistingController competing{};
+  ramses_read::putAddress(demand.addresses[2],1,160001);
+  competing.note(demand,BRIDGE);
+  assert(competing.id==160001 && competing.bridgeDemandSeen);
+  assert(!competing.ambiguous);
+  ramses_read::putAddress(demand.addresses[2],1,CONTROLLER);
+  competing.note(demand,BRIDGE);
+  assert(competing.id==0 && competing.ambiguous);
+  competing.note(demand,BRIDGE);
+  assert(competing.id==0 && competing.ambiguous);
+  // Neither a 3EF0 RP nor an unrelated bridge can clear that blocker.
+  competing.note(provisionalReply,BRIDGE);
+  competing.note(demand,BRIDGE+1);
+  assert(competing.id==0 && competing.ambiguous);
+  // Only a directly heard 01: -> configured bridge RQ resolves it.
+  ramses::Message clearConflict{};
+  clearConflict.messageType=0;clearConflict.addrMask=3;
+  clearConflict.opcode=0x3EF0;
+  ramses_read::putAddress(clearConflict.addresses[0],1,CONTROLLER);
+  ramses_read::putAddress(clearConflict.addresses[1],10,BRIDGE);
+  competing.note(clearConflict,BRIDGE);
+  assert(competing.id==CONTROLLER && competing.directRequestSeen);
+  assert(!competing.ambiguous);
+  ramses_read::putAddress(demand.addresses[2],1,160001);
+  competing.note(demand,BRIDGE);
+  assert(competing.id==CONTROLLER && !competing.ambiguous);
+  // The reverse order is also ambiguous, not merely first-virtual-first-real.
+  ramses_peer::ExistingController reversed{};
+  ramses_read::putAddress(demand.addresses[2],1,CONTROLLER);
+  reversed.note(demand,BRIDGE);
+  ramses_read::putAddress(demand.addresses[2],1,160001);
+  reversed.note(demand,BRIDGE);
+  assert(reversed.id==0 && reversed.ambiguous);
+  // A repeated 3150 for one controller alone is not a conflict.
+  ramses_peer::ExistingController repeated{};
+  repeated.note(demand,BRIDGE);
+  repeated.note(demand,BRIDGE);
+  assert(repeated.id==160001 && !repeated.ambiguous);
+  ramses_read::putAddress(demand.addresses[2],1,CONTROLLER);
+
   // A request addressed to the configured R8810A remains sufficient.
   m={};
   m.messageType=0; m.addrMask=3; m.opcode=0x3EF0;
@@ -56,6 +168,10 @@ int main(){
   ramses_read::putAddress(realRequest.addresses[0],1,CONTROLLER);
   ramses_read::putAddress(realRequest.addresses[1],10,BRIDGE);
   observed.note(realRequest,BRIDGE);
+  assert(observed.id==CONTROLLER && observed.directRequestSeen);
+  // Direct request retains precedence over subsequent bridge announcements.
+  ramses_read::putAddress(demand.addresses[2],1,160001);
+  observed.note(demand,BRIDGE);
   assert(observed.id==CONTROLLER && observed.directRequestSeen);
   // No later RP or unrelated bridge can displace direct controller evidence.
   observed.note(virtualReply,BRIDGE);

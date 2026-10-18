@@ -85,21 +85,22 @@ struct ExistingController {
       return; // Direct RQ remains higher priority than bridge announcements.
     }
     if(directRequestSeen || ambiguous)return;
-    if(bridgeDemand) {
-      if(bridgeDemandSeen && id!=candidate) {
-        // Could be a retained virtual 01: plus the real controller. No
-        // safe way to choose between them from third-address status alone.
-        id=0;
-        ambiguous=true;
-      } else {
-        id=candidate;
-        bridgeDemandSeen=true;
-      }
+    // Codex P2: BOTH RP (3EF0) and I (3150) are indirect observations.
+    // The first may refer to a stale virtual controller while the next is
+    // addressed to the real Evohome (or vice versa). A conflicting target
+    // must not silently upgrade or replace the observed controller. Wait for
+    // a direct controller->bridge RQ to disambiguate.
+    if(id && id!=candidate) {
+      id=0;
+      ambiguous=true;
       return;
     }
-    // RP-only inference is provisional. It cannot replace an observed 3150
-    // or clear an ambiguous bridge announcement.
-    if(!bridgeDemandSeen && !id)id=candidate;
+    if(bridgeDemand) {
+      id=candidate;
+      bridgeDemandSeen=true;
+    } else if(!id) {
+      id=candidate;
+    }
   }
 };
 } // namespace ramses_peer

@@ -45,5 +45,6 @@ int main() {
   assert(!hexBytes(d.expected,70,hex,140));
   assert(!hexBytes(d.expected,97,hex,sizeof(hex)));
   assert(strcmp(name(UNSAFE_RF_STATE),"unsafe_radio_state")==0);
+  assert(strcmp(name(UART_START_FAILED),"uart_start_failed")==0);
   puts("GPIO26-to-GPIO25 UART 1FC9 loopback fixture and comparisons PASS");
 }

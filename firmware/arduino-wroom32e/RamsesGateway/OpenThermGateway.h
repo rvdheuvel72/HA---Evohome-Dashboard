@@ -71,6 +71,13 @@ class OpenThermGateway {
     if(!config_->otBridge || config_->otBridge>262143)
       return "configure_bridge_id";
     if(!bridgeSeen_)return "bridge_not_observed";
+    // Multiple distinct 3150 controller targets make passive inference
+    // ambiguous (e.g. old virtual 01: alongside the real Evohome 01:).
+    // Do not mask that safety block as a simple missing controller.
+    portENTER_CRITICAL(&mutex_);
+    const bool ambiguousController=controllerEvidence_.ambiguous;
+    portEXIT_CRITICAL(&mutex_);
+    if(ambiguousController)return "evohome_controller_ambiguous";
     if(!observedController_)return "evohome_controller_not_observed";
     if(config_->otTxEnabled)return "automatic_tx_enabled";
     if(config_->otAutoPoll)return "automatic_polling_enabled";
@@ -130,6 +137,7 @@ class OpenThermGateway {
     snap=binding_;detail=bindingTx_;
     const uint8_t lastStep=bindingTxStep_;
     const bool exhausted=seenControllers_.saturated();
+    const bool ambiguous=controllerEvidence_.ambiguous;
     const unsigned tracked=seenControllers_.count;
     portEXIT_CRITICAL(&mutex_);
     const char* reason=radioReady?bindingBlockReason():"radio_not_ready";
@@ -146,7 +154,7 @@ class OpenThermGateway {
       "\"offer_accepted\":%s,\"confirmation_sent\":%s,"
       "\"verified_reply\":%s,\"read_ack\":%s,"
       "\"id_conflict\":%s,\"raw\":%u,"
-      "\"controller_id_coverage_exhausted\":%s,\"controller_ids_seen\":%u,"
+      "\"controller_ambiguous\":%s,\"controller_id_coverage_exhausted\":%s,\"controller_ids_seen\":%u,"
       "\"tx_step\":\"%s\",\"tx_phase\":\"%s\",\"tx_bytes\":%u,"
       "\"tx_expected_bytes\":%u,\"tx_elapsed_us\":%lu,"
       "\"tx_uart_elapsed_us\":%lu,\"tx_uart_min_expected_us\":%lu,"
@@ -172,7 +180,7 @@ class OpenThermGateway {
       snap.verifiedReadAck?"true":"false",
       snap.virtualIdCollision?"true":"false",
       static_cast<unsigned>(snap.lastRaw),
-      exhausted?"true":"false",tracked,
+      ambiguous?"true":"false",exhausted?"true":"false",tracked,
       step,ot_tx::phaseName(detail.phase),
       static_cast<unsigned>(detail.written_bytes),
       static_cast<unsigned>(detail.expected_bytes),

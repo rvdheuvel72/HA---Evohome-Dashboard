@@ -96,6 +96,9 @@ class Cc1101Radio {
     return idle && rx;
   }
 
+  // Read MARCSTATE while the ESP32 UART has finished sending but before SIDLE.
+  uint8_t txMarcState() { return status(0x35)&0x1fu; }
+
   // Observe a stable RX state after the existing TX teardown. The
   // immediate SRX strobe can leave the chip in a transient calibration state.
   // This is observation only: no further TX, reset or receive strobes.

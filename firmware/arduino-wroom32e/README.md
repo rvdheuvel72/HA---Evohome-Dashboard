@@ -18,7 +18,7 @@ View `GET /api/v1/radio/tx-loopback` (authenticated) for `status`, `expected_byt
 
 The bench test is only available with automatic RF TX, scanning, polling, and in-flight binding/one-shot requests disabled. A separate POST confirmation is required; all activity is RAM-only, one test per click, no automatic repeats.
 
-**Beta.13 release:** [RAMSES Arduino Gateway beta.14](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.14) · `RAMSES-Arduino-Gateway-v0.4.0-beta.14-ESP32-WROOM-32E.zip`. The release and binary are available only after checks and publishing have completed.
+**Beta.13 release:** [RAMSES Arduino Gateway beta.13](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.13) · `RAMSES-Arduino-Gateway-v0.4.0-beta.13-ESP32-WROOM-32E.zip`. The release and binary are available only after checks and publishing have completed.
 
 ## Beta.13: Verified-local CC1101 TX diagnostics (no new RF commands)
 
@@ -70,7 +70,7 @@ Arduino IDE prototype, receive-only by default; optional guarded read-only RF di
 
 ## Download the standalone Arduino IDE ZIP
 
-[RAMSES Arduino Gateway v0.4.0-beta.14 release](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.14) — download the **RAMSES-Arduino-Gateway-v0.4.0-beta.14-ESP32-WROOM-32E.zip** asset (not the repository source-code ZIP). Unzip it, then open `RamsesGateway/RamsesGateway.ino` in Arduino IDE. This is a separately tagged **prerelease** for the radio gateway, not the Home Assistant integration.
+[RAMSES Arduino Gateway v0.4.0-beta.15 release](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.15) — download the **RAMSES-Arduino-Gateway-v0.4.0-beta.15-ESP32-WROOM-32E.zip** asset (not the repository source-code ZIP). Unzip it, then open `RamsesGateway/RamsesGateway.ino` in Arduino IDE. This is a separately tagged **prerelease** for the radio gateway, not the Home Assistant integration.
 
 ## Wiring (verify actual labels on CC1101 breakout)
 

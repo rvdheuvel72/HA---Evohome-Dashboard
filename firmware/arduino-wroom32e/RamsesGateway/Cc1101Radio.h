@@ -55,6 +55,21 @@ class Cc1101Radio {
     if (!writeRegister(0x08,0x32)) { // async serial TX, no packet FIFO
       d.phase=ot_tx::TX_CONFIG_FAILED;enterReceive();return false;
     }
+    // Read live chip registers. This cannot verify the physical GDO0 wire
+    // or that a complete frame was radiated.
+    uint32_t expected=0;
+    d.verification_measured=true;
+    if(!radio_frequency::synth(frequencyKhz_,moduleBand_,expected,experimentalRx_)) {
+      d.phase=ot_tx::FREQUENCY_REJECTED;enterReceive();return false;
+    }
+    d.frequency_expected=expected;
+    d.frequency_readback=(static_cast<uint32_t>(readRegister(0x0D))<<16) |
+      (static_cast<uint32_t>(readRegister(0x0E))<<8) | readRegister(0x0F);
+    d.pktctrl0_readback=readRegister(0x08);
+    d.iocfg0_readback=readRegister(0x02);
+    d.mdmcfg4_readback=readRegister(0x10);
+    d.mdmcfg3_readback=readRegister(0x11);
+    d.mdmcfg2_readback=readRegister(0x12);
     if(!strobe(0x35)) {
       d.phase=ot_tx::TX_START_FAILED;enterReceive();return false;
     }
@@ -79,6 +94,21 @@ class Cc1101Radio {
       details->rx_restored=idle && rx;
     }
     return idle && rx;
+  }
+
+  // Observe a stable RX state after the existing TX teardown. The
+  // immediate SRX strobe can leave the chip in a transient calibration state.
+  // This is observation only: no further TX, reset or receive strobes.
+  void verifyPostTxRx(ot_tx::Report& d) {
+    const uint32_t started=micros();
+    do {
+      d.marc_after=status(0x35)&0x1fu;
+      if(d.marc_after==0x0Du) {
+        d.rx_state_confirmed=true;
+        return;
+      }
+      delayMicroseconds(100);
+    } while(static_cast<uint32_t>(micros()-started)<5000u);
   }
 
   // The reference RAMSES project first primes its FIFO with a 4-byte

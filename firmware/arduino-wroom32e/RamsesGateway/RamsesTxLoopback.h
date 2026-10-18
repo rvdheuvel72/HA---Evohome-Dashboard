@@ -55,7 +55,7 @@ inline bool makeFixture(uint8_t* out,size_t cap,size_t& len) {
   if(!ramses_bind::makeOffer(FIXTURE_CONTROLLER_ID,FIXTURE_BRIDGE_ID,frame,frameLen))
     return false;
   len=ramses_read::encodeUART(frame,frameLen,out,cap);
-  return len==70;
+  return len==82;
 }
 inline State compare(Report& result) {
   result.first_difference=-1;

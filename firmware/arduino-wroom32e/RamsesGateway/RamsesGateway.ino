@@ -273,35 +273,41 @@ void runTxPinLoopback(HardwareSerial& transmitter,Cc1101Radio& receiver) {
       pinMonitor.setRxBufferSize(256);
       // Only UART2 RX is routed; UART2 TX stays disabled.
       pinMonitor.begin(38400,SERIAL_8N1,ramses_loopback::RX_GPIO,-1);
-      delay(2);
-      while(pinMonitor.available())pinMonitor.read();
-      const uint32_t start=micros();
-      d.uart_written=static_cast<uint16_t>(
-          transmitter.write(d.expected,d.expected_len));
-      transmitter.flush();
-      d.uart_elapsed_us=micros()-start;
-      const uint32_t captureStarted=millis();
-      // Flush is finished; collect a further bounded 30ms for extra bytes.
-      while(static_cast<uint32_t>(millis()-captureStarted)<30u) {
-        while(pinMonitor.available()) {
-          const int val=pinMonitor.read();
-          if(val>=0 && d.captured_len<ramses_loopback::MAX_WIRE)
-            d.captured[d.captured_len++]=static_cast<uint8_t>(val);
+      // Arduino-ESP32 HardwareSerial::begin() returns void; operator bool()
+      // confirms whether the UART2 driver actually became available.
+      if(!pinMonitor) {
+        d.state=ramses_loopback::UART_START_FAILED;
+      } else {
+        delay(2);
+        while(pinMonitor.available())pinMonitor.read();
+        const uint32_t start=micros();
+        d.uart_written=static_cast<uint16_t>(
+            transmitter.write(d.expected,d.expected_len));
+        transmitter.flush();
+        d.uart_elapsed_us=micros()-start;
+        const uint32_t captureStarted=millis();
+        // Flush is finished; collect a further bounded 30ms for extra bytes.
+        while(static_cast<uint32_t>(millis()-captureStarted)<30u) {
+          while(pinMonitor.available()) {
+            const int val=pinMonitor.read();
+            if(val>=0 && d.captured_len<ramses_loopback::MAX_WIRE)
+              d.captured[d.captured_len++]=static_cast<uint8_t>(val);
+          }
+          vTaskDelay(pdMS_TO_TICKS(1));
         }
-        vTaskDelay(pdMS_TO_TICKS(1));
-      }
-      d.capture_elapsed_us=micros()-start;
-      pinMonitor.end();
-      d.state=d.uart_written!=d.expected_len?
-          ramses_loopback::UART_WRITE_FAILED:ramses_loopback::compare(d);
-      if(d.state==ramses_loopback::PASS) {
-        ramses::FrameDecoder decoded;
-        ramses::Message frame;
-        for(size_t i=0;i<d.captured_len;i++)
-          if(decoded.feed(d.captured[i],frame) &&
-             frame.opcode==0x1FC9 && frame.messageType==1)
-            d.decoded_1fc9=true;
-        if(!d.decoded_1fc9)d.state=ramses_loopback::DECODE_FAILED;
+        d.capture_elapsed_us=micros()-start;
+        pinMonitor.end();
+        d.state=d.uart_written!=d.expected_len?
+            ramses_loopback::UART_WRITE_FAILED:ramses_loopback::compare(d);
+        if(d.state==ramses_loopback::PASS) {
+          ramses::FrameDecoder decoded;
+          ramses::Message frame;
+          for(size_t i=0;i<d.captured_len;i++)
+            if(decoded.feed(d.captured[i],frame) &&
+               frame.opcode==0x1FC9 && frame.messageType==1)
+              d.decoded_1fc9=true;
+          if(!d.decoded_1fc9)d.state=ramses_loopback::DECODE_FAILED;
+        }
       }
     }
   }

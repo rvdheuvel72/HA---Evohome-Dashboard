@@ -25,6 +25,21 @@ inline bool isControllerRequestToBridge(const ramses::Message& message,
          type(message.addresses[1])==10 &&
          id(message.addresses[1])==bridge;
 }
+// R8810A 3150 I heat-demand status uses addr3 (not addr2) for the real
+// Evohome 01: controller. Observed passive traffic:
+//  I --- 10:048994 --:------ 01:245914 3150 002 FC00
+// Restrict inference to the configured bridge, exact 3150/status shape and
+// the FC domain. Other devices' 3150 traffic must not authorize pairing.
+inline bool isBridgeDemandToController(const ramses::Message& message,
+                                       uint32_t bridge) {
+  if(!isBridgeSender(message,bridge) ||
+     message.messageType!=1 || message.opcode!=0x3150 ||
+     message.addrMask!=5u || message.length!=2 ||
+     message.payload[0]!=0xFC ||
+     type(message.addresses[2])!=1)return false;
+  const uint32_t controller=id(message.addresses[2]);
+  return controller>0 && controller<262143;
+}
 inline uint32_t controllerFromBridgeReply(const ramses::Message& message,
                                           uint32_t bridge) {
   // 3EF0 is normal OpenTherm-bridge state traffic. A checksum-valid RP from
@@ -41,6 +56,8 @@ inline uint32_t controllerLinkedToBridge(const ramses::Message& message,
                                          uint32_t bridge) {
   if(isControllerRequestToBridge(message,bridge))
     return id(message.addresses[0]);
+  if(isBridgeDemandToController(message,bridge))
+    return id(message.addresses[2]);
   return controllerFromBridgeReply(message,bridge);
 }
 
@@ -50,13 +67,19 @@ inline uint32_t controllerLinkedToBridge(const ramses::Message& message,
 struct ExistingController {
   uint32_t id=0;
   bool directRequestSeen=false;
+  bool bridgeDemandSeen=false;
   void note(const ramses::Message& message,uint32_t bridge) {
     const bool direct=isControllerRequestToBridge(message,bridge);
+    const bool bridgeDemand=isBridgeDemandToController(message,bridge);
     const uint32_t candidate=controllerLinkedToBridge(message,bridge);
     if(!candidate || candidate>=262143)return;
     if(direct && !directRequestSeen) {
       id=candidate;
       directRequestSeen=true;
+    } else if(bridgeDemand && !directRequestSeen && !bridgeDemandSeen) {
+      // Explicit bridge->controller 3150 outranks a provisional 3EF0 RP.
+      id=candidate;
+      bridgeDemandSeen=true;
     } else if(!id) {
       id=candidate;
     }

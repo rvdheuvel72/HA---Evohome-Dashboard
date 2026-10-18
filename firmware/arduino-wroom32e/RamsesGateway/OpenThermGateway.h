@@ -97,6 +97,19 @@ class OpenThermGateway {
     if(cooling)return "pairing_cooldown";
     return nullptr;
   }
+  // Bench UART loopback must never overlap ANY pending RF command, scan,
+  // pairing transaction, verification wait, or enabled automatic TX mode.
+  // Recheck on radioTask even when the HTTP preflight already passed.
+  bool loopbackAllowed() const {
+    if(!config_ || config_->otTxEnabled || config_->otAutoPoll ||
+       config_->otScanAll)return false;
+    portENTER_CRITICAL(&mutex_);
+    const bool idle=!requested_ && !work_.active && !binding_.busy() &&
+       singleProbe_.state!=ot_single::QUEUED &&
+       singleProbe_.state!=ot_single::WAITING;
+    portEXIT_CRITICAL(&mutex_);
+    return idle;
+  }
   bool requestBinding(uint32_t virtualControllerId){
     if(bindingBlockReason()!=nullptr || !bindingReady())return false;
     portENTER_CRITICAL(&mutex_);

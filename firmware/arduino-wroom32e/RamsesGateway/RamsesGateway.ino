@@ -15,6 +15,7 @@
 #include <time.h>
 #include <sys/time.h>
 #include "Cc1101Radio.h"
+#include "RamsesTxLoopback.h"
 #include "RamsesCodec.h"
 #include "GatewayDebug.h"
 #include "GatewayWebPage.h"
@@ -84,7 +85,7 @@ constexpr uint8_t RING_SIZE = 12;
 constexpr uint32_t RX_IDLE_TIMEOUT_MS = 250;
 constexpr uint32_t HEARTBEAT_MS = 15000;
 constexpr uint8_t DEBUG_QUEUE_SIZE = 16;
-constexpr char FW_VERSION[] = "0.4.0-beta.13";
+constexpr char FW_VERSION[] = "0.4.0-beta.14";
 constexpr uint32_t MDNS_RETRY_MS = 15000;
 constexpr uint32_t MQTT_STATE_INTERVAL_MS = 15000;
 
@@ -122,6 +123,17 @@ bool mdnsReady = false;
 uint32_t lastMdnsAttempt = 0;
 
 volatile bool radioReady = false;
+portMUX_TYPE loopbackMux = portMUX_INITIALIZER_UNLOCKED;
+ramses_loopback::Report loopbackReport;
+// The main loop queues a request, and only radioTask operates UART1 or UART2.
+bool loopbackBusy() {
+  portENTER_CRITICAL(&loopbackMux);
+  const bool busy=loopbackReport.state==ramses_loopback::QUEUED ||
+      loopbackReport.state==ramses_loopback::RUNNING;
+  portEXIT_CRITICAL(&loopbackMux);
+  return busy;
+}
+
 volatile uint32_t validFrames = 0;
 volatile uint32_t rejectedFrames = 0;
 volatile uint32_t droppedFrames = 0;
@@ -244,6 +256,70 @@ void appendCapture(ramses_capture::Kind kind,const char* message,
   portEXIT_CRITICAL(&packetCaptureMux);
 }
 
+// GPIO-only UART1 TX -> UART2 RX. No CC1101 STX or RF packet transmission.
+void runTxPinLoopback(HardwareSerial& transmitter,Cc1101Radio& receiver) {
+  ramses_loopback::Report d;
+  d.state=ramses_loopback::RUNNING;
+  d.radio_marc_before=receiver.txMarcState();
+  if(!otGateway.loopbackAllowed() || d.radio_marc_before!=0x0Du) {
+    d.state=ramses_loopback::UNSAFE_RF_STATE;
+  } else {
+    size_t wireLen=0;
+    if(!ramses_loopback::makeFixture(d.expected,sizeof(d.expected),wireLen)) {
+      d.state=ramses_loopback::INVALID_FIXTURE;
+    } else {
+      d.expected_len=static_cast<uint16_t>(wireLen);
+      HardwareSerial pinMonitor(2);
+      pinMonitor.setRxBufferSize(256);
+      // Only UART2 RX is routed; UART2 TX stays disabled.
+      pinMonitor.begin(38400,SERIAL_8N1,ramses_loopback::RX_GPIO,-1);
+      delay(2);
+      while(pinMonitor.available())pinMonitor.read();
+      const uint32_t start=micros();
+      d.uart_written=static_cast<uint16_t>(
+          transmitter.write(d.expected,d.expected_len));
+      transmitter.flush();
+      d.uart_elapsed_us=micros()-start;
+      const uint32_t captureStarted=millis();
+      // Flush is finished; collect a further bounded 30ms for extra bytes.
+      while(static_cast<uint32_t>(millis()-captureStarted)<30u) {
+        while(pinMonitor.available()) {
+          const int val=pinMonitor.read();
+          if(val>=0 && d.captured_len<ramses_loopback::MAX_WIRE)
+            d.captured[d.captured_len++]=static_cast<uint8_t>(val);
+        }
+        vTaskDelay(pdMS_TO_TICKS(1));
+      }
+      d.capture_elapsed_us=micros()-start;
+      pinMonitor.end();
+      d.state=d.uart_written!=d.expected_len?
+          ramses_loopback::UART_WRITE_FAILED:ramses_loopback::compare(d);
+      if(d.state==ramses_loopback::PASS) {
+        ramses::FrameDecoder decoded;
+        ramses::Message frame;
+        for(size_t i=0;i<d.captured_len;i++)
+          if(decoded.feed(d.captured[i],frame) &&
+             frame.opcode==0x1FC9 && frame.messageType==1)
+            d.decoded_1fc9=true;
+        if(!d.decoded_1fc9)d.state=ramses_loopback::DECODE_FAILED;
+      }
+    }
+  }
+  d.radio_marc_after=receiver.txMarcState();
+  if(d.radio_marc_after!=0x0Du)d.state=ramses_loopback::UNSAFE_RF_STATE;
+  d.completed_ms=millis();
+  portENTER_CRITICAL(&loopbackMux);
+  loopbackReport=d;
+  portEXIT_CRITICAL(&loopbackMux);
+  char logLine[128];
+  snprintf(logLine,sizeof(logLine),
+    "GPIO26->GPIO25 UART loopback: %s captured=%u/%u bytes, first_diff=%d; NO RF STX",
+    ramses_loopback::name(d.state),
+    static_cast<unsigned>(d.captured_len),static_cast<unsigned>(d.expected_len),
+    static_cast<int>(d.first_difference));
+  radioLog(d.state==ramses_loopback::PASS?GatewayDebug::INFO:GatewayDebug::WARN,logLine);
+}
+
 void radioTask(void*) {
   ramses::FrameDecoder decoder;
   ramses::Message message;
@@ -349,6 +425,15 @@ void radioTask(void*) {
       }
       lastCalibrationMs = now;
     }
+    // Perform the GPIO bench test before the OpenTherm scheduler.
+    bool startLoopback=false;
+    portENTER_CRITICAL(&loopbackMux);
+    if(loopbackReport.state==ramses_loopback::QUEUED) {
+      loopbackReport.state=ramses_loopback::RUNNING;
+      startLoopback=true;
+    }
+    portEXIT_CRITICAL(&loopbackMux);
+    if(startLoopback)runTxPinLoopback(rfUart,radio);
     otGateway.tick(radio,rfUart,decoder);
     if(rxDebugEnabled && now-lastRxDebugLogMs>=15000) {
       ramses_rx::Counters snapshot;

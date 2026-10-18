@@ -61,28 +61,45 @@ inline uint32_t controllerLinkedToBridge(const ramses::Message& message,
   return controllerFromBridgeReply(message,bridge);
 }
 
-// Reply-only observations are provisional. An explicitly observed controller
-// request to the bridge is stronger evidence and replaces an earlier RP-only
-// guess, but later replies cannot overwrite a directly observed controller.
+// Evidence strength: directly observed controller RQ > bridge 3150 status
+// > bridge 3EF0 RP. Multiple distinct 3150 targets can be an old virtual
+// controller plus the real Evohome after a reboot. Never silently choose the
+// first such target: block pairing until a direct 01: -> bridge request is seen.
+// Evidence is ephemeral and receive-only; callers supply checksum-valid frames.
 struct ExistingController {
   uint32_t id=0;
   bool directRequestSeen=false;
   bool bridgeDemandSeen=false;
+  bool ambiguous=false;
   void note(const ramses::Message& message,uint32_t bridge) {
     const bool direct=isControllerRequestToBridge(message,bridge);
     const bool bridgeDemand=isBridgeDemandToController(message,bridge);
     const uint32_t candidate=controllerLinkedToBridge(message,bridge);
     if(!candidate || candidate>=262143)return;
-    if(direct && !directRequestSeen) {
-      id=candidate;
-      directRequestSeen=true;
-    } else if(bridgeDemand && !directRequestSeen && !bridgeDemandSeen) {
-      // Explicit bridge->controller 3150 outranks a provisional 3EF0 RP.
-      id=candidate;
-      bridgeDemandSeen=true;
-    } else if(!id) {
-      id=candidate;
+    if(direct) {
+      if(!directRequestSeen) {
+        id=candidate;
+        directRequestSeen=true;
+        ambiguous=false;
+      }
+      return; // Direct RQ remains higher priority than bridge announcements.
     }
+    if(directRequestSeen || ambiguous)return;
+    if(bridgeDemand) {
+      if(bridgeDemandSeen && id!=candidate) {
+        // Could be a retained virtual 01: plus the real controller. No
+        // safe way to choose between them from third-address status alone.
+        id=0;
+        ambiguous=true;
+      } else {
+        id=candidate;
+        bridgeDemandSeen=true;
+      }
+      return;
+    }
+    // RP-only inference is provisional. It cannot replace an observed 3150
+    // or clear an ambiguous bridge announcement.
+    if(!bridgeDemandSeen && !id)id=candidate;
   }
 };
 } // namespace ramses_peer

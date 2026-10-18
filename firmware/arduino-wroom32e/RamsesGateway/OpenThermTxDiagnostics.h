@@ -2,6 +2,7 @@
 // A local radio result does NOT demonstrate that the RF frame was heard by R8810A.
 #pragma once
 #include <stdint.h>
+#include <string.h>
 namespace ot_tx {
 enum Method : uint8_t { ASYNC_UART=0, REFERENCE_FIFO=1 };
 inline const char* methodName(Method m) {
@@ -77,7 +78,7 @@ inline const char* localVerificationReason(const Report& d) {
   return "local_tx_verified";
 }
 inline bool localVerified(const Report& d) {
-  return localVerificationReason(d)[0]=='l'; // only "local_tx_verified"
+  return strcmp(localVerificationReason(d),"local_tx_verified")==0;
 }
 struct Comparison {
   uint32_t attempts=0, local_completed=0, read_acks=0,

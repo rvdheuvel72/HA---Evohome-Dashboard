@@ -127,25 +127,25 @@ class OpenThermGateway {
        lastStep==3?"verification_read":"not_started";
     char body[1740];
     const int n=snprintf(body,sizeof(body),
-      "{\\"state\\":\\"%s\\",\\"ready\\":%s,\\"block_reason\\":\\"%s\\",\\"radio_ready\\":%s,\\"bridge_seen\\":%s,"
-      "\\"bridge_id\\":%lu,\\"existing_controller_id\\":%lu,"
-      "\\"virtual_controller_id\\":%lu,\\"cooldown_ms\\":%lu,"
-      "\\"offer_accepted\\":%s,\\"confirmation_sent\\":%s,"
-      "\\"verified_reply\\":%s,\\"read_ack\\":%s,"
-      "\\"id_conflict\\":%s,\\"raw\\":%u,"
-      "\\"controller_id_coverage_exhausted\\":%s,\\"controller_ids_seen\\":%u,"
-      "\\"tx_step\\":\\"%s\\",\\"tx_phase\\":\\"%s\\",\\"tx_bytes\\":%u,"
-      "\\"tx_expected_bytes\\":%u,\\"tx_elapsed_us\\":%lu,"
-      "\\"tx_uart_elapsed_us\\":%lu,\\"tx_uart_min_expected_us\\":%lu,"
-      "\\"tx_frequency_expected\\":%lu,\\"tx_frequency_readback\\":%lu,"
-      "\\"tx_pktctrl0\\":%u,\\"tx_iocfg0\\":%u,"
-      "\\"tx_mdmcfg4\\":%u,\\"tx_mdmcfg3\\":%u,\\"tx_mdmcfg2\\":%u,"
-      "\\"tx_pa_expected\\":%u,\\"tx_pa_readback\\":%u,"
-      "\\"tx_marc_before\\":%u,\\"tx_marc_during\\":%u,"
-      "\\"tx_marc_after_uart\\":%u,\\"tx_marc_after\\":%u,"
-      "\\"tx_saw_tx\\":%s,\\"tx_rx_restored\\":%s,\\"tx_rx_state_confirmed\\":%s,"
-      "\\"tx_local_verified\\":%s,\\"tx_local_verification_reason\\":\\"%s\\","
-      "\\"tx_scope\\":\\"Local chip/UART checks only; RF delivery and GPIO wiring unverified\\"}",
+      "{\"state\":\"%s\",\"ready\":%s,\"block_reason\":\"%s\",\"radio_ready\":%s,\"bridge_seen\":%s,"
+      "\"bridge_id\":%lu,\"existing_controller_id\":%lu,"
+      "\"virtual_controller_id\":%lu,\"cooldown_ms\":%lu,"
+      "\"offer_accepted\":%s,\"confirmation_sent\":%s,"
+      "\"verified_reply\":%s,\"read_ack\":%s,"
+      "\"id_conflict\":%s,\"raw\":%u,"
+      "\"controller_id_coverage_exhausted\":%s,\"controller_ids_seen\":%u,"
+      "\"tx_step\":\"%s\",\"tx_phase\":\"%s\",\"tx_bytes\":%u,"
+      "\"tx_expected_bytes\":%u,\"tx_elapsed_us\":%lu,"
+      "\"tx_uart_elapsed_us\":%lu,\"tx_uart_min_expected_us\":%lu,"
+      "\"tx_frequency_expected\":%lu,\"tx_frequency_readback\":%lu,"
+      "\"tx_pktctrl0\":%u,\"tx_iocfg0\":%u,"
+      "\"tx_mdmcfg4\":%u,\"tx_mdmcfg3\":%u,\"tx_mdmcfg2\":%u,"
+      "\"tx_pa_expected\":%u,\"tx_pa_readback\":%u,"
+      "\"tx_marc_before\":%u,\"tx_marc_during\":%u,"
+      "\"tx_marc_after_uart\":%u,\"tx_marc_after\":%u,"
+      "\"tx_saw_tx\":%s,\"tx_rx_restored\":%s,\"tx_rx_state_confirmed\":%s,"
+      "\"tx_local_verified\":%s,\"tx_local_verification_reason\":\"%s\","
+      "\"tx_scope\":\"Local chip/UART checks only; RF delivery and GPIO wiring unverified\"}",
       ramses_bind::name(snap.state),mayStart?"true":"false",
       reason?reason:"",radioReady?"true":"false",
       bridgeSeen_?"true":"false",
@@ -185,7 +185,7 @@ class OpenThermGateway {
       ot_tx::localVerified(detail)?"true":"false",
       ot_tx::localVerificationReason(detail));
     if(n<0 || static_cast<size_t>(n)>=sizeof(body)) {
-      server.send(500,"application/json","{\\"error\\":\\"pairing_diagnostics_overflow\\"}");
+      server.send(500,"application/json","{\"error\":\"pairing_diagnostics_overflow\"}");
       return;
     }
     server.sendHeader("Cache-Control","no-store");

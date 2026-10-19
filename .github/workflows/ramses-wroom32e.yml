@@ -1,0 +1,45 @@
+name: Build RAMSES ESP32-WROOM-32E gateway
+on:
+  push:
+    paths:
+      - "firmware/wroom32e/**"
+      - ".github/workflows/ramses-wroom32e.yml"
+  pull_request:
+    paths:
+      - "firmware/wroom32e/**"
+      - ".github/workflows/ramses-wroom32e.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout HA Evohome project
+        uses: actions/checkout@v4
+      - name: Checkout pinned RAMSES-ESP source
+        shell: bash
+        run: |
+          git clone https://github.com/IndaloTech/ramses_esp.git .upstream-ramses
+          git -C .upstream-ramses checkout 12836b2907cb0f0a0b1f3be648dafc40192c2023
+      - name: Apply classic ESP32 port
+        run: python3 firmware/wroom32e/apply_port.py .upstream-ramses
+      - name: Compile using ESP-IDF 5.2.1
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.2.1
+          target: esp32
+          path: .upstream-ramses
+          command: idf.py build
+      - name: Upload untested firmware binaries
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ramses-wroom32e-UNTESTED
+          path: |
+            .upstream-ramses/build/*.bin
+            .upstream-ramses/build/bootloader/*.bin
+            .upstream-ramses/build/partition_table/*.bin
+          if-no-files-found: error

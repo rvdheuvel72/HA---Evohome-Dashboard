@@ -18,12 +18,18 @@ permissions:
 jobs:
   compile:
     runs-on: [self-hosted, Linux, X64]
+    env:
+      # Shared/self-hosted runners must not reuse or race on Arduino state.
+      ARDUINO_CONFIG_FILE: ${{ runner.temp }}/arduino-cli.yaml
+      ARDUINO_DIRECTORIES_DATA: ${{ runner.temp }}/arduino-data
+      ARDUINO_DIRECTORIES_USER: ${{ runner.temp }}/arduino-sketchbook
+      ARDUINO_DIRECTORIES_DOWNLOADS: ${{ runner.temp }}/arduino-downloads
     steps:
       - uses: actions/checkout@v7
       - uses: arduino/setup-arduino-cli@v2
       - name: Install Espressif core and MQTT library
         run: |
-          arduino-cli config init
+          arduino-cli config init --dest-file "$ARDUINO_CONFIG_FILE" --overwrite
           arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
           arduino-cli core update-index
           arduino-cli core install esp32:esp32@3.3.4

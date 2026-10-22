@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   compile:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - uses: actions/checkout@v7
       - uses: arduino/setup-arduino-cli@v2
@@ -33,6 +33,11 @@ jobs:
           g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer \
             firmware/arduino-wroom32e/tests/test_codec.cpp -o /tmp/test-ramses-codec
           /tmp/test-ramses-codec
+      - name: Test passive CC1101 RX health snapshots
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror \
+            firmware/arduino-wroom32e/tests/test_rx_health.cpp -o /tmp/test-ramses-rx-health
+          /tmp/test-ramses-rx-health
       - name: Test bounded diagnostic event ring
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer \

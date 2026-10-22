@@ -170,6 +170,25 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python3 scripts/check_release_readiness.py
 
+      - name: Ensure GitHub CLI is available on self-hosted runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v gh >/dev/null 2>&1; then
+            command -v apt-get >/dev/null 2>&1 || { echo "::error::gh and apt-get unavailable"; exit 1; }
+            if [ "$(id -u)" = 0 ]; then
+              apt-get update -qq
+              DEBIAN_FRONTEND=noninteractive apt-get install -y -qq gh
+            elif command -v sudo >/dev/null 2>&1; then
+              sudo apt-get update -qq
+              sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq gh
+            else
+              echo "::error::GitHub CLI is missing and runner has no apt privileges"
+              exit 1
+            fi
+          fi
+          command -v gh
+          gh --version
       - name: Publish GitHub Releases beta assets (no Actions artifacts)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

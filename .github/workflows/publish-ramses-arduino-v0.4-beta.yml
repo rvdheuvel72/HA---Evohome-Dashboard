@@ -121,7 +121,7 @@ jobs:
               'RamsesGateway.ino', 'RamsesCodec.h', 'Cc1101Radio.h',
               'OpenThermGateway.h', 'OpenThermReadOnly.h',
               'OpenThermScan.h', 'RamsesReadRequest.h', 'RamsesBinding.h', 'RamsesTxLoopback.h', 'RamsesControllerIds.h', 'RamsesPeerDetection.h', 'RadioFrequency.h',
-              'GatewayWebPage.h', 'GatewayHostname.h',
+              'GatewayWebPage.h', 'GatewayWebScript.h', 'GatewayHostname.h',
               'GatewayDiscovery.h', 'GatewayRuntimeConfig.h',
               'GatewaySecrets.example.h',
               'GatewayDebug.h', 'RamsesPacketCapture.h',

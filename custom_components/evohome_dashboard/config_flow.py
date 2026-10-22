@@ -1,6 +1,6 @@
 """UI configuration for a single European Resideo TCC account.
 
-Use the public methods of pinned evohome-async v3.0.0. In that version initialization uses EvohomeClient.setup() without polling status.
+Use the HA 2026.10 native evohome-async 2.1.0 API; avoid dependency conflicts.
 """
 from __future__ import annotations
 
@@ -37,8 +37,9 @@ class EvohomeDashboardConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     async_get_clientsession(self.hass),
                 )
                 client = EvohomeClient(manager)
-                # evohome-async==3.0.0: update(...), NOT setup().
-                await client.setup()
+                # HA 2026.10 shares evohomeasync2 with its native integration.
+                # v2.1.0 loads configuration without polling locations here.
+                await client.update(dont_update_status=True)
                 if not client.locations:
                     errors["base"] = "no_locations"
             except Exception as err:

@@ -18,14 +18,19 @@ permissions:
 jobs:
   compile:
     runs-on: [self-hosted, Linux, X64]
-    env:
-      # Shared/self-hosted runners must not reuse or race on Arduino state.
-      ARDUINO_CONFIG_FILE: ${{ runner.temp }}/arduino-cli.yaml
-      ARDUINO_DIRECTORIES_DATA: ${{ runner.temp }}/arduino-data
-      ARDUINO_DIRECTORIES_USER: ${{ runner.temp }}/arduino-sketchbook
-      ARDUINO_DIRECTORIES_DOWNLOADS: ${{ runner.temp }}/arduino-downloads
     steps:
       - uses: actions/checkout@v7
+      - name: Isolate Arduino state per self-hosted job
+        shell: bash
+        run: |
+          set -euo pipefail
+          # RUNNER_TEMP is unique to this job; GITHUB_ENV persists to later steps.
+          {
+            echo "ARDUINO_CONFIG_FILE=$RUNNER_TEMP/arduino-cli.yaml"
+            echo "ARDUINO_DIRECTORIES_DATA=$RUNNER_TEMP/arduino-data"
+            echo "ARDUINO_DIRECTORIES_USER=$RUNNER_TEMP/arduino-sketchbook"
+            echo "ARDUINO_DIRECTORIES_DOWNLOADS=$RUNNER_TEMP/arduino-downloads"
+          } >> "$GITHUB_ENV"
       - uses: arduino/setup-arduino-cli@v2
       - name: Install Espressif core and MQTT library
         run: |

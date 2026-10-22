@@ -25,10 +25,24 @@ class Cc1101Radio {
     digitalWrite(CS, HIGH);
     pinMode(MISO, INPUT);
     SPI.begin(SCK, MISO, MOSI, CS);
-    if (!reset()) return false;
-    part_ = status(0x30);  // PARTNUM
-    version_ = status(0x31); // VERSION
-    if (part_ != 0x00 || version_ == 0x00 || version_ == 0xFF) return false;
+    // The radio stays powered during an ESP32 software restart. It can be
+    // mid-frame / calibrating when the SPI host comes back. Always issue SRES,
+    // wait for CHIP_RDYn and retry boundedly before giving up.
+    part_=0xFF;
+    version_=0xFF;
+    bool identified=false;
+    for(uint8_t attempt=0;attempt<3;attempt++) {
+      if(reset()) {
+        part_=status(0x30);  // PARTNUM
+        version_=status(0x31); // VERSION
+        if(part_==0x00 && version_!=0x00 && version_!=0xFF) {
+          identified=true;
+          break;
+        }
+      }
+      delay(40);
+    }
+    if(!identified)return false;
     for (uint8_t i = 0; i < sizeof(settings_); ++i)
       if (!writeRegister(i, settings_[i])) return false;
     if (!writeRegister(0x0D, static_cast<uint8_t>(synthesizer >> 16)) ||
@@ -302,7 +316,18 @@ class Cc1101Radio {
     digitalWrite(CS, LOW); delayMicroseconds(10);
     digitalWrite(CS, HIGH); delayMicroseconds(45);
     if (!select()) return false;
-    SPI.transfer(0x30); // SRES. No RF TX instruction anywhere.
+    SPI.transfer(0x30); // SRES, software reset of still-powered CC1101.
+    // Keep CS asserted until SO/MISO goes LOW again (CHIP_RDYn). Merely
+    // issuing SRES then immediately deasserting CS can race an active chip.
+    delayMicroseconds(100);
+    const uint32_t begun=micros();
+    while(digitalRead(MISO)==HIGH) {
+      if(static_cast<uint32_t>(micros()-begun)>=20000u) {
+        release();
+        return false;
+      }
+      delayMicroseconds(20);
+    }
     release();
     delay(2);
     return true;

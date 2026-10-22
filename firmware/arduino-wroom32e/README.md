@@ -78,9 +78,15 @@ Arduino IDE prototype, receive-only by default; optional guarded read-only RF di
 
 ## Download the standalone Arduino IDE ZIP
 
-[RAMSES Arduino Gateway v0.4.0-beta.16 release](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.16) — download the **RAMSES-Arduino-Gateway-v0.4.0-beta.16-ESP32-WROOM-32E.zip** asset (not the repository source-code ZIP). Unzip it, then open `RamsesGateway/RamsesGateway.ino` in Arduino IDE. This is a separately tagged **prerelease** for the radio gateway, not the Home Assistant integration.
+[RAMSES Arduino Gateway v0.4.0-beta.17 release](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.17) — download the **RAMSES-Arduino-Gateway-v0.4.0-beta.17-ESP32-WROOM-32E.zip** asset (not the repository source-code ZIP). Unzip it, then open `RamsesGateway/RamsesGateway.ino` in Arduino IDE. This is a separately tagged **prerelease** for the radio gateway, not the Home Assistant integration.
 
-## Passive CC1101 RX-state diagnostics (feature branch)
+## Beta.17: M5Stack M146 CC1101 RX stability diagnostics
+
+**Release:** [RAMSES Arduino Gateway v0.4.0-beta.17](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.17) — `RAMSES-Arduino-Gateway-v0.4.0-beta.17-ESP32-WROOM-32E.zip` (after CI/review/publishing).
+
+This update packages the RX-health diagnostics merged in PR #47. It tracks the radio state across the observed stall after a single valid RAMSES message. The M5Stack M146 868 MHz M-BUS module uses **5V on pin 28**, unlike a bare CC1101 breakout (3.3V), and requires GPIO27/GDO2 connected as shown below.
+
+## Passive CC1101 RX-state diagnostics
 
 The authenticated `GET /api/v1/radio/rx-health` endpoint returns a protected
 snapshot recorded by `radioTask`; HTTP does **not** access the CC1101 via SPI.

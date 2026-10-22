@@ -1,3 +1,13 @@
+## Beta.18: Faster web interface and warm ESP32 radio reset recovery
+
+**Release:** [RAMSES Arduino Gateway v0.4.0-beta.18](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.18) after exact-head CI and required release checks.
+
+The gateway no longer serves the 41KB debug page as one synchronous HTTP response. HTML and JavaScript are distinct PROGMEM assets, sent in bounded network blocks. When a diagnostic section is closed, its periodic endpoint calls are suspended; log export is still available on demand. Status updates every five seconds. A CC1101 initialization failure after a software-only reboot now retries without needing a permanent USB power-cycle; active RX is checked rather than assuming SPI success.
+
+**Module:** The M5Stack M146 868 MHz board receives 5V on M-BUS 28, via its regulator. Never apply 5V to a bare CC1101 breakout's VCC pin.
+
+**Test:** Refresh `http://evohome-gateway.local/`, then inspect `/api/v1/status` and `/api/v1/radio/rx-health`. Software tests cannot prove stable on-air reception without your R8810A traffic.
+
 ## Beta.16: Recognize R8810A 3150 status addressed to existing Evohome controller
 
 The normal Evohome controller can be identified from a **checksum-valid** bridge-originated `3150 I` status packet, even if the receiver misses controller `RQ` messages and `3EF0 RP` replies. Actual diagnostic capture: `I --- 10:048994 --:------ 01:245914 3150 002 FC00`. This address is in the **third address field**, not the second. Passive detection checks the configured bridge ID, `I` verb, `3150` opcode, exact address layout, 2-byte payload and `FC` domain; packets from radiator devices (such as `04:253821`) are not accepted as controller evidence.

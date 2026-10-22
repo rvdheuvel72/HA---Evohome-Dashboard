@@ -141,19 +141,8 @@ jobs:
             firmware/arduino-wroom32e/tests/test_gateway_runtime_config.cpp \
             -o /tmp/test-ramses-runtime-settings
           /tmp/test-ramses-runtime-settings
-      - name: Validate embedded gateway configuration page JavaScript
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          src=Path('firmware/arduino-wroom32e/RamsesGateway/GatewayWebPage.h').read_text()
-          assert src.count('<script>')==1 and src.count('</script>')==1
-          js=src.split('<script>',1)[1].split('</script>',1)[0]
-          assert 'event.preventDefault()' in js
-          assert 'cfg-timezone' in js and 'X-Gateway-Config' in js
-          assert "item.timestamp" in js
-          Path('/tmp/gateway-page.js').write_text(js)
-          PY
-          node --check /tmp/gateway-page.js
+      - name: Validate bounded HTTP delivery and JavaScript
+        run: python3 firmware/arduino-wroom32e/tests/test_web_delivery.py
       - name: Validate standalone RAMSES release version contract
         run: python3 firmware/arduino-wroom32e/tests/test_release_contract.py
       - name: Compile for ESP32-WROOM-32E

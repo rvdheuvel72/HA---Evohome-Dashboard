@@ -2,6 +2,8 @@
 
 **Release:** [RAMSES Arduino Gateway v0.4.0-beta.18](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.18) after exact-head CI and required release checks.
 
+**Arduino IDE ZIP:** `RAMSES-Arduino-Gateway-v0.4.0-beta.18-ESP32-WROOM-32E.zip` (published only when release checks pass).
+
 The gateway no longer serves the 41KB debug page as one synchronous HTTP response. HTML and JavaScript are distinct PROGMEM assets, sent in bounded network blocks. When a diagnostic section is closed, its periodic endpoint calls are suspended; log export is still available on demand. Status updates every five seconds. A CC1101 initialization failure after a software-only reboot now retries without needing a permanent USB power-cycle; active RX is checked rather than assuming SPI success.
 
 **Module:** The M5Stack M146 868 MHz board receives 5V on M-BUS 28, via its regulator. Never apply 5V to a bare CC1101 breakout's VCC pin.

@@ -28,6 +28,27 @@ jobs:
           arduino-cli core update-index
           arduino-cli core install esp32:esp32@3.3.4
           arduino-cli lib install "PubSubClient@2.8"
+      - name: Provision native test compiler on self-hosted Linux
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v g++ >/dev/null 2>&1; then
+            command -v apt-get >/dev/null 2>&1 || { echo "::error::apt-get and g++ unavailable"; exit 1; }
+            if [ "$(id -u)" = 0 ]; then
+              apt-get update -qq
+              DEBIAN_FRONTEND=noninteractive apt-get install -y -qq g++
+            elif command -v sudo >/dev/null 2>&1; then
+              sudo apt-get update -qq
+              sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq g++
+            else
+              echo "::error::g++ missing; runner has no apt privileges"
+              exit 1
+            fi
+          fi
+          g++ --version
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
       - name: Test RAMSES receive decoder (host-native)
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer \

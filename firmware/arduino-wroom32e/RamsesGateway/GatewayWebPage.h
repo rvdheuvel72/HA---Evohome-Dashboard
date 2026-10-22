@@ -88,7 +88,7 @@ a{color:#a9d5ff}
 <label class="setting-check"><input type="checkbox" id="rx-debug-enable"> Enable detailed RX debug summaries (every 15 seconds, no restart)</label>
 <span id="rx-debug-state" class="muted">Loading RX diagnostics...</span>
 <div class="controls"><a href="/api/v1/radio/diagnostics" target="_blank">Receive diagnostic JSON</a><a href="/api/v1/radio/rx-health" target="_blank">RX health / MARCSTATE JSON</a><a href="/api/v1/debug/download" target="_blank">Export debug log</a></div>
-<details><summary>CC1101 RX state and re-entry measurements (passive)</summary><pre id="rx-health">Collecting RX state samples...</pre></details>
+<details id="rx-health-panel"><summary>CC1101 RX state and re-entry measurements (passive)</summary><pre id="rx-health">Collecting RX state samples...</pre></details>
 <pre id="rx-debug-counters" aria-live="polite">Waiting for radio diagnostic counters...</pre>
 <details class="panel" id="packet-capture-panel">
 <summary>Extended RAMSES packet capture (received packets and rejected frames)</summary>
@@ -148,12 +148,12 @@ a{color:#a9d5ff}
 <label class="field">Virtual gateway RF ID (18:XXXXXX)<input id="cfg-ot_source" name="ot_source" type="number" min="0" max="262142" required></label>
 </div>
 <small id="cfg-rf-band">Software RF tuning does not guarantee reception on a PCB tuned for another band. Experimental RX can never transmit.</small>
-<details><summary>ESP32 ↔ CC1101 wiring (fixed GPIO assignments)</summary><table class="pin-map"><thead><tr><th>CC1101</th><th>Signal</th><th>ESP32</th></tr></thead><tbody>
+<details><summary>ESP32 ↔ bare CC1101 breakout wiring (not M5Stack M-BUS)</summary><table class="pin-map"><thead><tr><th>CC1101</th><th>Signal</th><th>ESP32</th></tr></thead><tbody>
 <tr><td>1</td><td>GND (brown)</td><td>GND</td></tr><tr><td>2</td><td>VCC (red)</td><td>3V3 only</td></tr>
 <tr><td>3</td><td>GDO0</td><td>GPIO26</td></tr><tr><td>4</td><td>CSN</td><td>GPIO5</td></tr>
 <tr><td>5</td><td>SCK</td><td>GPIO18</td></tr><tr><td>6</td><td>MOSI</td><td>GPIO23</td></tr>
 <tr><td>7</td><td>MISO</td><td>GPIO19</td></tr><tr><td>8</td><td>GDO2</td><td>GPIO27</td></tr>
-</tbody></table><small>Pin numbering for your photographed V2.0 board (component side toward you, antenna at top). GPIO mapping is fixed in firmware.</small></details>
+</tbody></table><small>Pin numbering above applies ONLY to the bare 8-pin CC1101 board (3V3). M5Stack M146 instead needs M-BUS pin 28 → 5V and pin 1 → GND; MOSI pin 7, MISO pin 9, SCK pin 11, CSN pin 8, GDO0 pin 22, GDO2 pin 2. Never connect its 5V input to 3V3. GPIO assignments stay the same.</small></details>
 <div class="controls">
 <label class="setting-check"><input name="ot_scan_all" id="cfg-ot_scan_all" type="checkbox"> Scan all 256 Data-IDs</label>
 <label class="setting-check"><input name="ot_auto_poll" id="cfg-ot_auto_poll" type="checkbox"> Automatic read polling</label>
@@ -236,6 +236,7 @@ el('cfg').addEventListener('submit',async event=>{
 });
 
 async function updatePacketCapture(){
+  if(document.hidden || !el("packet-capture-panel").open)return;
   try {
     const response=await fetch('/api/v1/capture/status',{cache:'no-store'});
     if(!response.ok)throw new Error('HTTP '+response.status);
@@ -271,9 +272,10 @@ async function changePacketCapture(action) {
 }
 for(const action of ['start','stop','clear'])
   el('capture-'+action).addEventListener('click',()=>changePacketCapture(action));
-updatePacketCapture();setInterval(updatePacketCapture,5000);
+updatePacketCapture();setInterval(updatePacketCapture,10000);
 
 async function updateRxDiagnostics(){
+  if(document.hidden || el("page-diagnostics").hidden)return;
   try {
     const response=await fetch('/api/v1/radio/diagnostics',{cache:'no-store'});
     if(!response.ok)throw new Error('HTTP '+response.status);
@@ -313,15 +315,16 @@ el('rx-debug-enable').addEventListener('change',async()=>{
   }catch(e){set('rx-debug-state','Cannot switch RX debug: '+e.message)}
   finally{checkbox.disabled=false;updateRxDiagnostics()}
 });
-updateRxDiagnostics();setInterval(updateRxDiagnostics,5000);
+updateRxDiagnostics();setInterval(updateRxDiagnostics,15000);
 async function updateRxHealth(){
+ if(document.hidden || !el("rx-health-panel").open)return;
  try{
   const response=await fetch('/api/v1/radio/rx-health',{cache:'no-store'});
   if(!response.ok)throw Error('HTTP '+response.status);
   set('rx-health',JSON.stringify(await response.json(),null,2));
  }catch(e){set('rx-health','RX health unavailable: '+e.message)}
 }
-updateRxHealth();setInterval(updateRxHealth,10000);
+updateRxHealth();setInterval(updateRxHealth,15000);
 
 async function otStatus(){
  try{
@@ -361,6 +364,7 @@ const pairingBlockMessages={
 let pairingPostError='';
 let loopbackPostError='';
 async function updateLoopback(){
+ if(document.hidden || !el("tx-loopback-panel").open)return;
  try {
   const r=await fetch('/api/v1/radio/tx-loopback',{cache:'no-store'});
   if(!r.ok)throw new Error('HTTP '+r.status);
@@ -400,9 +404,10 @@ el('loopback-start').addEventListener('click',async()=>{
  }
  finally{updateLoopback()}
 });
-updateLoopback();setInterval(updateLoopback,2500);
+updateLoopback();setInterval(updateLoopback,10000);
 
 async function updatePairing(){
+ if(document.hidden || !el("pairing-panel").open)return;
  try{
   const r=await fetch('/api/v1/opentherm/pairing',{cache:'no-store'});
   if(!r.ok)throw new Error('HTTP '+r.status);
@@ -482,9 +487,10 @@ el('pairing-start').addEventListener('click',async()=>{
  }
  finally{updatePairing()}
 });
-updatePairing();setInterval(updatePairing,5000);
+updatePairing();setInterval(updatePairing,10000);
 
 async function updateOneShot(){
+ if(document.hidden || !el("one-shot-panel").open)return;
  try{
   const r=await fetch('/api/v1/opentherm/one-shot',{cache:'no-store'});
   if(!r.ok)throw new Error('HTTP '+r.status);
@@ -535,7 +541,7 @@ el('one-shot-send').addEventListener('click',async()=>{
  }catch(e){set('one-shot-result','Request rejected: '+e.message)}
  finally{updateOneShot()}
 });
-updateOneShot();setInterval(updateOneShot,5000);
+updateOneShot();setInterval(updateOneShot,10000);
 el('ot-scan').addEventListener('click',async()=>{
  el('ot-scan').disabled=true;
  try{
@@ -549,12 +555,12 @@ el('ot-scan').addEventListener('click',async()=>{
  finally{otStatus()}
 });
 
-let cursor=0,lines=[],working=false;
+let cursor=0,lines=[],working=false,logsWorking=false;
 const number=n=>Number(n||0).toLocaleString('en-US');
 function set(id,value){el(id).textContent=value}
 function add(line){lines.push(line);if(lines.length>250)lines.shift();set('logs',lines.join('\n'))}
 async function poll(){
-if(working)return;working=true;
+if(working || document.hidden)return;working=true;
 try{
 const status=await fetch('/api/v1/status',{cache:'no-store'});
 if(!status.ok)throw new Error('status HTTP '+status.status);
@@ -572,21 +578,44 @@ set('heap',number(s.free_heap)+' B');
 set('uptime',Math.floor((s.uptime_ms||0)/1000)+' seconds up');
 set('health',s.radio_detected?(s.valid_frames?'Receiving':'Waiting for RF'):'Radio not connected');
 set('reset','Last reset: '+(s.reset_reason||'unknown'));
-const response=await fetch('/api/v1/debug/logs?since='+cursor+'&level='+el('level').value,{cache:'no-store'});
-if(!response.ok)throw new Error('logs HTTP '+response.status);
-const data=await response.json();
-if(cursor===0 && lines.length===0)set('logs','');
-for(const item of data.entries||[]){
- const timestamp=item.timestamp||('+'+Math.floor(item.uptime_ms/1000)+'s (clock waiting for NTP)');
- add('['+timestamp+'] '+item.level.padEnd(5)+' '+item.message);
-}
-cursor=Number(data.next||cursor);
+
 }catch(error){set('connection','Disconnected');el('connection').className='bad';if(lines.length===0)set('logs','Network error: '+error.message)}
 finally{working=false}
 }
-el('clear').addEventListener('click',()=>{lines=[];set('logs','');cursor=0;poll()});
-el('level').addEventListener('change',()=>{lines=[];set('logs','');cursor=0;poll()});
-poll();setInterval(poll,2000);
-otStatus();setInterval(otStatus,5000);
+async function pollLogs(){
+ if(logsWorking||document.hidden||el('page-diagnostics-log').hidden)return;
+ logsWorking=true;
+ try{
+  const response=await fetch('/api/v1/debug/logs?since='+cursor+'&level='+el('level').value,{cache:'no-store'});
+  if(!response.ok)throw new Error('logs HTTP '+response.status);
+  const data=await response.json();
+  const entries=data.entries||[];
+  if(cursor===0 && lines.length===0)set('logs','');
+  for(const item of entries){
+   const timestamp=item.timestamp||('+'+Math.floor(item.uptime_ms/1000)+'s (clock waiting for NTP)');
+   lines.push('['+timestamp+'] '+item.level.padEnd(5)+' '+item.message);
+  }
+  while(lines.length>250)lines.shift();
+  if(entries.length)set('logs',lines.join('\\n'));
+  cursor=Number(data.next||cursor);
+ }catch(error){if(lines.length===0)set('logs','Log retrieval: '+error.message)}
+ finally{logsWorking=false}
+}
+for(const id of ['packet-capture-panel','tx-loopback-panel','pairing-panel','one-shot-panel','rx-health-panel']){
+ const section=el(id);
+ const handler={
+  'packet-capture-panel':updatePacketCapture,
+  'tx-loopback-panel':updateLoopback,
+  'pairing-panel':updatePairing,
+  'one-shot-panel':updateOneShot,
+  'rx-health-panel':updateRxHealth
+ }[id];
+ section.addEventListener('toggle',()=>{if(section.open)handler()});
+}
+el('clear').addEventListener('click',()=>{lines=[];set('logs','');cursor=0;pollLogs()});
+el('level').addEventListener('change',()=>{lines=[];set('logs','');cursor=0;pollLogs()});
+poll();setInterval(poll,5000);
+pollLogs();setInterval(pollLogs,10000);
+otStatus();setInterval(otStatus,15000);
 loadConfig();
 </script></body></html>)GWHTML";

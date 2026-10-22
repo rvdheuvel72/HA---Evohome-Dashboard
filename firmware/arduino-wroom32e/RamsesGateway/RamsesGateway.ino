@@ -150,6 +150,8 @@ volatile uint32_t rfUartBytes = 0;
 volatile uint32_t rfSyncs = 0;
 volatile uint32_t radioRxRecalibrations = 0;
 volatile uint32_t radioRxRecalibrationFailures = 0;
+volatile uint32_t radioSilentRecoveryAttempts=0;
+volatile uint32_t radioSilentRecoveryFailures=0;
 // Low-cost receive accounting always runs; optional 15s log summaries can be
 // enabled or disabled instantly without writing NVS or restarting the ESP32.
 portMUX_TYPE rxDiagnosticsMux = portMUX_INITIALIZER_UNLOCKED;
@@ -379,7 +381,16 @@ void radioTask(void*) {
   uint32_t lastCalibrationMs = millis();
   uint32_t lastHealthSampleMs = millis();
   uint32_t lastRxDebugLogMs=millis();
+  uint32_t nextSilentRecoveryMs=millis()+120000u;
   for (;;) {
+    if(!radioReady){
+      vTaskDelay(pdMS_TO_TICKS(RADIO_RECOVERY_RETRY_MS));
+      radioReady=radio.begin(configuration.current.rfFrequencyKhz,
+                              configuration.current.rfModuleBand,
+                              configuration.current.rfExperimentalRx==1);
+      if(!radioReady)continue;
+      radioLog(GatewayDebug::INFO,"CC1101 recovered after retry; RX verified");
+    }
     int processed = 0;
     while (rfUart.available() && processed < 512) {
       const uint8_t byteIn = static_cast<uint8_t>(rfUart.read());
@@ -438,6 +449,31 @@ void radioTask(void*) {
     }
 
     const uint32_t now = millis();
+    // A valid SPI silicon ID does not prove the GDO2 UART receive path has
+    // resumed following an ESP32-only reboot. Try no more than two RX-only
+    // software resets, and only if no RAMSES sync and little UART activity.
+    if(static_cast<int32_t>(now-nextSilentRecoveryMs)>=0 &&
+       radioSilentRecoveryAttempts<2 && rfSyncs==0 && validFrames==0 &&
+       rfUartBytes<256 && !decoder.receiving()) {
+      ++radioSilentRecoveryAttempts;
+      radioLog(GatewayDebug::WARN,"CC1101 silent since boot; RX-only SRES retry");
+      radioReady=radio.begin(configuration.current.rfFrequencyKhz,
+                             configuration.current.rfModuleBand,
+                             configuration.current.rfExperimentalRx==1);
+      if(!radioReady) {
+        ++radioSilentRecoveryFailures;
+        radioLog(GatewayDebug::WARN,"CC1101 RX recovery failed, retry in 5s");
+      } else {
+        const auto sample=radio.readRxHealth(now,rfUartBytes);
+        portENTER_CRITICAL(&rxHealthMux);
+        rxHealth.observe(sample);
+        portEXIT_CRITICAL(&rxHealthMux);
+      }
+      nextSilentRecoveryMs=now+120000u;
+      lastCalibrationMs=now;
+      lastHealthSampleMs=now;
+      if(!radioReady)continue;
+    }
     if (decoder.receiving() && (now - lastByteMs > RX_IDLE_TIMEOUT_MS)) {
       decoder.abortIdleTimeout();
       const ramses::RejectReason reason=decoder.takeError();

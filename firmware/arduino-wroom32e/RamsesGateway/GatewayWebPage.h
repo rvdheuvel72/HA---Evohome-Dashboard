@@ -87,7 +87,8 @@ a{color:#a9d5ff}
 <p class="muted">These counters include all RF senders and classify decoding errors before address checks. An invalid frame cannot be reliably attributed to the R8810A. The optional RX Debug switch logs one summary every 15 seconds; it does not change reception, filtering, TX or settings and resets to OFF after reboot.</p>
 <label class="setting-check"><input type="checkbox" id="rx-debug-enable"> Enable detailed RX debug summaries (every 15 seconds, no restart)</label>
 <span id="rx-debug-state" class="muted">Loading RX diagnostics...</span>
-<div class="controls"><a href="/api/v1/radio/diagnostics" target="_blank">Receive diagnostic JSON</a><a href="/api/v1/debug/download" target="_blank">Export debug log</a></div>
+<div class="controls"><a href="/api/v1/radio/diagnostics" target="_blank">Receive diagnostic JSON</a><a href="/api/v1/radio/rx-health" target="_blank">RX health / MARCSTATE JSON</a><a href="/api/v1/debug/download" target="_blank">Export debug log</a></div>
+<details><summary>CC1101 RX state and re-entry measurements (passive)</summary><pre id="rx-health">Collecting RX state samples...</pre></details>
 <pre id="rx-debug-counters" aria-live="polite">Waiting for radio diagnostic counters...</pre>
 <details class="panel" id="packet-capture-panel">
 <summary>Extended RAMSES packet capture (received packets and rejected frames)</summary>
@@ -313,6 +314,14 @@ el('rx-debug-enable').addEventListener('change',async()=>{
   finally{checkbox.disabled=false;updateRxDiagnostics()}
 });
 updateRxDiagnostics();setInterval(updateRxDiagnostics,5000);
+async function updateRxHealth(){
+ try{
+  const response=await fetch('/api/v1/radio/rx-health',{cache:'no-store'});
+  if(!response.ok)throw Error('HTTP '+response.status);
+  set('rx-health',JSON.stringify(await response.json(),null,2));
+ }catch(e){set('rx-health','RX health unavailable: '+e.message)}
+}
+updateRxHealth();setInterval(updateRxHealth,10000);
 
 async function otStatus(){
  try{

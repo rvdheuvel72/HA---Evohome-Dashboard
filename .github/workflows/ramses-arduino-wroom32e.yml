@@ -17,22 +17,59 @@ permissions:
 
 jobs:
   compile:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - uses: actions/checkout@v7
+      - name: Isolate Arduino state per self-hosted job
+        shell: bash
+        run: |
+          set -euo pipefail
+          # RUNNER_TEMP is unique to this job; GITHUB_ENV persists to later steps.
+          {
+            echo "ARDUINO_CONFIG_FILE=$RUNNER_TEMP/arduino-cli.yaml"
+            echo "ARDUINO_DIRECTORIES_DATA=$RUNNER_TEMP/arduino-data"
+            echo "ARDUINO_DIRECTORIES_USER=$RUNNER_TEMP/arduino-sketchbook"
+            echo "ARDUINO_DIRECTORIES_DOWNLOADS=$RUNNER_TEMP/arduino-downloads"
+          } >> "$GITHUB_ENV"
       - uses: arduino/setup-arduino-cli@v2
       - name: Install Espressif core and MQTT library
         run: |
-          arduino-cli config init
+          arduino-cli config init --dest-file "$ARDUINO_CONFIG_FILE" --overwrite
           arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
           arduino-cli core update-index
           arduino-cli core install esp32:esp32@3.3.4
           arduino-cli lib install "PubSubClient@2.8"
+      - name: Provision native test compiler on self-hosted Linux
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v g++ >/dev/null 2>&1; then
+            command -v apt-get >/dev/null 2>&1 || { echo "::error::apt-get and g++ unavailable"; exit 1; }
+            if [ "$(id -u)" = 0 ]; then
+              apt-get update -qq
+              DEBIAN_FRONTEND=noninteractive apt-get install -y -qq g++
+            elif command -v sudo >/dev/null 2>&1; then
+              sudo apt-get update -qq
+              sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq g++
+            else
+              echo "::error::g++ missing; runner has no apt privileges"
+              exit 1
+            fi
+          fi
+          g++ --version
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
       - name: Test RAMSES receive decoder (host-native)
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer \
             firmware/arduino-wroom32e/tests/test_codec.cpp -o /tmp/test-ramses-codec
           /tmp/test-ramses-codec
+      - name: Test passive CC1101 RX health snapshots
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror \
+            firmware/arduino-wroom32e/tests/test_rx_health.cpp -o /tmp/test-ramses-rx-health
+          /tmp/test-ramses-rx-health
       - name: Test bounded diagnostic event ring
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer \

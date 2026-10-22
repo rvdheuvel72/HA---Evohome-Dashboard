@@ -7,6 +7,7 @@
 #include "OpenThermTxDiagnostics.h"
 #include "RamsesUartFifo.h"
 #include "RamsesRxDiagnostics.h"
+#include "RamsesRxHealth.h"
 
 class Cc1101Radio {
  public:
@@ -36,6 +37,18 @@ class Cc1101Radio {
     return enterReceive();
   }
 
+  // SPI and GPIO sampling is restricted to radioTask, never HTTP handlers.
+  // One GPIO level is not evidence of a valid asynchronous waveform.
+  ramses_rx_health::Sample readRxHealth(uint32_t now,uint32_t uartBytes) {
+    ramses_rx_health::Sample s;
+    s.uptime_ms=now;
+    s.uart_bytes=uartBytes;
+    s.marcstate=status(0x35)&0x1Fu;
+    s.iocfg2=readRegister(0x00);
+    s.pktctrl0=readRegister(0x08);
+    s.gdo2_level=static_cast<uint8_t>(digitalRead(GDO2));
+    return s;
+  }
   uint8_t part() const { return part_; }
   uint8_t version() const { return version_; }
   uint32_t frequencyKhz() const { return frequencyKhz_; }

@@ -1,13 +1,13 @@
 {
   "domain": "evohome_dashboard",
   "name": "Evohome Dashboard",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "config_flow": true,
   "documentation": "https://github.com/rvdheuvel72/HA---Evohome-Dashboard",
   "issue_tracker": "https://github.com/rvdheuvel72/HA---Evohome-Dashboard/issues",
   "iot_class": "cloud_polling",
   "requirements": [
-    "evohome-async==3.0.0"
+    "evohome-async==2.1.0"
   ],
   "loggers": [
     "evohomeasync2"

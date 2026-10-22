@@ -10,11 +10,6 @@ from custom_components.evohome_dashboard.hub import EvohomeHub
 from custom_components.evohome_dashboard import PLATFORMS
 
 
-class FakeTask:
-    async def wait(self):
-        return None
-
-
 class FakeCoordinator:
     def __init__(self):
         self._write_lock = asyncio.Lock()
@@ -44,7 +39,7 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
             async def execute():
                 await asyncio.sleep(0.015)
                 holder["until"] = new_expiry
-                return FakeTask()
+                return None
 
             def check(previous):
                 hub.previous.append(previous)
@@ -58,6 +53,18 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         a,b = await asyncio.gather(issue(first), issue(second))
         self.assertTrue(a["verified"] and b["verified"])
         self.assertEqual(hub.previous, [t0, first])
+
+    async def test_v2_update_and_write_api_is_installed(self):
+        from inspect import iscoroutinefunction
+        from importlib.metadata import version
+        from _evohome.exceptions import EvohomeError
+        from evohomeasync2 import EvohomeClient, Location, Zone
+        self.assertEqual(version("evohome-async"), "2.1.0")
+        self.assertTrue(issubclass(EvohomeError, Exception))
+        self.assertTrue(iscoroutinefunction(EvohomeClient.update))
+        self.assertTrue(iscoroutinefunction(Location.update))
+        self.assertTrue(iscoroutinefunction(Zone.set_temperature))
+        self.assertFalse(hasattr(EvohomeClient, "setup"))
 
     async def test_all_native_platforms_declared(self):
         self.assertEqual(set(PLATFORMS),

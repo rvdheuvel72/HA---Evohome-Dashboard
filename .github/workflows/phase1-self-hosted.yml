@@ -82,14 +82,29 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: '3.14'
+      - name: Isolate Python dependencies on persistent runners
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/evohome-pinned-venv"
+          echo "$RUNNER_TEMP/evohome-pinned-venv/bin" >> "$GITHUB_PATH"
       - name: Install exactly pinned Resideo client
         shell: bash
         run: |
           set -euo pipefail
-          python -m pip install "evohome-async==3.0.0"
-      - name: Verify API signatures and used methods
+          python -m pip install "evohome-async==2.1.0"
+      - name: Verify API signatures, common exceptions package and used methods
         shell: bash
-        run: python scripts/verify_library_api.py
+        run: |
+          python scripts/verify_library_api.py
+          python - <<'PY'
+          from importlib.metadata import version
+          from _evohome.exceptions import EvohomeError
+          import evohomeasync2
+          assert version("evohome-async") == "2.1.0"
+          assert EvohomeError is not None
+          print("HA 2026.10 pinned Evohome and _evohome import PASS")
+          PY
 
   ha-runtime-import:
     name: Home Assistant 2026.10 runtime imports
@@ -102,11 +117,17 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: '3.14'
+      - name: Isolate Python dependencies on persistent runners
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/evohome-ha-runtime-venv"
+          echo "$RUNNER_TEMP/evohome-ha-runtime-venv/bin" >> "$GITHUB_PATH"
       - name: Install Home Assistant and exact transport
         shell: bash
         run: |
           set -euo pipefail
-          python -m pip install "homeassistant>=2026.10,<2026.11" "evohome-async==3.0.0"
+          python -m pip install "homeassistant>=2026.10,<2026.11" "evohome-async==2.1.0"
       - name: Import every native HA platform
         shell: bash
         run: |

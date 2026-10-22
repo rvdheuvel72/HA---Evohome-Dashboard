@@ -1,8 +1,8 @@
-"""Independent orchestration for the pinned evohome-async==3.0.0 client.
+"""Independent orchestration for Home Assistant's evohome-async==2.1.0 client.
 
-Version 3.0.0 uses EvohomeClient.setup(), Location.get_status() and
-returns CommTask objects from cloud writes. We wait for completion and then
-verify reported state after the comm task has succeeded.
+The v2 client loads its configuration via EvohomeClient.update(), polls
+location status via Location.update(), and its write methods return None.
+We verify state with new cloud status fetches instead of relying on PUT ACK.
 """
 from __future__ import annotations
 
@@ -62,12 +62,12 @@ class EvohomeHub(DataUpdateCoordinator[dict]):
         for event in (events or {}).get("events", []):
             if isinstance(event, dict):
                 self._errors.append(event)
-        await self.client.setup()
+        await self.client.update(dont_update_status=True)
 
     async def _async_update_data(self):
         try:
             # Fetch status only; schedules are loaded on demand.
-            await asyncio.gather(*(loc.get_status() for loc in self.client.locations))
+            await asyncio.gather(*(loc.update() for loc in self.client.locations))
             return snapshot(self.client)
         except Exception as exc:
             await self._record("poll_status", exc)
@@ -113,20 +113,20 @@ class EvohomeHub(DataUpdateCoordinator[dict]):
         for attempt in range(self.VERIFY_ATTEMPTS):
             if attempt:
                 await asyncio.sleep(self.VERIFY_INTERVAL)
-            await location.get_status()
+            await location.update()
             if predicate():
                 return
         raise TimeoutError("The requested heating state was not confirmed by Resideo")
 
     async def _execute(self, operation, target, action, location, predicate, *, previous_expiry=None):
-        """Serialize, await the vendor comm task, and verify the reported state."""
+        """Serialize the cloud PUT and verify a fresh observed status after it."""
         async with self._write_lock:
             try:
                 # Prior state must be sampled under the same lock as the PUT.
                 prior = previous_expiry() if previous_expiry is not None else None
-                task = await action()
+                # v2.1.0 PUT methods return None, not v3 CommTask objects.
                 async with asyncio.timeout(60):
-                    await task.wait()
+                    await action()
                 validator = (lambda: predicate(prior)) if previous_expiry is not None else predicate
                 await self._wait_for_state(location, validator)
                 await self.async_request_refresh()
@@ -235,9 +235,9 @@ class EvohomeHub(DataUpdateCoordinator[dict]):
                 validated = validate(schedule, limits=snapshot_limits(zone))
                 if digest(validated) == expected:
                     return {"ok": True, "unchanged": True}
-                task = await zone.set_schedule(validated)
+                # v2.1.0 PUT acknowledges without a CommTask; verify via GET.
                 async with asyncio.timeout(60):
-                    await task.wait()
+                    await zone.set_schedule(validated)
                 # Confirm with repeated live GETs, not only task completion.
                 for attempt in range(self.VERIFY_ATTEMPTS):
                     if attempt:

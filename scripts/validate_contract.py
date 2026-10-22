@@ -8,7 +8,7 @@ manifest = json.loads((target / "manifest.json").read_text())
 assert manifest["domain"] == "evohome_dashboard"
 assert manifest["config_flow"] is True
 assert manifest["iot_class"] == "cloud_polling"
-assert any(x.startswith("evohome-async==") for x in manifest["requirements"])
+assert manifest["requirements"] == ["evohome-async==2.1.0"], "Match HA 2026.10 built-in evohome dependency"
 assert "colegates" not in json.dumps(manifest).lower()
 for required in ("__init__.py", "auth.py", "config_flow.py", "hub.py", "websocket.py",
                  "schedules.py", "model.py", "climate.py", "sensor.py",

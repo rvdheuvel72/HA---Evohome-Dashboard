@@ -4,7 +4,7 @@
 
 Phase 1 is an original HACS integration and an administrator-only custom sidebar panel.
 It does not use or embed any source from `colegates/evohome-control`.
-Its transport uses the independently maintained, Apache-2.0 licensed `evohome-async==3.0.0` library (also used by the built-in HA Evohome integration). Resideo TCC v2 is cloud-only; local LAN control or RAMSES RF is **not** part of Phase 1.
+Its transport uses the independently maintained, Apache-2.0 licensed `evohome-async==2.1.0` library (the exact version used by Home Assistant 2026.10's built-in Evohome integration; mixed versions cannot coexist in the HA Python environment). Resideo TCC v2 is cloud-only; local LAN control or RAMSES RF is **not** part of Phase 1.
 
 ### Components
 
@@ -29,7 +29,7 @@ Its transport uses the independently maintained, Apache-2.0 licensed `evohome-as
 
 1. **Overview / Rooms** — zone temperatures and targets; permanent or time-limited override; clear and resume.
 2. **Quick Actions** — available system modes, resume via Auto; DHW on/off for 1h or resume.
-3. **Schedules** — request the live weekly schedule per room, edit switchpoints, copy days, save with conflict check; the v3 transport waits for a cloud communication task, then verifies read-back state.
+3. **Schedules** — request the live weekly schedule per room, edit switchpoints, copy days, save with conflict check; the v2.1 transport submits one write and verifies the result via a fresh status read-back (v2.1 has no CommTask awaitable).
 4. **Settings** — cloud connectivity and supported capability inventory. Installer-only features are read-only informational entries, not fake working controls.
 5. **Error log** — bounded history in HA private storage; records operation, target, time, exception type only. HA log records the same without secrets.
 

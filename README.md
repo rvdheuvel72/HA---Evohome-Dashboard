@@ -48,7 +48,7 @@ The integration's **Configure** action provides temperature polling interval (de
 ### Safety and observability
 
 - Home Assistant stores OAuth access/refresh tokens in private `.storage`, separated by configuration entry. Never add these files to Git.
-- evohome-async 3.0.0 provides communication-task completion. Control writes await task completion then poll Resideo for the requested state; schedule writes also guard against concurrent changes and verify the schedule by repeated live reads. A cloud GET confirmation is not the same as direct RF acknowledgement.
+- Evohome Dashboard 0.3.1 uses `evohome-async==2.1.0`, matching Home Assistant 2026.10's built-in integration. Version 2.1.0 returns no `CommTask` from cloud writes: the dashboard submits one write, then polls Resideo for the requested state. Schedule saves also guard against concurrent edits and verify results with repeated live GETs. A cloud GET confirmation is not a direct RF acknowledgement.
 - The Error log sidebar tab provides the last 80 diagnostic incidents, persisted across HA restarts. Only timestamp, operation, exception class and target identifier are saved.
 - If HA or Resideo becomes unavailable, Evohome retains its existing locally stored schedule. The frontend displays the last known data and connection health.
 - Installer-only settings (RF pairing, boiler tuning, Wi-Fi, factory reset and device diagnostics) are clearly displayed as **unavailable through verified TCC cloud capabilities**. They cannot honestly be made controllable without further reverse engineering and hardware validation.
@@ -68,7 +68,7 @@ A passing CI build **does not** mean end-to-end integration is verified. Before 
 
 ## Login issues
 
-Version 0.1.1 fixed an API mismatch with its then-pinned `evohome-async==2.1.0`; version 0.2.0 moved to v3.0.0. It also corrects status refresh calls and classifies invalid credentials, Resideo HTTP 429 rate limiting, invalid cloud responses and network errors separately. HA logs record only exception class and HTTP status, never raw vendor response bodies or secrets.
+Version 0.3.1 restores the built-in HA 2026.10 transport pin `evohome-async==2.1.0` after version 0.2.0 introduced 3.0.0 and could leave shared Python dependencies inconsistent (for example `No module named '_evohome.exceptions'`). It uses the 2.1.0 public client/location `update()` API instead of 3.0.0 `setup()` and `get_status()` methods. The integration also corrects status refresh calls and classifies invalid credentials, Resideo HTTP 429 rate limiting, invalid cloud responses and network errors separately. HA logs record only exception class and HTTP status, never raw vendor response bodies or secrets.
 
 **After upgrading in HACS, restart Home Assistant and retry adding the integration.** If Resideo rate-limits the account, wait before retrying; repeated submissions can extend the lockout.
 
@@ -83,7 +83,7 @@ python3 scripts/validate_contract.py
 node --check custom_components/evohome_dashboard/frontend/dashboard.js
 node --check frontend-package/dist/evohome-dashboard-ui.js
 python scripts/package_frontend.py
-python scripts/verify_library_api.py  # after installing evohome-async==3.0.0
+python scripts/verify_library_api.py  # in an isolated venv with evohome-async==2.1.0
 ```
 
 See [Architecture](docs/ARCHITECTURE.md) and [Feature matrix](docs/FEATURE_MATRIX.md).
@@ -139,7 +139,7 @@ a dedicated frost-protection switch, and a resume-schedule button.
 See [User guide](docs/USER_GUIDE.md) for the exact controls and limitations,
 and [Renovate setup](docs/RENOVATE.md) for required app authorization.
 
-Version 0.2.0 upgrades its Resideo client from 2.1.0 to **3.0.0**,
+Version 0.2.0 originally upgraded its Resideo client from 2.1.0 to **3.0.0** (subsequently reverted in backend v0.3.1 for HA 2026.10 compatibility),
 including communication-task completion and state read-back.
 A clean compile or contract test does not replace live controller acceptance.
 

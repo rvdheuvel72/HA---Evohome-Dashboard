@@ -31,6 +31,10 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Provision Node.js 24 for gateway JavaScript regression checks
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
       - name: Isolate Arduino toolchain directories
         shell: bash
         run: |

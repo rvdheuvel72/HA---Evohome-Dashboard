@@ -14,7 +14,8 @@ radio=(SKETCH/"Cc1101Radio.h").read_text()
 assert 'static const char GW_DEBUG_PAGE[] PROGMEM' in html
 assert 'static const char GW_WEB_JS[] PROGMEM' in script
 assert html.count('<script defer src="/gateway.js"></script>')==1
-assert '<script>' not in html and '</script>' not in html
+assert '<script>' not in html, "No inline JS should remain in HTML"
+assert html.count('</script>')==1, "Only the one external JS closing tag is allowed"
 assert len(html)<21000, "HTML response must be less than half old monolithic 41KB page"
 assert len(script)<26000
 assert 'web.on("/gateway.js", HTTP_GET, httpGatewayJs);' in ino

@@ -16,6 +16,7 @@
 #include <sys/time.h>
 #include "Cc1101Radio.h"
 #include "RamsesTxLoopback.h"
+#include "RamsesRxHealth.h"
 #include "RamsesCodec.h"
 #include "GatewayDebug.h"
 #include "GatewayWebPage.h"
@@ -84,6 +85,7 @@ constexpr uint32_t MQTT_RETRY_MS = 10000;
 constexpr uint8_t RING_SIZE = 12;
 constexpr uint32_t RX_IDLE_TIMEOUT_MS = 250;
 constexpr uint32_t HEARTBEAT_MS = 15000;
+constexpr uint32_t RX_HEALTH_SAMPLE_MS = 5000;
 constexpr uint8_t DEBUG_QUEUE_SIZE = 16;
 constexpr char FW_VERSION[] = "0.4.0-beta.16";
 constexpr uint32_t MDNS_RETRY_MS = 15000;
@@ -123,6 +125,9 @@ bool mdnsReady = false;
 uint32_t lastMdnsAttempt = 0;
 
 volatile bool radioReady = false;
+// Only radioTask touches CC1101 SPI; HTTP copies the protected report.
+portMUX_TYPE rxHealthMux = portMUX_INITIALIZER_UNLOCKED;
+ramses_rx_health::Report rxHealth;
 portMUX_TYPE loopbackMux = portMUX_INITIALIZER_UNLOCKED;
 ramses_loopback::Report loopbackReport;
 // The main loop queues a request, and only radioTask operates UART1 or UART2.
@@ -336,7 +341,13 @@ void radioTask(void*) {
   radioReady = radio.begin(configuration.current.rfFrequencyKhz,
                             configuration.current.rfModuleBand,
                             configuration.current.rfExperimentalRx==1);
-  if(radioReady)otGateway.begin();
+  if(radioReady) {
+    otGateway.begin();
+    const auto first=radio.readRxHealth(millis(),rfUartBytes);
+    portENTER_CRITICAL(&rxHealthMux);
+    rxHealth.observe(first);
+    portEXIT_CRITICAL(&rxHealthMux);
+  }
   char radioInfo[130];
   snprintf(radioInfo, sizeof(radioInfo), "CC1101 detected=%u PARTNUM=0x%02X VERSION=0x%02X",
            radioReady ? 1 : 0, radio.part(), radio.version());
@@ -348,6 +359,7 @@ void radioTask(void*) {
 
   uint32_t lastByteMs = millis();
   uint32_t lastCalibrationMs = millis();
+  uint32_t lastHealthSampleMs = millis();
   uint32_t lastRxDebugLogMs=millis();
   for (;;) {
     int processed = 0;
@@ -422,14 +434,35 @@ void radioTask(void*) {
       }
     }
     if (!decoder.receiving() && (now - lastCalibrationMs > 30000)) {
-      // The upstream gateway also periodically re-enters RX to recalibrate.
+      // Preserve existing RX re-entry: observe before/after, no new TX or RX
+      // strobes. Give MARCSTATE up to 5 ms to leave transient CAL/SETTLING.
+      const auto before=radio.readRxHealth(now,rfUartBytes);
       const bool ok = radio.enterReceive();
       if (ok) radioRxRecalibrations = radioRxRecalibrations + 1u;
       else {
         radioRxRecalibrationFailures = radioRxRecalibrationFailures + 1u;
         radioLog(GatewayDebug::WARN, "CC1101 periodic RX recalibration failed");
       }
-      lastCalibrationMs = now;
+      const uint32_t started=micros();
+      auto after=radio.readRxHealth(millis(),rfUartBytes);
+      while (ok && !after.inRx() &&
+             static_cast<uint32_t>(micros()-started)<5000u) {
+        delayMicroseconds(100);
+        after=radio.readRxHealth(millis(),rfUartBytes);
+      }
+      portENTER_CRITICAL(&rxHealthMux);
+      rxHealth.recalibration(before,after,ok);
+      portEXIT_CRITICAL(&rxHealthMux);
+      lastCalibrationMs=now;
+      lastHealthSampleMs=now;
+    } else if (!decoder.receiving() &&
+               now-lastHealthSampleMs>=RX_HEALTH_SAMPLE_MS) {
+      // A read-only register/GPIO snapshot is not proof of RF reception.
+      const auto sample=radio.readRxHealth(now,rfUartBytes);
+      portENTER_CRITICAL(&rxHealthMux);
+      rxHealth.observe(sample);
+      portEXIT_CRITICAL(&rxHealthMux);
+      lastHealthSampleMs=now;
     }
     // Perform the GPIO bench test before the OpenTherm scheduler.
     bool startLoopback=false;
@@ -852,6 +885,58 @@ void httpStatus() {
            resetReason());
   web.sendHeader("Cache-Control", "no-store");
   web.send(200, "application/json", json);
+}
+
+// Serializes previously recorded data; never accesses SPI on the HTTP task.
+void formatRxHealthSample(const ramses_rx_health::Sample& s,char* out,size_t cap) {
+  snprintf(out,cap,
+    "{\"uptime_ms\":%lu,\"uart_bytes\":%lu,\"marcstate\":%u,"
+    "\"in_rx\":%s,\"iocfg2\":%u,\"pktctrl0\":%u,"
+    "\"settings_match\":%s,\"gdo2_level\":%u}",
+    static_cast<unsigned long>(s.uptime_ms),
+    static_cast<unsigned long>(s.uart_bytes),
+    static_cast<unsigned>(s.marcstate),s.inRx()?"true":"false",
+    static_cast<unsigned>(s.iocfg2),static_cast<unsigned>(s.pktctrl0),
+    s.settingsMatch()?"true":"false",static_cast<unsigned>(s.gdo2_level));
+}
+void httpRxHealth() {
+  if(!authorized())return;
+  ramses_rx_health::Report d;
+  portENTER_CRITICAL(&rxHealthMux);
+  d=rxHealth;
+  portEXIT_CRITICAL(&rxHealthMux);
+  char latest[220],before[220],after[220],body[1150];
+  formatRxHealthSample(d.latest,latest,sizeof(latest));
+  formatRxHealthSample(d.before_recalibration,before,sizeof(before));
+  formatRxHealthSample(d.after_recalibration,after,sizeof(after));
+  const int n=snprintf(body,sizeof(body),
+    "{\"ready\":%s,\"read_only\":true,"
+    "\"note\":\"GPIO27 level is instantaneous, not a waveform or RF packet\","
+    "\"expected\":{\"marcstate_rx\":13,\"iocfg2\":13,\"pktctrl0\":50},"
+    "\"sample_count\":%lu,\"samples_not_in_rx\":%lu,"
+    "\"samples_config_mismatch\":%lu,\"gpio_high_samples\":%lu,"
+    "\"gpio_low_samples\":%lu,\"recalibrations_sampled\":%lu,"
+    "\"recalibrations_not_in_rx\":%lu,\"has_recalibration\":%s,"
+    "\"last_recalibration_spi_ok\":%s,"
+    "\"latest\":%s,\"before_recalibration\":%s,\"after_recalibration\":%s}",
+    radioReady && d.has_latest?"true":"false",
+    static_cast<unsigned long>(d.samples),
+    static_cast<unsigned long>(d.samples_not_in_rx),
+    static_cast<unsigned long>(d.samples_config_mismatch),
+    static_cast<unsigned long>(d.gpio_high_samples),
+    static_cast<unsigned long>(d.gpio_low_samples),
+    static_cast<unsigned long>(d.recalibrations_sampled),
+    static_cast<unsigned long>(d.recalibrations_not_in_rx),
+    d.has_recalibration?"true":"false",
+    d.last_recalibration_spi_ok?"true":"false",
+    latest,d.has_recalibration?before:"null",
+    d.has_recalibration?after:"null");
+  if(n<0 || static_cast<size_t>(n)>=sizeof(body)) {
+    web.send(500,"application/json","{\"error\":\"rx_health_json_overflow\"}");
+    return;
+  }
+  web.sendHeader("Cache-Control","no-store");
+  web.send(200,"application/json",body);
 }
 
 // Authenticated passive RX diagnostics. Debug toggle changes only log output;
@@ -1368,6 +1453,7 @@ void setup() {
   web.on("/api/v1/capture/status", HTTP_GET, httpCaptureStatus);
   web.on("/api/v1/capture/action", HTTP_POST, httpCaptureAction);
   web.on("/api/v1/capture/download", HTTP_GET, httpCaptureDownload);
+  web.on("/api/v1/radio/rx-health", HTTP_GET, httpRxHealth);
   web.on("/api/v1/radio/diagnostics", HTTP_GET, httpRadioDiagnostics);
   web.on("/api/v1/radio/diagnostics", HTTP_POST, httpRadioDiagnostics);
   web.on("/api/v1/opentherm/profile", HTTP_GET, httpOtProfile);

@@ -80,6 +80,24 @@ Arduino IDE prototype, receive-only by default; optional guarded read-only RF di
 
 [RAMSES Arduino Gateway v0.4.0-beta.16 release](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.16) — download the **RAMSES-Arduino-Gateway-v0.4.0-beta.16-ESP32-WROOM-32E.zip** asset (not the repository source-code ZIP). Unzip it, then open `RamsesGateway/RamsesGateway.ino` in Arduino IDE. This is a separately tagged **prerelease** for the radio gateway, not the Home Assistant integration.
 
+## Passive CC1101 RX-state diagnostics (feature branch)
+
+The authenticated `GET /api/v1/radio/rx-health` endpoint returns a protected
+snapshot recorded by `radioTask`; HTTP does **not** access the CC1101 via SPI.
+The report shows MARCSTATE (RX = 13), IOCFG2 (GDO2 asynchronous data = 13),
+PKTCTRL0 (async format = 50), instantaneous GPIO27 level, UART-byte position,
+and register readings before/after the existing 30-second RX re-entry.
+Samples are collected at startup, approximately every five seconds while
+the decoder is idle, and around re-entry. A bounded 5 ms settling check is
+read-only (no extra RX or TX strobes). RX state/readback and sampled GPIO
+voltage do not prove continuous successful RAMSES reception.
+
+**M5Stack M146** (E07-900M10S 868 MHz) with your existing ESP32-WROOM-32E
+uses the SPI/GDO GPIO mapping below, but its **M-BUS pin 28 requires 5V**:
+pin 1 GND, pin 7 MOSI, pin 9 MISO, pin 11 SCK, switch-selected pin 8
+CSN, pin 22 GDO0 and pin 2 GDO2. This differs from a bare CC1101 breakout,
+which requires 3.3V. Disconnect USB and verify M-BUS positions before wiring.
+
 ## Wiring (verify actual labels on CC1101 breakout)
 
 | CC1101 | NodeMCU-32 |

@@ -7,7 +7,7 @@
   "issue_tracker": "https://github.com/rvdheuvel72/HA---Evohome-Dashboard/issues",
   "iot_class": "cloud_polling",
   "requirements": [
-    "evohome-async==3.0.0"
+    "evohome-async==2.1.0"
   ],
   "loggers": [
     "evohomeasync2"

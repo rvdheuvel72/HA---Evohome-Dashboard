@@ -82,6 +82,12 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: '3.14'
+      - name: Isolate Python dependencies on persistent runners
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/evohome-pinned-venv"
+          echo "$RUNNER_TEMP/evohome-pinned-venv/bin" >> "$GITHUB_PATH"
       - name: Install exactly pinned Resideo client
         shell: bash
         run: |
@@ -111,6 +117,12 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: '3.14'
+      - name: Isolate Python dependencies on persistent runners
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/evohome-ha-runtime-venv"
+          echo "$RUNNER_TEMP/evohome-ha-runtime-venv/bin" >> "$GITHUB_PATH"
       - name: Install Home Assistant and exact transport
         shell: bash
         run: |

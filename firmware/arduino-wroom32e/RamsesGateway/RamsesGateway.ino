@@ -20,6 +20,7 @@
 #include "RamsesCodec.h"
 #include "GatewayDebug.h"
 #include "GatewayWebPage.h"
+#include "GatewayWebScript.h"
 #include "GatewayDiscovery.h"
 #include "GatewayHostname.h"
 #include <esp_system.h>
@@ -81,13 +82,14 @@
 
 namespace {
 constexpr uint32_t WIFI_RETRY_MS = 15000;
-constexpr uint32_t MQTT_RETRY_MS = 10000;
+constexpr uint32_t MQTT_RETRY_MS = 30000;
 constexpr uint8_t RING_SIZE = 12;
 constexpr uint32_t RX_IDLE_TIMEOUT_MS = 250;
 constexpr uint32_t HEARTBEAT_MS = 15000;
+constexpr uint32_t RADIO_RECOVERY_RETRY_MS = 5000;
 constexpr uint32_t RX_HEALTH_SAMPLE_MS = 5000;
 constexpr uint8_t DEBUG_QUEUE_SIZE = 16;
-constexpr char FW_VERSION[] = "0.4.0-beta.17";
+constexpr char FW_VERSION[] = "0.4.0-beta.18";
 constexpr uint32_t MDNS_RETRY_MS = 15000;
 constexpr uint32_t MQTT_STATE_INTERVAL_MS = 15000;
 
@@ -148,6 +150,8 @@ volatile uint32_t rfUartBytes = 0;
 volatile uint32_t rfSyncs = 0;
 volatile uint32_t radioRxRecalibrations = 0;
 volatile uint32_t radioRxRecalibrationFailures = 0;
+volatile uint32_t radioSilentRecoveryAttempts=0;
+volatile uint32_t radioSilentRecoveryFailures=0;
 // Low-cost receive accounting always runs; optional 15s log summaries can be
 // enabled or disabled instantly without writing NVS or restarting the ESP32.
 portMUX_TYPE rxDiagnosticsMux = portMUX_INITIALIZER_UNLOCKED;
@@ -353,15 +357,40 @@ void radioTask(void*) {
            radioReady ? 1 : 0, radio.part(), radio.version());
   radioLog(radioReady ? GatewayDebug::INFO : GatewayDebug::ERROR, radioInfo);
   Serial.printf("# %s\n", radioInfo);
-  if (!radioReady) {
-    while (true) vTaskDelay(pdMS_TO_TICKS(2000)); // Safe: no RF access
+  // A warm ESP32 reboot does not power-cycle the M5Stack radio. Retry a
+  // bounded cold-compatible SRES sequence while leaving RF TX disabled.
+  // Previously this branch waited forever until the user cut USB power.
+  while (!radioReady) {
+    vTaskDelay(pdMS_TO_TICKS(RADIO_RECOVERY_RETRY_MS));
+    radioReady = radio.begin(configuration.current.rfFrequencyKhz,
+                             configuration.current.rfModuleBand,
+                             configuration.current.rfExperimentalRx==1);
+    if(radioReady) {
+      otGateway.begin();
+      const auto sample=radio.readRxHealth(millis(),rfUartBytes);
+      portENTER_CRITICAL(&rxHealthMux);
+      rxHealth.observe(sample);
+      portEXIT_CRITICAL(&rxHealthMux);
+      radioLog(GatewayDebug::INFO,"CC1101 recovered after SPI/SRES retry; RX only");
+    } else {
+      radioLog(GatewayDebug::WARN,"CC1101 not initialized; retry in 5s (RX only)");
+    }
   }
 
   uint32_t lastByteMs = millis();
   uint32_t lastCalibrationMs = millis();
   uint32_t lastHealthSampleMs = millis();
   uint32_t lastRxDebugLogMs=millis();
+  uint32_t nextSilentRecoveryMs=millis()+120000u;
   for (;;) {
+    if(!radioReady){
+      vTaskDelay(pdMS_TO_TICKS(RADIO_RECOVERY_RETRY_MS));
+      radioReady=radio.begin(configuration.current.rfFrequencyKhz,
+                              configuration.current.rfModuleBand,
+                              configuration.current.rfExperimentalRx==1);
+      if(!radioReady)continue;
+      radioLog(GatewayDebug::INFO,"CC1101 recovered after retry; RX verified");
+    }
     int processed = 0;
     while (rfUart.available() && processed < 512) {
       const uint8_t byteIn = static_cast<uint8_t>(rfUart.read());
@@ -420,6 +449,31 @@ void radioTask(void*) {
     }
 
     const uint32_t now = millis();
+    // A valid SPI silicon ID does not prove the GDO2 UART receive path has
+    // resumed following an ESP32-only reboot. Try no more than two RX-only
+    // software resets, and only if no RAMSES sync and little UART activity.
+    if(static_cast<int32_t>(now-nextSilentRecoveryMs)>=0 &&
+       radioSilentRecoveryAttempts<2 && rfSyncs==0 && validFrames==0 &&
+       rfUartBytes<256 && !decoder.receiving()) {
+      ++radioSilentRecoveryAttempts;
+      radioLog(GatewayDebug::WARN,"CC1101 silent since boot; RX-only SRES retry");
+      radioReady=radio.begin(configuration.current.rfFrequencyKhz,
+                             configuration.current.rfModuleBand,
+                             configuration.current.rfExperimentalRx==1);
+      if(!radioReady) {
+        ++radioSilentRecoveryFailures;
+        radioLog(GatewayDebug::WARN,"CC1101 RX recovery failed, retry in 5s");
+      } else {
+        const auto sample=radio.readRxHealth(now,rfUartBytes);
+        portENTER_CRITICAL(&rxHealthMux);
+        rxHealth.observe(sample);
+        portEXIT_CRITICAL(&rxHealthMux);
+      }
+      nextSilentRecoveryMs=now+120000u;
+      lastCalibrationMs=now;
+      lastHealthSampleMs=now;
+      if(!radioReady)continue;
+    }
     if (decoder.receiving() && (now - lastByteMs > RX_IDLE_TIMEOUT_MS)) {
       decoder.abortIdleTimeout();
       const ramses::RejectReason reason=decoder.takeError();
@@ -1167,38 +1221,53 @@ bool eventLocalTime(uint32_t uptimeMs,char* out,size_t capacity) {
   return strftime(out,capacity,"%Y-%m-%d %H:%M:%S %Z (%z)",&local)>0;
 }
 void httpDebugLogs() {
-  if (!authorized()) return;
-  const uint32_t cursor = static_cast<uint32_t>(strtoul(web.arg("since").c_str(), nullptr, 10));
-  const int maxValue = constrain(web.arg("level").toInt(), 0, 3);
-  const auto maxLevel = static_cast<GatewayDebug::Level>(web.hasArg("level") ? maxValue : 2);
-  web.sendHeader("Cache-Control", "no-store");
-  web.setContentLength(CONTENT_LENGTH_UNKNOWN);
-  web.send(200, "application/json", "");
-  web.sendContent("{\"next\":" + String(diagnosticLog.newest()) + ",\"entries\":[");
-  bool first = true;
-  diagnosticLog.eachAfter(cursor, maxLevel, [&](const GatewayDebug::Entry& entry) {
-    String item;
-    item.reserve(240);
-    if (!first) item += ',';
-    first = false;
-    item += "{\"seq\":";
-    item += String(entry.sequence);
-    item += ",\"uptime_ms\":";
-    item += String(entry.uptimeMs);
-    item += ",\"timestamp\":";
+  if(!authorized())return;
+  const uint32_t cursor=static_cast<uint32_t>(strtoul(web.arg("since").c_str(),nullptr,10));
+  const int level=constrain(web.arg("level").toInt(),0,3);
+  const auto maxLevel=static_cast<GatewayDebug::Level>(web.hasArg("level")?level:2);
+  // Limit response to 20 entries (<~5KB) and one TCP write. The former
+  // handler issued one synchronous sendContent per entry, starving the UI.
+  constexpr uint8_t MAX_SCAN=20;
+  String json;
+  if(!json.reserve(5800)){
+    web.send(503,"application/json","{\"error\":\"low_memory\"}");
+    return;
+  }
+  json="{\"next\":";
+  String entries;
+  if(!entries.reserve(5600)){
+    web.send(503,"application/json","{\"error\":\"low_memory\"}");
+    return;
+  }
+  uint32_t next=cursor;
+  uint8_t inspected=0;
+  diagnosticLog.eachAfter(cursor,GatewayDebug::TRACE,[&](const GatewayDebug::Entry& entry) {
+    if(inspected>=MAX_SCAN)return;
+    ++inspected;
+    next=entry.sequence;
+    if(entry.level>maxLevel)return;
+    if(entries.length())entries+=',';
+    entries+="{\"seq\":";
+    entries+=String(entry.sequence);
+    entries+=",\"uptime_ms\":";
+    entries+=String(entry.uptimeMs);
+    entries+=",\"timestamp\":";
     char stamp[52]={};
     if(eventLocalTime(entry.uptimeMs,stamp,sizeof(stamp)))
-      item += "\"" + escapeJSON(stamp) + "\"";
-    else item += "null";
-    item += ",\"level\":\"";
-    item += GatewayDebug::levelName(entry.level);
-    item += "\",\"message\":\"";
-    item += escapeJSON(entry.message);
-    item += "\"}";
-    web.sendContent(item);
+      entries+="\""+escapeJSON(stamp)+"\"";
+    else entries+="null";
+    entries+=",\"level\":\"";
+    entries+=GatewayDebug::levelName(entry.level);
+    entries+="\",\"message\":\"";
+    entries+=escapeJSON(entry.message);
+    entries+="\"}";
   });
-  web.sendContent("]}");
-  web.sendContent("");
+  json+=String(next);
+  json+=",\"entries\":[";
+  json+=entries;
+  json+="]}";
+  web.sendHeader("Cache-Control","no-store");
+  web.send(200,"application/json",json);
 }
 
 void httpDebugDownload() {
@@ -1223,10 +1292,29 @@ void httpDebugDownload() {
   web.sendContent("");
 }
 
+// Bound individual Wi-Fi writes: the previous send_P() attempted a 41KB
+// page in one response, and the browser could remain stuck before <script>.
+// Separate HTML/JS assets and send small flash-backed blocks with yields.
+// Content-Length is exact, so clients never wait for an unfinished chunk.
+void sendFlashAsset(const char* data,size_t length,const char* mime){
+  web.sendHeader("Cache-Control","no-store");
+  web.sendHeader("X-Content-Type-Options","nosniff");
+  web.setContentLength(length);
+  web.send(200,mime,"");
+  constexpr size_t BLOCK=1024;
+  for(size_t pos=0;pos<length;pos+=BLOCK){
+    const size_t n=(length-pos)<BLOCK?(length-pos):BLOCK;
+    web.sendContent_P(data+pos,n);
+    delay(0); // allow TCP/IP task and Wi-Fi to drain between blocks
+  }
+}
 void httpIndex() {
-  if (!authorized()) return;
-  web.sendHeader("Cache-Control", "no-store");
-  web.send_P(200, "text/html", GW_DEBUG_PAGE);
+  if(!authorized())return;
+  sendFlashAsset(GW_DEBUG_PAGE,sizeof(GW_DEBUG_PAGE)-1u,"text/html; charset=utf-8");
+}
+void httpGatewayJs(){
+  if(!authorized())return;
+  sendFlashAsset(GW_WEB_JS,sizeof(GW_WEB_JS)-1u,"application/javascript; charset=utf-8");
 }
 
 // Advertise HTTP diagnostics on local networks that support multicast DNS.
@@ -1395,8 +1483,8 @@ void handlePacket(const PacketEvent& event) {
 void setup() {
   Serial.begin(115200);
   delay(250);
-  Serial.println("\n# RAMSES II Arduino v0.4.0-beta.17 (read-only OpenTherm discovery)");
-  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-beta.17");
+  Serial.println("\n# RAMSES II Arduino v0.4.0-beta.18 (read-only OpenTherm discovery)");
+  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-beta.18");
   char bootInfo[96];
   snprintf(bootInfo, sizeof(bootInfo), "Reset reason: %s", resetReason());
   recordLog(GatewayDebug::INFO, bootInfo);
@@ -1445,7 +1533,9 @@ void setup() {
   WiFi.setSleep(false);
   mqtt.setServer(configuration.current.mqttHost, configuration.current.mqttPort);
   mqtt.setBufferSize(1536); // Home Assistant Discovery configurations are larger than 512 bytes
+  mqtt.setSocketTimeout(1); // bound socket read stalls; HTTP runs on same loop()
   web.on("/", HTTP_GET, httpIndex);
+  web.on("/gateway.js", HTTP_GET, httpGatewayJs);
   web.on("/api/v1/status", HTTP_GET, httpStatus);
   web.on("/api/v1/config", HTTP_GET, httpConfigGet);
   web.on("/api/v1/config", HTTP_POST, httpConfigSave);

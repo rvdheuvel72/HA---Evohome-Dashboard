@@ -25,16 +25,35 @@ class Cc1101Radio {
     digitalWrite(CS, HIGH);
     pinMode(MISO, INPUT);
     SPI.begin(SCK, MISO, MOSI, CS);
-    if (!reset()) return false;
-    part_ = status(0x30);  // PARTNUM
-    version_ = status(0x31); // VERSION
-    if (part_ != 0x00 || version_ == 0x00 || version_ == 0xFF) return false;
+    // The ESP32 can soft-reboot without power-cycling the 5V M5Stack
+    // module. Perform the full CC1101 CSn/SRES wake sequence and retry
+    // boundedly if SO remains busy or the silicon ID cannot be read.
+    bool resetOk=false;
+    part_=version_=0xFF;
+    for (uint8_t attempt=0;attempt<3;attempt++) {
+      if(reset()){
+        part_=status(0x30); // PARTNUM
+        version_=status(0x31); // VERSION
+        if(part_==0x00 && version_!=0x00 && version_!=0xFF){
+          resetOk=true;break;
+        }
+      }
+      delay(40);
+    }
+    if(!resetOk)return false;
     for (uint8_t i = 0; i < sizeof(settings_); ++i)
       if (!writeRegister(i, settings_[i])) return false;
     if (!writeRegister(0x0D, static_cast<uint8_t>(synthesizer >> 16)) ||
         !writeRegister(0x0E, static_cast<uint8_t>(synthesizer >> 8)) ||
         !writeRegister(0x0F, static_cast<uint8_t>(synthesizer))) return false;
-    return enterReceive();
+    if(!enterReceive())return false;
+    // Successful SPI strobes are not sufficient; confirm actual RX state.
+    const uint32_t started=micros();
+    do {
+      if((status(0x35)&0x1Fu)==0x0Du)return true;
+      delayMicroseconds(150);
+    } while(static_cast<uint32_t>(micros()-started)<15000u);
+    return false;
   }
 
   // SPI and GPIO sampling is restricted to radioTask, never HTTP handlers.
@@ -298,13 +317,16 @@ class Cc1101Radio {
     return true;
   }
   bool reset() {
-    digitalWrite(CS, HIGH); delayMicroseconds(5);
-    digitalWrite(CS, LOW); delayMicroseconds(10);
-    digitalWrite(CS, HIGH); delayMicroseconds(45);
-    if (!select()) return false;
-    SPI.transfer(0x30); // SRES. No RF TX instruction anywhere.
+    // TI CC1101 recommended manual reset sequence. The initial CSn-high
+    // pulse and CSn low/high toggle allow an already-powered chip to leave
+    // an old SPI transaction after an ESP32-only reset. No RF transmission.
+    digitalWrite(CS,HIGH);delayMicroseconds(60);
+    digitalWrite(CS,LOW); delayMicroseconds(60);
+    digitalWrite(CS,HIGH);delayMicroseconds(60);
+    if(!select())return false;
+    SPI.transfer(0x30); // SRES
     release();
-    delay(2);
+    delay(5); // allow crystal and serial interface to become ready
     return true;
   }
 };

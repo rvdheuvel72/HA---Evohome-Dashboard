@@ -53,7 +53,7 @@ assert "GW_CC1101_FREQUENCY_KHZ" in ino
 # mandate a disruptive SRES that changes an identified chip to missing.
 assert 'radioSilentRecoveryAttempts' not in ino
 assert 'radioSilenceWarnings' in ino
-silence_section=ino[ino.index('const uint32_t now = millis();'):ino.index('if (decoder.receiving() && (now - lastByteMs > RX_IDLE_TIMEOUT_MS))')]
+silence_section=ino[ino.index('// Quiet RAMSES traffic'):ino.index('if (decoder.receiving() && (now - lastByteMs > RX_IDLE_TIMEOUT_MS))')]
 assert 'radio.begin(' not in silence_section
 assert 'no SRES issued' in silence_section
 assert 'radioReady=radio.begin(' in ino  # real initialization failures still retry

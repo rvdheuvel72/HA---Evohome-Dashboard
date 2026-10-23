@@ -1,3 +1,11 @@
+## Beta.20: Avoid disruptive CC1101 reset and measure web/MQTT slowdown
+
+**Release:** [RAMSES Arduino Gateway v0.4.0-beta.20](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.20), after required CI and review checks.
+
+**Arduino IDE ZIP:** `RAMSES-Arduino-Gateway-v0.4.0-beta.20-ESP32-WROOM-32E.zip`.
+
+When no RAMSES sync is received, the gateway now warns without resetting a previously identified CC1101; an unsolicited radio reset previously could make a working SPI chip appear missing. Status-register reads returning 0xFF are now marked invalid rather than presented as a normal MARC state. The web server is serviced before MQTT, and the status API/serial heartbeat records HTTP/MQTT timing maxima so the slow request source can be identified. Hardware RX reception is still unverified without actual valid RAMSES packets.
+
 ## Beta.19: CC1101 false missing after reset fixed
 
 **Release:** [RAMSES Arduino Gateway v0.4.0-beta.19](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.19) (published only after CI and review).

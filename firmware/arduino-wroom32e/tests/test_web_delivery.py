@@ -63,6 +63,11 @@ assert main_loop.index('web.handleClient()')<main_loop.index('mqttConnect()')
 assert 'mqttConnectLatency.observe' in main_loop
 assert 'mqttLoopLatency.observe' in main_loop
 assert 'httpLatency.observe' in main_loop
+assert 'const uint32_t handledBefore=httpServicedCount;' in main_loop
+assert 'if(httpServicedCount!=handledBefore)' in main_loop
+assert 'httpUnservedSlowCalls' in main_loop
+assert 'http_unserved_max_ms' in ino
+assert 'http_serviced' in ino
 assert 'setNoDelay(true)' in ino
 for field in ('http_max_ms','mqtt_connect_max_ms','mqtt_loop_max_ms',
               'web_asset_max_ms','radio_silence_warnings'):

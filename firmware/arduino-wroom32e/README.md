@@ -1,3 +1,11 @@
+## Beta.19: CC1101 false missing after reset fixed
+
+**Release:** [RAMSES Arduino Gateway v0.4.0-beta.19](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.19) (published only after CI and review).
+
+**Arduino IDE ZIP:** `RAMSES-Arduino-Gateway-v0.4.0-beta.19-ESP32-WROOM-32E.zip`.
+
+Beta.18 could log `detected=0 PARTNUM=0x00 VERSION=0x14` and retry endlessly because its strict 15 ms MARCSTATE check treated a temporary non-RX state as a failed CC1101 chip detection. Beta.19 separates SPI chip detection from RX-state observation, and exposes `cc1101_init_stage`, `cc1101_boot_marcstate` and `cc1101_rx_at_boot` in `/api/v1/status`. The `/api/v1/radio/rx-health` endpoint still measures actual RX status over time. RF TX remains disabled by default.
+
 ## Beta.18: Faster web interface and warm ESP32 radio reset recovery
 
 **Release:** [RAMSES Arduino Gateway v0.4.0-beta.18](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.18) after exact-head CI and required release checks.

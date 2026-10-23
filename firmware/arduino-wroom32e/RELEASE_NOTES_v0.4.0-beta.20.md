@@ -4,6 +4,7 @@
 The gateway reports `CC1101=ok` but virtually no GDO2 UART bytes and no RAMSES syncs. After two minutes the previous firmware runs an unsolicited SRES, which can fail and change the status to `CC1101=missing`. Separately the web interface is sluggish, especially around Wi-Fi and MQTT activity.
 
 ## Changes
+- Upgrade the ESP32 Arduino board core used by **all** firmware build/release CI jobs from **3.3.4 to stable 3.3.12**, which includes the upstream fix for blocking WebServer HTTP header parsing (espressif/arduino-esp32#12794; 18 September 2026).
 - **No SRES solely due to quiet reception.** The two-minute guard now issues a bounded warning, not a new `radio.begin()` hardware reset. Startup recovery for actual failed chip initialization remains.
 - CC1101 status-register SPI read `0xFF` is preserved as an **invalid reading**, rather than masking it into misleading `MARCSTATE=31`. The RX-health endpoint remains read-only.
 - Service the synchronous HTTP server before MQTT reconnect/processing in each main-loop pass.

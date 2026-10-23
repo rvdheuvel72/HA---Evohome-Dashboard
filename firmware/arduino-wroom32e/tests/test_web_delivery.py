@@ -6,6 +6,14 @@ import subprocess
 import tempfile
 
 ROOT=Path(__file__).resolve().parents[1]
+# Upstream Arduino-ESP32 3.3.12 fixes WebServer header-parse stalls
+# (espressif/arduino-esp32#12794); do not regress to the hanging 3.3.4.
+repo_root=ROOT.parents[1]
+for workflow in ('trusted-ramses-compile.yml', 'ramses-arduino-wroom32e.yml',
+                 'publish-ramses-arduino-v0.4-beta.yml'):
+    wf=(repo_root/'.github/workflows'/workflow).read_text()
+    assert 'esp32:esp32@3.3.12' in wf, workflow
+    assert 'esp32:esp32@3.3.4' not in wf, workflow
 SKETCH=ROOT / "RamsesGateway"
 html=(SKETCH/"GatewayWebPage.h").read_text()
 script=(SKETCH/"GatewayWebScript.h").read_text()

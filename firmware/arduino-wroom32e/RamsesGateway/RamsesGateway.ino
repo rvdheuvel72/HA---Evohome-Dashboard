@@ -161,6 +161,7 @@ struct LoopLatency {
   }
 };
 LoopLatency httpLatency, mqttConnectLatency, mqttLoopLatency;
+uint32_t httpServicedCount=0; // only HTTP handlers, never idle poll() calls
 uint32_t webAssetMaxMs=0, webAssetLastMs=0;
 // Low-cost receive accounting always runs; optional 15s log summaries can be
 // enabled or disabled instantly without writing NVS or restarting the ESP32.
@@ -222,6 +223,10 @@ const char* resetReason() {
 }
 
 bool authorized() {
+  // Every registered HTTP endpoint calls authorized() once at entry.
+  // Count serviced requests even when Basic Auth rejects them, so last_ms
+  // remains the duration of the last request instead of idle polls.
+  ++httpServicedCount;
   if (!configuration.current.webUser[0] || !configuration.current.webPassword[0]) return true;
   if (web.authenticate(configuration.current.webUser, configuration.current.webPassword)) return true;
   web.requestAuthentication(BASIC_AUTH, "RAMSES Gateway Diagnostics");
@@ -910,7 +915,7 @@ void httpStatus() {
            "\"valid_frames\":%lu,\"rejected_frames\":%lu,\"dropped_frames\":%lu,"
            "\"rf_uart_bytes\":%lu,\"rf_syncs\":%lu,\"radio_recalibrations\":%lu,"
            "\"radio_recalibration_failures\":%lu,\"radio_silence_warnings\":%lu,"
-           "\"http_last_ms\":%lu,\"http_max_ms\":%lu,\"http_slow_calls\":%lu,"
+           "\"http_last_ms\":%lu,\"http_max_ms\":%lu,\"http_slow_calls\":%lu,\"http_serviced\":%lu,"
            "\"mqtt_connect_max_ms\":%lu,\"mqtt_connect_slow_calls\":%lu,"
            "\"mqtt_loop_max_ms\":%lu,\"mqtt_loop_slow_calls\":%lu,"
            "\"web_asset_last_ms\":%lu,\"web_asset_max_ms\":%lu,"
@@ -941,6 +946,7 @@ void httpStatus() {
            static_cast<unsigned long>(httpLatency.last_ms),
            static_cast<unsigned long>(httpLatency.max_ms),
            static_cast<unsigned long>(httpLatency.slow_calls),
+           static_cast<unsigned long>(httpServicedCount),
            static_cast<unsigned long>(mqttConnectLatency.max_ms),
            static_cast<unsigned long>(mqttConnectLatency.slow_calls),
            static_cast<unsigned long>(mqttLoopLatency.max_ms),
@@ -1607,8 +1613,11 @@ void loop() {
   // HTTP first: MQTT reconnect and network socket timeouts must not
   // delay an already queued browser request in the same loop pass.
   uint32_t started=millis();
+  const uint32_t handledBefore=httpServicedCount;
   web.handleClient();
-  httpLatency.observe(static_cast<uint32_t>(millis()-started));
+  const uint32_t httpElapsed=static_cast<uint32_t>(millis()-started);
+  if(httpServicedCount!=handledBefore || httpElapsed>=500u)
+    httpLatency.observe(httpElapsed);
   started=millis();
   mqttConnect();
   mqttConnectLatency.observe(static_cast<uint32_t>(millis()-started));

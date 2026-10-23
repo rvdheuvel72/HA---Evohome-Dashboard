@@ -1663,12 +1663,18 @@ void loop() {
   static uint32_t lastHeartbeat = 0;
   if (millis() - lastHeartbeat >= HEARTBEAT_MS) {
     lastHeartbeat = millis();
-    char heartbeat[130];
-    snprintf(heartbeat, sizeof(heartbeat), "HEARTBEAT CC1101=%s UART=%lu sync=%lu valid=%lu rejected=%lu heap=%lu",
-             radioReady ? "ok" : "missing",
-             static_cast<unsigned long>(rfUartBytes), static_cast<unsigned long>(rfSyncs),
-             static_cast<unsigned long>(validFrames), static_cast<unsigned long>(rejectedFrames),
-             static_cast<unsigned long>(ESP.getFreeHeap()));
+    char heartbeat[200];
+    snprintf(heartbeat,sizeof(heartbeat),
+             "HEARTBEAT CC1101=%s UART=%lu sync=%lu valid=%lu rejected=%lu heap=%lu HTTPmax=%lums MQTTconnectMax=%lums MQTTloopMax=%lums",
+             radioReady?"ok":"missing",
+             static_cast<unsigned long>(rfUartBytes),
+             static_cast<unsigned long>(rfSyncs),
+             static_cast<unsigned long>(validFrames),
+             static_cast<unsigned long>(rejectedFrames),
+             static_cast<unsigned long>(ESP.getFreeHeap()),
+             static_cast<unsigned long>(httpLatency.max_ms),
+             static_cast<unsigned long>(mqttConnectLatency.max_ms),
+             static_cast<unsigned long>(mqttLoopLatency.max_ms));
     recordLog(GatewayDebug::INFO, heartbeat);
   }
   delay(2);

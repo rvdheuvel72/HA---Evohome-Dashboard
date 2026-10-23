@@ -8,6 +8,7 @@
 #include "RamsesUartFifo.h"
 #include "RamsesRxDiagnostics.h"
 #include "RamsesRxHealth.h"
+#include "Cc1101Startup.h"
 
 class Cc1101Radio {
  public:
@@ -30,11 +31,13 @@ class Cc1101Radio {
     // boundedly if SO remains busy or the silicon ID cannot be read.
     bool resetOk=false;
     part_=version_=0xFF;
+    startupMarcState_=0xFF;
+    startupRxConfirmed_=false;
     for (uint8_t attempt=0;attempt<3;attempt++) {
       if(reset()){
         part_=status(0x30); // PARTNUM
         version_=status(0x31); // VERSION
-        if(part_==0x00 && version_!=0x00 && version_!=0xFF){
+        if(cc1101_startup::identified(part_,version_)){
           resetOk=true;break;
         }
       }
@@ -46,14 +49,21 @@ class Cc1101Radio {
     if (!writeRegister(0x0D, static_cast<uint8_t>(synthesizer >> 16)) ||
         !writeRegister(0x0E, static_cast<uint8_t>(synthesizer >> 8)) ||
         !writeRegister(0x0F, static_cast<uint8_t>(synthesizer))) return false;
-    if(!enterReceive())return false;
-    // Successful SPI strobes are not sufficient; confirm actual RX state.
+    // This was the beta.18 regression: MARCSTATE sampled immediately after
+    // SRX can be transient (e.g. IDLE/CAL) even when SPI and the SRX strobe
+    // succeeded. That check caused detected=0 with PARTNUM=00 VERSION=14,
+    // and retried SRES forever. Observe RX state but do NOT treat it as a
+    // second chip-detection gate. The rx-health API reports live state.
+    const bool rxCommandAccepted=enterReceive();
+    if(!rxCommandAccepted)return false;
     const uint32_t started=micros();
     do {
-      if((status(0x35)&0x1Fu)==0x0Du)return true;
+      startupMarcState_=status(0x35)&0x1Fu;
+      if(cc1101_startup::receiving(startupMarcState_))break;
       delayMicroseconds(150);
     } while(static_cast<uint32_t>(micros()-started)<15000u);
-    return false;
+    startupRxConfirmed_=cc1101_startup::receiving(startupMarcState_);
+    return cc1101_startup::ready(part_,version_,rxCommandAccepted);
   }
 
   // SPI and GPIO sampling is restricted to radioTask, never HTTP handlers.
@@ -70,6 +80,8 @@ class Cc1101Radio {
   }
   uint8_t part() const { return part_; }
   uint8_t version() const { return version_; }
+  uint8_t startupMarcState() const { return startupMarcState_; }
+  bool startupRxConfirmed() const { return startupRxConfirmed_; }
   uint32_t frequencyKhz() const { return frequencyKhz_; }
   uint16_t moduleBand() const { return moduleBand_; }
 
@@ -275,6 +287,8 @@ class Cc1101Radio {
       0x00,0x59,0x7F,0x3F,0x81,0x35,0x09
   };
   uint8_t part_ = 0xFF, version_ = 0xFF;
+  uint8_t startupMarcState_ = 0xFF;
+  bool startupRxConfirmed_ = false;
   uint32_t frequencyKhz_ = 868300;
   uint16_t moduleBand_ = 868;
   bool experimentalRx_=false;

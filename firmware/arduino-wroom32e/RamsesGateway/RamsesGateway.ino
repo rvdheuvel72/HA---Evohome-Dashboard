@@ -162,6 +162,7 @@ struct LoopLatency {
 };
 LoopLatency httpLatency, mqttConnectLatency, mqttLoopLatency;
 uint32_t httpServicedCount=0; // only HTTP handlers, never idle poll() calls
+uint32_t httpUnservedSlowCalls=0, httpUnservedMaxMs=0;
 uint32_t webAssetMaxMs=0, webAssetLastMs=0;
 // Low-cost receive accounting always runs; optional 15s log summaries can be
 // enabled or disabled instantly without writing NVS or restarting the ESP32.
@@ -916,6 +917,7 @@ void httpStatus() {
            "\"rf_uart_bytes\":%lu,\"rf_syncs\":%lu,\"radio_recalibrations\":%lu,"
            "\"radio_recalibration_failures\":%lu,\"radio_silence_warnings\":%lu,"
            "\"http_last_ms\":%lu,\"http_max_ms\":%lu,\"http_slow_calls\":%lu,\"http_serviced\":%lu,"
+           "\"http_unserved_slow_calls\":%lu,\"http_unserved_max_ms\":%lu,"
            "\"mqtt_connect_max_ms\":%lu,\"mqtt_connect_slow_calls\":%lu,"
            "\"mqtt_loop_max_ms\":%lu,\"mqtt_loop_slow_calls\":%lu,"
            "\"web_asset_last_ms\":%lu,\"web_asset_max_ms\":%lu,"
@@ -947,6 +949,8 @@ void httpStatus() {
            static_cast<unsigned long>(httpLatency.max_ms),
            static_cast<unsigned long>(httpLatency.slow_calls),
            static_cast<unsigned long>(httpServicedCount),
+           static_cast<unsigned long>(httpUnservedSlowCalls),
+           static_cast<unsigned long>(httpUnservedMaxMs),
            static_cast<unsigned long>(mqttConnectLatency.max_ms),
            static_cast<unsigned long>(mqttConnectLatency.slow_calls),
            static_cast<unsigned long>(mqttLoopLatency.max_ms),
@@ -1616,8 +1620,14 @@ void loop() {
   const uint32_t handledBefore=httpServicedCount;
   web.handleClient();
   const uint32_t httpElapsed=static_cast<uint32_t>(millis()-started);
-  if(httpServicedCount!=handledBefore || httpElapsed>=500u)
+  if(httpServicedCount!=handledBefore) {
     httpLatency.observe(httpElapsed);
+  } else if(httpElapsed>=500u) {
+    // WebServer can block while parsing an incomplete client request
+    // without dispatching an endpoint; keep it separate from handler latency.
+    ++httpUnservedSlowCalls;
+    if(httpElapsed>httpUnservedMaxMs)httpUnservedMaxMs=httpElapsed;
+  }
   started=millis();
   mqttConnect();
   mqttConnectLatency.observe(static_cast<uint32_t>(millis()-started));

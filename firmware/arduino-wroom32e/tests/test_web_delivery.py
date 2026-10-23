@@ -11,6 +11,7 @@ html=(SKETCH/"GatewayWebPage.h").read_text()
 script=(SKETCH/"GatewayWebScript.h").read_text()
 ino=(SKETCH/"RamsesGateway.ino").read_text()
 radio=(SKETCH/"Cc1101Radio.h").read_text()
+startup=(SKETCH/"Cc1101Startup.h").read_text()
 assert 'static const char GW_DEBUG_PAGE[] PROGMEM' in html
 assert 'static const char GW_WEB_JS[] PROGMEM' in script
 assert html.count('<script defer src="/gateway.js"></script>')==1
@@ -39,8 +40,14 @@ assert "document.visibilityState==='hidden'" in script
 assert 'while (!radioReady)' in ino and 'RADIO_RECOVERY_RETRY_MS' in ino
 assert 'SPI.transfer(0x30); // SRES' in radio
 assert 'return false;' in radio
-assert "version_!=0x00 && version_!=0xFF" in radio
-assert "status(0x35)&0x1Fu" in radio
+assert "version!=0x00 && version!=0xFF" in startup
+assert "part==0x00" in startup
+assert 'return cc1101_startup::ready(part_,version_,rxCommandAccepted);' in radio
+assert 'startupRxConfirmed_=cc1101_startup::receiving(startupMarcState_);' in radio
+assert 'initStage_="initialized";' in radio
+assert 'startupMarcState()' in ino and 'initStage()' in ino
+assert 'cc1101_init_stage' in ino
+assert 'if((status(0x35)&0x1Fu)==0x0Du)return true;' not in radio
 assert "GW_CC1101_FREQUENCY_KHZ" in ino
 
 match=re.search(r'R"GWJS\((.*)\)GWJS";',script,re.S)

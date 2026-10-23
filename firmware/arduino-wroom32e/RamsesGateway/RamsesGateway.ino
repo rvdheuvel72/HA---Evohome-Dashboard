@@ -89,7 +89,7 @@ constexpr uint32_t HEARTBEAT_MS = 15000;
 constexpr uint32_t RADIO_RECOVERY_RETRY_MS = 5000;
 constexpr uint32_t RX_HEALTH_SAMPLE_MS = 5000;
 constexpr uint8_t DEBUG_QUEUE_SIZE = 16;
-constexpr char FW_VERSION[] = "0.4.0-beta.18";
+constexpr char FW_VERSION[] = "0.4.0-beta.19";
 constexpr uint32_t MDNS_RETRY_MS = 15000;
 constexpr uint32_t MQTT_STATE_INTERVAL_MS = 15000;
 
@@ -353,8 +353,10 @@ void radioTask(void*) {
     portEXIT_CRITICAL(&rxHealthMux);
   }
   char radioInfo[130];
-  snprintf(radioInfo, sizeof(radioInfo), "CC1101 detected=%u PARTNUM=0x%02X VERSION=0x%02X",
-           radioReady ? 1 : 0, radio.part(), radio.version());
+  snprintf(radioInfo, sizeof(radioInfo), "CC1101 initialized=%u PARTNUM=0x%02X VERSION=0x%02X stage=%s initial_MARC=%u RX_at_boot=%u",
+           radioReady ? 1 : 0, radio.part(), radio.version(),
+           radio.initStage(),static_cast<unsigned>(radio.startupMarcState()),
+           radio.startupRxConfirmed()?1u:0u);
   radioLog(radioReady ? GatewayDebug::INFO : GatewayDebug::ERROR, radioInfo);
   Serial.printf("# %s\n", radioInfo);
   // A warm ESP32 reboot does not power-cycle the M5Stack radio. Retry a
@@ -906,6 +908,7 @@ void httpStatus() {
   snprintf(json, sizeof(json),
            "{\"version\":\"%s\",\"board\":\"ESP32-WROOM-32E\",\"mode\":\"%s\","
            "\"radio_detected\":%s,\"radio_verified\":%s,\"cc1101_part\":%u,\"cc1101_version\":%u,"
+           "\"cc1101_init_stage\":\"%s\",\"cc1101_boot_marcstate\":%u,\"cc1101_rx_at_boot\":%s,"
            "\"wifi_connected\":%s,\"mqtt_connected\":%s,\"time_synced\":%s,"
            "\"hostname\":\"%s\",\"mdns_active\":%s,\"cc1101_frequency_khz\":%lu,\"cc1101_module_band\":%u,\"ot_tx_enabled\":%s,"
            "\"valid_frames\":%lu,\"rejected_frames\":%lu,\"dropped_frames\":%lu,"
@@ -918,6 +921,8 @@ void httpStatus() {
            otGateway.transmitEnabled() ? "read_only_requests" : "receive_only",
            radioReady ? "true" : "false",
            validFrames ? "true" : "false", radio.part(), radio.version(),
+           radio.initStage(),static_cast<unsigned>(radio.startupMarcState()),
+           radio.startupRxConfirmed()?"true":"false",
            WiFi.status() == WL_CONNECTED ? "true" : "false",
            mqtt.connected() ? "true" : "false",
            timeSynchronized() ? "true" : "false",
@@ -1483,8 +1488,8 @@ void handlePacket(const PacketEvent& event) {
 void setup() {
   Serial.begin(115200);
   delay(250);
-  Serial.println("\n# RAMSES II Arduino v0.4.0-beta.18 (read-only OpenTherm discovery)");
-  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-beta.18");
+  Serial.println("\n# RAMSES II Arduino v0.4.0-beta.19 (read-only OpenTherm discovery)");
+  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-beta.19");
   char bootInfo[96];
   snprintf(bootInfo, sizeof(bootInfo), "Reset reason: %s", resetReason());
   recordLog(GatewayDebug::INFO, bootInfo);

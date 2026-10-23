@@ -65,6 +65,11 @@ jobs:
           g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer \
             firmware/arduino-wroom32e/tests/test_codec.cpp -o /tmp/test-ramses-codec
           /tmp/test-ramses-codec
+      - name: Test CC1101 boot acceptance independent from transient MARCSTATE
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror \
+            firmware/arduino-wroom32e/tests/test_cc1101_startup.cpp -o /tmp/test-cc1101-startup
+          /tmp/test-cc1101-startup
       - name: Test passive CC1101 RX health snapshots
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror \

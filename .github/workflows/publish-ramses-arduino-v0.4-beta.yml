@@ -89,7 +89,7 @@ jobs:
           arduino-cli config init --dest-file "$ARDUINO_CONFIG_FILE" --overwrite
           arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
           arduino-cli core update-index
-          arduino-cli core install esp32:esp32@3.3.4
+          arduino-cli core install esp32:esp32@3.3.12
           arduino-cli lib install "PubSubClient@2.8"
           arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all \
             firmware/arduino-wroom32e/RamsesGateway \

@@ -49,6 +49,27 @@ assert 'startupMarcState()' in ino and 'initStage()' in ino
 assert 'cc1101_init_stage' in ino
 assert 'if((status(0x35)&0x1Fu)==0x0Du)return true;' not in radio
 assert "GW_CC1101_FREQUENCY_KHZ" in ino
+# Receiver silence may indicate missing signals or GDO2/SPI faults, never
+# mandate a disruptive SRES that changes an identified chip to missing.
+assert 'radioSilentRecoveryAttempts' not in ino
+assert 'radioSilenceWarnings' in ino
+silence_section=ino[ino.index('const uint32_t now = millis();'):ino.index('if (decoder.receiving() && (now - lastByteMs > RX_IDLE_TIMEOUT_MS))')]
+assert 'radio.begin(' not in silence_section
+assert 'no SRES issued' in silence_section
+assert 'radioReady=radio.begin(' in ino  # real initialization failures still retry
+# HTTP must be handled before potentially synchronous MQTT sockets.
+main_loop=ino[ino.index('void loop() {'):]
+assert main_loop.index('web.handleClient()')<main_loop.index('mqttConnect()')
+assert 'mqttConnectLatency.observe' in main_loop
+assert 'mqttLoopLatency.observe' in main_loop
+assert 'httpLatency.observe' in main_loop
+assert 'setNoDelay(true)' in ino
+for field in ('http_max_ms','mqtt_connect_max_ms','mqtt_loop_max_ms',
+              'web_asset_max_ms','radio_silence_warnings'):
+    assert field in ino, field
+# A failed CC1101 status read returns 0xFF and must not masquerade as 0x1F.
+assert 'decodeMarcState(status(0x35))' in radio
+assert 'return raw==0xFFu?0xFFu:' in startup
 
 match=re.search(r'R"GWJS\((.*)\)GWJS";',script,re.S)
 assert match, "Standalone JS must be extractable from its raw header"
@@ -57,4 +78,4 @@ with tempfile.TemporaryDirectory() as directory:
     code=Path(directory)/"gateway.js"
     code.write_text(javascript)
     subprocess.run(["node","--check",str(code)],check=True,timeout=15)
-print("Web delivery regression: HTML asset, independent JS, rate-limited polling, bounded log batch, warm CC1101 retry PASS")
+print("Web delivery regression: HTML asset, independent JS, rate-limited polling, bounded log batch, non-disruptive RF silence, HTTP/MQTT latency PASS")

@@ -17,11 +17,13 @@ class Cc1101Radio {
 
   bool begin(uint32_t frequencyKhz=868300, uint16_t moduleBand=868,
              bool experimentalRx=false) {
+    initStage_="frequency_validation";
     uint32_t synthesizer=0;
     if (!radio_frequency::synth(frequencyKhz,moduleBand,synthesizer,experimentalRx)) return false;
     frequencyKhz_=frequencyKhz;
     moduleBand_=moduleBand;
     experimentalRx_=experimentalRx;
+    initStage_="spi_chip_identification";
     pinMode(CS, OUTPUT);
     digitalWrite(CS, HIGH);
     pinMode(MISO, INPUT);
@@ -44,8 +46,10 @@ class Cc1101Radio {
       delay(40);
     }
     if(!resetOk)return false;
+    initStage_="register_programming";
     for (uint8_t i = 0; i < sizeof(settings_); ++i)
       if (!writeRegister(i, settings_[i])) return false;
+    initStage_="frequency_programming";
     if (!writeRegister(0x0D, static_cast<uint8_t>(synthesizer >> 16)) ||
         !writeRegister(0x0E, static_cast<uint8_t>(synthesizer >> 8)) ||
         !writeRegister(0x0F, static_cast<uint8_t>(synthesizer))) return false;
@@ -54,6 +58,7 @@ class Cc1101Radio {
     // succeeded. That check caused detected=0 with PARTNUM=00 VERSION=14,
     // and retried SRES forever. Observe RX state but do NOT treat it as a
     // second chip-detection gate. The rx-health API reports live state.
+    initStage_="rx_strobe";
     const bool rxCommandAccepted=enterReceive();
     if(!rxCommandAccepted)return false;
     const uint32_t started=micros();
@@ -63,6 +68,7 @@ class Cc1101Radio {
       delayMicroseconds(150);
     } while(static_cast<uint32_t>(micros()-started)<15000u);
     startupRxConfirmed_=cc1101_startup::receiving(startupMarcState_);
+    initStage_="initialized";
     return cc1101_startup::ready(part_,version_,rxCommandAccepted);
   }
 
@@ -82,6 +88,7 @@ class Cc1101Radio {
   uint8_t version() const { return version_; }
   uint8_t startupMarcState() const { return startupMarcState_; }
   bool startupRxConfirmed() const { return startupRxConfirmed_; }
+  const char* initStage() const { return initStage_; }
   uint32_t frequencyKhz() const { return frequencyKhz_; }
   uint16_t moduleBand() const { return moduleBand_; }
 
@@ -289,6 +296,7 @@ class Cc1101Radio {
   uint8_t part_ = 0xFF, version_ = 0xFF;
   uint8_t startupMarcState_ = 0xFF;
   bool startupRxConfirmed_ = false;
+  const char* initStage_ = "not_started";
   uint32_t frequencyKhz_ = 868300;
   uint16_t moduleBand_ = 868;
   bool experimentalRx_=false;

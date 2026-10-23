@@ -4,7 +4,7 @@
 
 **Arduino IDE ZIP:** `RAMSES-Arduino-Gateway-v0.4.0-beta.20-ESP32-WROOM-32E.zip`.
 
-When no RAMSES sync is received, the gateway now warns without resetting a previously identified CC1101; an unsolicited radio reset previously could make a working SPI chip appear missing. Status-register reads returning 0xFF are now marked invalid rather than presented as a normal MARC state. The web server is serviced before MQTT, and the status API/serial heartbeat records HTTP/MQTT timing maxima so the slow request source can be identified. Hardware RX reception is still unverified without actual valid RAMSES packets.
+**WebServer upstream repair:** The beta.20 binary is compiled with Arduino-ESP32 **3.3.12**, which includes Espressif's fix for incomplete-header HTTP server hangs (PR #12794). Earlier gateway binaries were built with 3.3.4.\n\nWhen no RAMSES sync is received, the gateway now warns without resetting a previously identified CC1101; an unsolicited radio reset previously could make a working SPI chip appear missing. Status-register reads returning 0xFF are now marked invalid rather than presented as a normal MARC state. The web server is serviced before MQTT, and the status API/serial heartbeat records HTTP/MQTT timing maxima so the slow request source can be identified. Hardware RX reception is still unverified without actual valid RAMSES packets.
 
 ## Beta.19: CC1101 false missing after reset fixed
 

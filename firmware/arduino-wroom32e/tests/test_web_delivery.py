@@ -40,7 +40,12 @@ assert 'while (!radioReady)' in ino and 'RADIO_RECOVERY_RETRY_MS' in ino
 assert 'SPI.transfer(0x30); // SRES' in radio
 assert 'return false;' in radio
 assert "version_!=0x00 && version_!=0xFF" in radio
-assert "status(0x35)&0x1Fu" in radio
+assert 'return cc1101_startup::ready(part_,version_,rxCommandAccepted);' in radio
+assert 'startupRxConfirmed_=cc1101_startup::receiving(startupMarcState_);' in radio
+assert 'initStage_="initialized";' in radio
+assert 'startupMarcState()' in ino and 'initStage()' in ino
+assert 'cc1101_init_stage' in ino
+assert 'if((status(0x35)&0x1Fu)==0x0Du)return true;' not in radio
 assert "GW_CC1101_FREQUENCY_KHZ" in ino
 
 match=re.search(r'R"GWJS\((.*)\)GWJS";',script,re.S)

@@ -39,6 +39,23 @@ int main() {
   a.part=0xff;
   assert(!a.identifiers_ok() && !a.config_ok());
   assert(a.diagnosis()[0]=='c'); // chip_identity_unreliable
+  // Only the timestamp may change without producing a new runtime log.
+  Snapshot reference=a;
+  Snapshot update=reference;
+  update.uptime_ms+=30000;
+  assert(!update.changedFrom(reference));
+  update.mdmcfg2^=1u;
+  assert(update.changedFrom(reference)); // modem read corruption
+  update=reference;update.iocfg2_b^=1u;
+  assert(update.changedFrom(reference)); // duplicate read disagreement
+  update=reference;update.pktctrl0_b^=1u;
+  assert(update.changedFrom(reference));
+  update=reference;update.freq0^=1u;
+  assert(update.changedFrom(reference));
+  update=reference;update.marc_raw^=1u;
+  assert(update.changedFrom(reference));
+  update=reference;update.part^=1u;
+  assert(update.changedFrom(reference));
   // Boot timeline must preserve all raw bytes in a single 144-byte
   // GatewayDebug entry and reject any potentially truncated result.
   a.part=0;

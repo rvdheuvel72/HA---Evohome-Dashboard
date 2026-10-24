@@ -3,8 +3,18 @@ name: Evohome Phase 1 self-hosted validation
 on:
   pull_request:
     branches: [main]
+    paths: &ha_paths
+      - 'custom_components/**'
+      - 'frontend-package/**'
+      - 'tests/**'
+      - 'tests_integration/**'
+      - 'scripts/**'
+      - 'hacs.json'
+      - 'manifest.json'
+      - '.github/workflows/phase1-self-hosted.yml'
   push:
     branches: [main]
+    paths: *ha_paths
   workflow_dispatch:
 
 permissions:

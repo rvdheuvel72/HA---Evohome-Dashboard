@@ -143,12 +143,11 @@ jobs:
             $code = $LASTEXITCODE
             "WSL Arduino CLI v1.5.1 installation/probe: $($run -join ' ') (exit=$code)" | Add-Content local-lab-output/inventory.txt
             if ($code -ne 0) {
-              if ('${{ github.event_name }}' -eq 'workflow_dispatch' -and '${{ inputs.operation }}' -ne 'probe') {
-                throw "WSL installation unavailable during diagnostic/flash operation (exit=$code)"
-              }
-              Write-Warning "WSL Arduino CLI installation not verified; inventory retains error (exit=$code)"
-              $global:LASTEXITCODE = 0
+              # WSL tooling is optional for the Windows-only gateway API/COM3
+              # operations. Explicit Codex analysis separately checks availability.
+              Write-Warning "WSL Arduino CLI installation not verified (exit=$code); Windows operations remain available"
             }
+            $global:LASTEXITCODE = 0
           }
 
       - name: Enforce explicit physical flashing consent
@@ -213,6 +212,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.operation == 'flash' && inputs.confirm_flash == 'FLASH-COM3'
         env:
           SECRETS_HEADER: ${{ vars.RAMSES_SECRETS_HEADER_PATH }}
+          EXPECTED_COM3_PNP_ID: ${{ inputs.expected_com3_pnp_id }}
         run: |
           $ErrorActionPreference = 'Stop'
           if (-not $env:SECRETS_HEADER -or -not (Test-Path -LiteralPath $env:SECRETS_HEADER -PathType Leaf)) {

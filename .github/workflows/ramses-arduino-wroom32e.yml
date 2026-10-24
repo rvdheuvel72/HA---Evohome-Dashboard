@@ -44,7 +44,37 @@ jobs:
       - name: Wait for completed exact-head Codex P1/P2 review
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: python3 scripts/check_codex_review.py --review-only
+        run: |
+          python3 - <<'PY'
+          import json, os, sys, time
+          sys.path.insert(0, "scripts")
+          from check_codex_review import blockers, pages, request, review_disposition
+          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as f:
+              event=json.load(f)
+          pr=event["pull_request"]
+          repo=os.environ["GITHUB_REPOSITORY"]
+          sha=pr["head"]["sha"]
+          number=pr["number"]
+          token=os.environ["GITHUB_TOKEN"]
+          owner,name=repo.split("/",1)
+          expires=time.monotonic()+1800
+          while True:
+              current=request(token, f"/repos/{repo}/pulls/{number}")
+              if (current["head"]["sha"]!=sha or current["head"]["repo"]["full_name"]!=repo
+                      or current.get("state")!="open" or current.get("draft")):
+                  raise SystemExit("Blocked: stale, external, closed or draft PR")
+              pending=blockers(token,owner,name,number,sha)
+              if pending:
+                  raise SystemExit("P1/P2 before CI: "+"; ".join(pending[:5]))
+              reviews=pages(token,f"/repos/{repo}/pulls/{number}/reviews")
+              comments=pages(token,f"/repos/{repo}/issues/{number}/comments")
+              if review_disposition(reviews,comments,sha)=="reviewed":
+                  print("Exact-head Codex P1/P2 review GREEN; allow self-hosted build")
+                  break
+              if time.monotonic()+15>=expires:
+                  raise SystemExit("Codex review incomplete; self-hosted build BLOCKED")
+              time.sleep(15)
+          PY
 
   compile:
     needs: [review-before-ci]

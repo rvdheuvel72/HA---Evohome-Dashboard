@@ -23,6 +23,17 @@ struct Snapshot {
     return (static_cast<uint32_t>(freq2)<<16) |
            (static_cast<uint32_t>(freq1)<<8) | freq0;
   }
+  // Ignore uptime: it changes on every sample. Compare every SPI value,
+  // including duplicate reads, so intermittent corruption is never hidden.
+  bool changedFrom(const Snapshot& previous) const {
+    return sampled!=previous.sampled || part!=previous.part ||
+      version!=previous.version || marc_raw!=previous.marc_raw ||
+      iocfg2_a!=previous.iocfg2_a || iocfg2_b!=previous.iocfg2_b ||
+      pktctrl0_a!=previous.pktctrl0_a || pktctrl0_b!=previous.pktctrl0_b ||
+      mdmcfg2!=previous.mdmcfg2 ||
+      freq2!=previous.freq2 || freq1!=previous.freq1 ||
+      freq0!=previous.freq0 || expected_freq_word!=previous.expected_freq_word;
+  }
   // An equal value in every register, including ones programmed with different
   // data, means SPI readback cannot currently be trusted. It is not proof of
   // which physical wire is defective.

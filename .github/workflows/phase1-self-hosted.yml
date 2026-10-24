@@ -19,14 +19,40 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
+  issues: read
 
 concurrency:
   group: evohome-phase1-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  review-before-ci:
+    name: Codex BEFORE CI - Home Assistant
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 33
+    steps:
+      - name: Checkout protected main review script only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Wait for green exact-head Codex P1/P2 review
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/check_codex_review.py --review-only
+
   verify:
     name: Python contract and dashboard syntax
+    needs: [review-before-ci]
+    if: >-
+      always() &&
+      (github.event_name != 'pull_request' ||
+       needs.review-before-ci.result == 'success')
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 15
     steps:
@@ -58,6 +84,11 @@ jobs:
 
   standalone-frontend-bundle:
     name: Independent HACS frontend package
+    needs: [review-before-ci]
+    if: >-
+      always() &&
+      (github.event_name != 'pull_request' ||
+       needs.review-before-ci.result == 'success')
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 10
     steps:
@@ -83,6 +114,11 @@ jobs:
 
   pinned-evohome-api:
     name: Pinned evohome-async runtime contract
+    needs: [review-before-ci]
+    if: >-
+      always() &&
+      (github.event_name != 'pull_request' ||
+       needs.review-before-ci.result == 'success')
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 15
     steps:
@@ -118,6 +154,11 @@ jobs:
 
   ha-runtime-import:
     name: Home Assistant 2026.10 runtime imports
+    needs: [review-before-ci]
+    if: >-
+      always() &&
+      (github.event_name != 'pull_request' ||
+       needs.review-before-ci.result == 'success')
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 25
     steps:

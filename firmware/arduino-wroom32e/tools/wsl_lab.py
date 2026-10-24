@@ -157,13 +157,14 @@ def sample_api():
             ("rx_health", "/api/v1/radio/rx-health"),
             ("radio_diagnostics", "/api/v1/radio/diagnostics"),
             ("uart_probe", "/api/v1/radio/uart-probe"),
+            ("spi_audit", "/api/v1/radio/spi-audit"),
         ):
             req = Request(base + endpoint, headers={"Authorization": "Basic " + auth})
             try:
                 with opener.open(req, timeout=12) as response:
                     body = json.load(response)
             except Exception as ex:
-                if name == "uart_probe":
+                if name in ("uart_probe", "spi_audit"):
                     # beta.20 has no UART probe endpoint yet. Do not block
                     # diagnostics or recovery flashing on older firmware.
                     captured[name] = {"available": False, "reason": type(ex).__name__}
@@ -181,7 +182,7 @@ def sample_api():
                         "http_slow_calls", "mqtt_connect_max_ms", "mqtt_loop_max_ms",
                         "uptime_ms", "free_heap")
                 captured[name] = {k: body.get(k) for k in keys}
-            elif name in ("rx_health", "uart_probe"):
+            elif name in ("rx_health", "uart_probe", "spi_audit"):
                 captured[name] = body
             else:
                 captured[name] = {"rejected": body.get("rejected"),
@@ -208,7 +209,7 @@ def codex_analyze():
         raise RuntimeError("Codex was requested but unavailable in WSL Ubuntu runner account")
     command(["codex", "exec", "--sandbox", "read-only", "--output-last-message",
              str(OUT / "codex-analysis.txt"),
-             ("Review local-lab-output/gateway-rx-health.json including UART probe hex and the firmware CC1101 "
+             ("Review local-lab-output/gateway-rx-health.json including UART probe hex, SPI audit and the firmware CC1101 "
               "RX implementation. Do not edit files, transmit RF, pair, or flash. "
               "Clearly distinguish verified observations from hypotheses, and "
               "recommend the smallest safe change.")], timeout=240)

@@ -267,8 +267,9 @@ void logBootSpiTimeline() {
     logSpiStage("return",result.resumed_audit);
     char bypassLine[GatewayDebug::LINE_BYTES]={};
     snprintf(bypassLine,sizeof(bypassLine),
-      "SPI-bypass sidle=%u reentry=%u idle_spi_ok=%u return_spi_ok=%u",
+      "SPI-bypass sidle=%u reentry=%u fallback_srx=%u idle_spi_ok=%u return_spi_ok=%u",
       result.sidle_issued?1u:0u,result.reentry_issued?1u:0u,
+      result.fallback_srx_issued?1u:0u,
       result.idle_audit.config_ok()?1u:0u,
       result.restored_valid_spi?1u:0u);
     radioLog(result.restored_valid_spi?GatewayDebug::INFO:GatewayDebug::WARN,bypassLine);

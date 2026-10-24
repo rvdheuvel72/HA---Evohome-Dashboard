@@ -26,12 +26,20 @@ struct Result {
   bool attempted=false;
   bool sidle_issued=false;
   bool reentry_issued=false;
+  bool fallback_srx_issued=false;
   bool restored_valid_spi=false;
   Burst rx_burst{};
   Burst idle_burst{};
   ramses_spi_audit::Snapshot idle_audit{};
   ramses_spi_audit::Snapshot resumed_audit{};
 };
+// An issued SIDLE may have removed RX. We MUST not report initialization
+// success unless a subsequent restore command (full path or SRX fallback)
+// was successfully issued, even if chip register readbacks are corrupt.
+inline bool restoreIssued(const Result& r) {
+  return !r.attempted || !r.sidle_issued ||
+    r.reentry_issued || r.fallback_srx_issued;
+}
 inline bool shouldTry(const ramses_spi_audit::Snapshot& afterRx,
                       bool slowSpiAlreadyRestored) {
   return afterRx.sampled && !afterRx.config_ok() && !slowSpiAlreadyRestored;

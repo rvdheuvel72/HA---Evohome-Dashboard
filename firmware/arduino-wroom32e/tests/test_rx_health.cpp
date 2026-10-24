@@ -32,5 +32,25 @@ int main() {
   assert(!r.last_recalibration_spi_ok && r.recalibrations_not_in_rx==2);
   // A static GPIO read is not a measurement of the RF waveform.
   assert(r.gpio_high_samples==2 && r.gpio_low_samples==3);
+  RecoveryMonitor guard;
+  assert(!guard.observe(rx,false)); // working RX: do nothing
+  Sample bad=rx;
+  bad.marcstate=0xFF; // failed SPI status read is not proof of IDLE
+  assert(!guard.observe(bad,false));
+  bad.marcstate=0x01;
+  assert(!guard.observe(bad,false)); // first confirmed IDLE
+  assert(guard.observe(bad,false)); // second consecutive IDLE
+  guard.recovered();
+  assert(!guard.observe(bad,true)); // active packet decoder blocks reentry
+  assert(!guard.observe(bad,false));
+  bad.marcstate=0x09; // CAL is transient
+  assert(!guard.observe(bad,false));
+  bad.marcstate=0x11; // RX FIFO overflow is actionable
+  assert(!guard.observe(bad,false));
+  assert(guard.observe(bad,false));
+  guard.recovered();
+  bad.iocfg2=0xFF; // CC1101 register readback changed; don't strobe blindly
+  assert(!guard.observe(bad,false));
+  assert(!guard.observe(bad,false));
   puts("CC1101 RX health snapshot tests PASS");
 }

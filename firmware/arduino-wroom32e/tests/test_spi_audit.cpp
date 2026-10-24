@@ -56,6 +56,12 @@ int main() {
   assert(update.changedFrom(reference));
   update=reference;update.part^=1u;
   assert(update.changedFrom(reference));
+  update=reference;update.part_header^=1u;
+  assert(update.changedFrom(reference)); // SPI first header response
+  update=reference;update.marc_header^=1u;
+  assert(update.changedFrom(reference)); // MARC first byte
+  update=reference;update.io2_header^=1u;
+  assert(update.changedFrom(reference)); // config first byte
   // Boot timeline must preserve all raw bytes in a single 144-byte
   // GatewayDebug entry and reject any potentially truncated result.
   a.part=0;
@@ -71,6 +77,14 @@ int main() {
   assert(strstr(line,"marc=1F") && strstr(line,"io2=1F/1F"));
   assert(strstr(line,"pkt=1F/1F") && strstr(line,"freq=1F1F1F"));
   assert(strstr(line,"uni=1"));
+  assert(strstr(line,"hdr=FF/FF/FF")); // before header probes run
+  a.part_header=0x1F;
+  a.marc_header=0x1F;
+  a.io2_header=0x1F;
+  assert(formatStartupLine("srx-now",a,line,sizeof(line)));
+  assert(strstr(line,"hdr=1F/1F/1F"));
+  assert(strstr(line,"SPI-srx-now"));
+  assert(formatStartupLine("packet",a,line,sizeof(line)));
   char tiny[32]={};
   assert(!formatStartupLine("pre",a,tiny,sizeof(tiny)));
   a.sampled=false;

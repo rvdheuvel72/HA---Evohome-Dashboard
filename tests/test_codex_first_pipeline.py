@@ -49,6 +49,19 @@ class CodexFirstTests(unittest.TestCase):
             state, _ = gate.check_review_only("token", self.REPO, 12, self.SHA)
             self.assertEqual(state, "passed")
 
+    def test_skipped_approved_build_is_pending_not_a_pass_or_failure(self):
+        # A previous pre-review run intentionally skipped its expensive job.
+        # A new reviewed attempt may be queued, but the old skipped check
+        # must NEVER be treated as success or a permanent CI error.
+        with patch.object(gate, "pages",
+                          return_value=[{"filename": "firmware/arduino-wroom32e/test.h"}]), \\
+             patch.object(gate, "request", return_value={
+                 "check_runs": [{"name": "Trusted Arduino compile",
+                                 "status": "completed", "conclusion": "skipped"}]}):
+            state, _ = gate.required_ci_state("token", self.REPO, self.SHA,
+                                               pr_number=12)
+        self.assertEqual(state, "pending")
+
     def test_post_ci_review_must_be_after_request(self):
         marker = "<!-- codex-final-review:" + self.SHA + " -->"
         final = {

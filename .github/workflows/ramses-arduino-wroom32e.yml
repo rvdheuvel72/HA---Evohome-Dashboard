@@ -152,6 +152,8 @@ jobs:
         run: python3 firmware/arduino-wroom32e/tests/test_web_delivery.py
       - name: Validate standalone RAMSES release version contract
         run: python3 firmware/arduino-wroom32e/tests/test_release_contract.py
+      - name: Validate manual-only WSL hardware workflow and flash protections
+        run: python3 firmware/arduino-wroom32e/tests/test_wsl_lab_contract.py
       - name: Compile for ESP32-WROOM-32E
         run: |
           arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all firmware/arduino-wroom32e/RamsesGateway --output-dir "$RUNNER_TEMP/arduino-build"

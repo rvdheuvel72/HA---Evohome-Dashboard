@@ -89,6 +89,42 @@ int main() {
   assert(!formatStartupLine("pre",a,tiny,sizeof(tiny)));
   a.sampled=false;
   assert(!formatStartupLine("pre",a,line,sizeof(line)));
+  // If the radio is readable at 1MHz, do not change the clock.
+  assert(!slowProbeNeeded(reference));
+  // An RX-state-only problem is not sufficient to slow the SPI bus:
+  // valid configuration is what determines SPI transport health.
+  Snapshot slowCandidate=reference;
+  slowCandidate.iocfg2_a=IOCFG2_RX;
+  slowCandidate.iocfg2_b=IOCFG2_RX;
+  slowCandidate.pktctrl0_a=PKTCTRL0_RX;
+  slowCandidate.pktctrl0_b=PKTCTRL0_RX;
+  slowCandidate.mdmcfg2=MDMCFG2_RAMSES;
+  slowCandidate.part=PARTNUM_CC1101;
+  slowCandidate.version=VERSION_CC1101;
+  slowCandidate.freq2=0x21;
+  slowCandidate.freq1=0x65;
+  slowCandidate.freq0=0x6a;
+  slowCandidate.expected_freq_word=0x21656A;
+  slowCandidate.sampled=true;
+  assert(slowCandidate.config_ok());
+  assert(!slowProbeNeeded(slowCandidate));
+  slowCandidate.marc_raw=0x1F;
+  assert(!slowProbeNeeded(slowCandidate)); // MARC alone is not SPI corruption
+  Snapshot corrupted=slowCandidate;
+  corrupted.part=0x1f;corrupted.version=0x1f;
+  corrupted.iocfg2_a=corrupted.iocfg2_b=0x1f;
+  corrupted.pktctrl0_a=corrupted.pktctrl0_b=0x1f;
+  corrupted.mdmcfg2=corrupted.freq2=corrupted.freq1=corrupted.freq0=0x1f;
+  assert(slowProbeNeeded(corrupted));
+  assert(!keepSlowClock(corrupted,slowCandidate));
+  assert(!keepSlowClock(slowCandidate,corrupted));
+  Snapshot slowGood2=slowCandidate;
+  slowGood2.uptime_ms+=3;
+  slowGood2.marc_raw=0x0d; // RX status can change while registers are stable
+  slowGood2.part_header=0x1f;
+  slowGood2.marc_header=0x1f;
+  assert(keepSlowClock(slowCandidate,slowGood2));
+  assert(!slowProbeNeeded(Snapshot{})); // no early unsupported probe
   // Regression: M5Stack beta.23 returned 0x1F from EVERY register. The
   // extra chip-status header fields must not overflow the HTTP response.
   Snapshot bad{};

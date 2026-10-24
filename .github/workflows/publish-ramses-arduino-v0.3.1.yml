@@ -1,14 +1,6 @@
 name: Publish RAMSES Arduino Gateway v0.3.1
+# Superseded release workflow: manual maintenance only, never on firmware PRs.
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/publish-ramses-arduino-v0.3.1.yml"
-  pull_request:
-    paths:
-      - ".github/workflows/publish-ramses-arduino-v0.3.1.yml"
-      - "firmware/arduino-wroom32e/**"
   workflow_dispatch:
 
 permissions:
@@ -24,7 +16,7 @@ concurrency:
 jobs:
   release:
     name: Package and publish dedicated Arduino release
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - name: Checkout release source
         uses: actions/checkout@v7

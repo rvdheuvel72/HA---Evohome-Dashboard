@@ -112,7 +112,13 @@ class Cc1101Radio {
       startupSlowAudit2_=readSpiAudit(millis());
       startupSlowRetained_=ramses_spi_audit::keepSlowClock(
         startupSlowAudit1_,startupSlowAudit2_);
-      if(!startupSlowRetained_)spiClockHz_=1000000u;
+      if(startupSlowRetained_) {
+        startupRxConfirmed_=startupRxConfirmed_ ||
+          cc1101_startup::receiving(
+            cc1101_startup::decodeMarcState(startupSlowAudit2_.marc_raw));
+      } else {
+        spiClockHz_=1000000u;
+      }
     }
     initStage_="initialized";
     return cc1101_startup::ready(part_,version_,rxCommandAccepted);

@@ -8,7 +8,7 @@ import json
 import os
 import sys
 
-from check_codex_review import (check_ci, pages, request, review_disposition)
+from check_codex_review import (check_ci, pages, request, review_disposition,\n                                final_review_requested_at)
 
 
 def ensure_request(token, repo, number, sha, phase):
@@ -29,13 +29,24 @@ def ensure_request(token, repo, number, sha, phase):
         state, reason = check_ci(token, repo, number, sha)
         if state != "passed":
             raise RuntimeError("Cannot request final Codex before green CI: " + reason)
-    marker = f"<!-- codex-{phase}-review:{sha} -->"
-    if any(marker in c.get("body", "") and
-           (c.get("user") or {}).get("login", "").lower() in
-           ("github-actions[bot]", "github-actions")
-           for c in comments):
-        print(f"Codex {phase} review already requested for {sha}")
-        return
+    if phase == "final":
+        # A same-repo PR can forge a github-actions[bot] issue comment.
+        # Only an authenticated successful protected final-request job can
+        # suppress another genuine post-CI review request.
+        if final_review_requested_at(token, repo, comments, sha):
+            print("Verified protected post-CI review request already exists")
+            return
+    else:
+        if any(f"<!-- codex-pre-review:{sha}:" in c.get("body", "")
+               and (c.get("user") or {}).get("login", "").lower() in
+                   ("github-actions[bot]", "github-actions")
+               for c in comments):
+            print("Codex pre-review already requested for exact head")
+            return
+    run_id = os.environ.get("GITHUB_RUN_ID")
+    if not run_id or not run_id.isdecimal():
+        raise RuntimeError("Missing protected workflow run identifier")
+    marker = f"<!-- codex-{phase}-review:{sha}:run={run_id} -->"
     body = (
         f"@codex review\n\n{phase.upper()} review for exact HEAD "
         f"{sha}. Report all P1/P2; CI must be green before the final "
@@ -52,8 +63,16 @@ def main():
     with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as f:
         event = json.load(f)
     pr = event.get("pull_request")
+    if not pr and (event.get("issue") or {}).get("pull_request"):
+        actor = (event.get("comment") or {}).get("user") or {}
+        if actor.get("login", "").lower() not in (
+                "chatgpt-codex-connector", "chatgpt-codex-connector[bot]"):
+            raise RuntimeError("Only authentic Codex completion comments can resume")
+        repo = os.environ["GITHUB_REPOSITORY"]
+        number = event["issue"]["number"]
+        pr = request(os.environ["GITHUB_TOKEN"], f"/repos/{repo}/pulls/{number}")
     if not pr:
-        raise RuntimeError("Only trusted pull_request_target events are allowed")
+        raise RuntimeError("Only protected PR or trusted Codex completion events")
     ensure_request(os.environ["GITHUB_TOKEN"], os.environ["GITHUB_REPOSITORY"],
                    pr["number"], pr["head"]["sha"], sys.argv[1])
 

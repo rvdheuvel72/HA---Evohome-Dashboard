@@ -91,4 +91,40 @@ inline bool formatStartupLine(const char* phase,const Snapshot& s,
     static_cast<unsigned>(s.io2_header));
   return n>0 && static_cast<size_t>(n)<capacity;
 }
+// Host-testable JSON serialization. Keep HTTP's output buffer bounded and
+// reject truncation rather than returning incomplete diagnostic evidence.
+inline bool formatAuditJson(const Snapshot& s,uint32_t count,
+                            char* output,size_t capacity) {
+  if(!output || capacity==0)return false;
+  const int n=snprintf(output,capacity,
+    "{\"ready\":%s,\"read_only\":true,\"uptime_ms\":%lu,\"sample_count\":%lu,"
+    "\"diagnosis\":\"%s\",\"uniform_data\":%s,\"identifiers_ok\":%s,"
+    "\"config_readback_matches\":%s,"
+    "\"part\":%u,\"version\":%u,\"marc_raw\":%u,"
+    "\"iocfg2_first\":%u,\"iocfg2_second\":%u,"
+    "\"pktctrl0_first\":%u,\"pktctrl0_second\":%u,"
+    "\"mdmcfg2\":%u,\"freq2\":%u,\"freq1\":%u,\"freq0\":%u,"
+    "\"chip_status_at_part_header\":%u,\"chip_status_at_marc_header\":%u,\"chip_status_at_io2_header\":%u,"
+    "\"freq_word\":%lu,\"expected_freq_word\":%lu,"
+    "\"note\":\"Raw SPI reads only; no reset, strobe, RF TX or pairing\"}",
+    s.sampled?"true":"false",
+    static_cast<unsigned long>(s.uptime_ms),
+    static_cast<unsigned long>(count),s.diagnosis(),
+    s.uniform_data()?"true":"false",
+    s.identifiers_ok()?"true":"false",
+    s.config_ok()?"true":"false",
+    static_cast<unsigned>(s.part),static_cast<unsigned>(s.version),
+    static_cast<unsigned>(s.marc_raw),
+    static_cast<unsigned>(s.iocfg2_a),static_cast<unsigned>(s.iocfg2_b),
+    static_cast<unsigned>(s.pktctrl0_a),static_cast<unsigned>(s.pktctrl0_b),
+    static_cast<unsigned>(s.mdmcfg2),
+    static_cast<unsigned>(s.freq2),static_cast<unsigned>(s.freq1),
+    static_cast<unsigned>(s.freq0),
+    static_cast<unsigned>(s.part_header),
+    static_cast<unsigned>(s.marc_header),
+    static_cast<unsigned>(s.io2_header),
+    static_cast<unsigned long>(s.received_freq_word()),
+    static_cast<unsigned long>(s.expected_freq_word));
+  return n>=0 && static_cast<size_t>(n)<capacity;
+}
 } // namespace ramses_spi_audit

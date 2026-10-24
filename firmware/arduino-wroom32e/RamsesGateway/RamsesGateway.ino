@@ -1078,37 +1078,8 @@ void httpSpiAudit() {
   s=spiAudit;
   count=spiAuditSamples;
   portEXIT_CRITICAL(&spiAuditMux);
-  char output[550];
-  const int n=snprintf(output,sizeof(output),
-    "{\"ready\":%s,\"read_only\":true,\"uptime_ms\":%lu,\"sample_count\":%lu,"
-    "\"diagnosis\":\"%s\",\"uniform_data\":%s,\"identifiers_ok\":%s,"
-    "\"config_readback_matches\":%s,"
-    "\"part\":%u,\"version\":%u,\"marc_raw\":%u,"
-    "\"iocfg2_first\":%u,\"iocfg2_second\":%u,"
-    "\"pktctrl0_first\":%u,\"pktctrl0_second\":%u,"
-    "\"mdmcfg2\":%u,\"freq2\":%u,\"freq1\":%u,\"freq0\":%u,"
-    "\"chip_status_at_part_header\":%u,\"chip_status_at_marc_header\":%u,\"chip_status_at_io2_header\":%u,"
-    "\"freq_word\":%lu,\"expected_freq_word\":%lu,"
-    "\"note\":\"Raw SPI reads only; no reset, strobe, RF TX or pairing\"}",
-    s.sampled?"true":"false",
-    static_cast<unsigned long>(s.uptime_ms),
-    static_cast<unsigned long>(count),s.diagnosis(),
-    s.uniform_data()?"true":"false",
-    s.identifiers_ok()?"true":"false",
-    s.config_ok()?"true":"false",
-    static_cast<unsigned>(s.part),static_cast<unsigned>(s.version),
-    static_cast<unsigned>(s.marc_raw),
-    static_cast<unsigned>(s.iocfg2_a),static_cast<unsigned>(s.iocfg2_b),
-    static_cast<unsigned>(s.pktctrl0_a),static_cast<unsigned>(s.pktctrl0_b),
-    static_cast<unsigned>(s.mdmcfg2),
-    static_cast<unsigned>(s.freq2),static_cast<unsigned>(s.freq1),
-    static_cast<unsigned>(s.freq0),
-    static_cast<unsigned>(s.part_header),
-    static_cast<unsigned>(s.marc_header),
-    static_cast<unsigned>(s.io2_header),
-    static_cast<unsigned long>(s.received_freq_word()),
-    static_cast<unsigned long>(s.expected_freq_word));
-  if(n<0 || static_cast<size_t>(n)>=sizeof(output)) {
+  char output[768];
+  if(!ramses_spi_audit::formatAuditJson(s,count,output,sizeof(output))) {
     web.send(500,"application/json","{\"error\":\"spi_audit_overflow\"}");
     return;
   }

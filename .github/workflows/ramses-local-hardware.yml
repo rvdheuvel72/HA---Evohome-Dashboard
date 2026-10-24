@@ -172,17 +172,6 @@ jobs:
           "UART byte delta: $($last.rf_uart_bytes - $first.rf_uart_bytes); sync delta: $($last.rf_syncs - $first.rf_syncs); valid frame delta: $($last.valid_frames - $first.valid_frames)" | Tee-Object -FilePath local-lab-output/summary.txt
           "Last CC1101 MARCSTATE: $($snapshots[-1].rx_health.latest.marcstate); in_rx: $($snapshots[-1].rx_health.latest.in_rx)" | Tee-Object -FilePath local-lab-output/summary.txt -Append
 
-      - name: Analyze captured metrics with preinstalled Codex in Ubuntu WSL
-        if: github.event_name == 'workflow_dispatch' && (inputs.operation == 'diagnose' || inputs.operation == 'flash') && inputs.use_codex
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $path = (& wsl.exe --distribution Ubuntu -- wslpath -a "$env:GITHUB_WORKSPACE").Trim()
-          if ($LASTEXITCODE -ne 0 -or -not $path) { throw 'Windows runner cannot access checkout through Ubuntu WSL' }
-          if ($path.Contains("'")) { throw 'Unsupported checkout path quoting' }
-          $script = "cd '$path' && command -v codex && codex exec --sandbox read-only --output-last-message local-lab-output/codex-analysis.txt 'Analyze local-lab-output/gateway-rx-health.json and the RAMSES CC1101 receive path in firmware/arduino-wroom32e/RamsesGateway. Do not modify files. Distinguish proven findings from hypotheses, identify whether RX state 13 is reached, and recommend the smallest safe RX-only change. Do not transmit, pair, or flash.'"
-          & wsl.exe --distribution Ubuntu -- bash -lc $script
-          if ($LASTEXITCODE -ne 0) { throw 'WSL Codex analysis failed; check runner service account authentication and WSL access' }
-
       - name: Compile and flash firmware directly to COM3 on Windows
         if: github.event_name == 'workflow_dispatch' && inputs.operation == 'flash' && inputs.confirm_flash == 'FLASH-COM3'
         env:
@@ -209,6 +198,51 @@ jobs:
           } finally {
             Remove-Item -LiteralPath $privateHeader -Force -ErrorAction SilentlyContinue
           }
+
+      - name: Check gateway health after COM3 upload
+        if: github.event_name == 'workflow_dispatch' && inputs.operation == 'flash' && inputs.confirm_flash == 'FLASH-COM3'
+        env:
+          GATEWAY_URL: ${{ inputs.gateway_url }}
+          GATEWAY_USER: ${{ secrets.RAMSES_GATEWAY_HTTP_USER }}
+          GATEWAY_PASSWORD: ${{ secrets.RAMSES_GATEWAY_HTTP_PASSWORD }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $base = [Uri]$env:GATEWAY_URL
+          $auth = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("$($env:GATEWAY_USER):$($env:GATEWAY_PASSWORD)"))
+          $headers = @{ Authorization = "Basic $auth" }
+          $status = $null
+          for ($i=0; $i -lt 6; $i++) {
+            Start-Sleep -Seconds 10
+            try {
+              $status = Invoke-RestMethod -Uri ([Uri]::new($base,'/api/v1/status')) -Headers $headers -TimeoutSec 8
+              break
+            } catch { Write-Host "Gateway not yet reachable after upload, attempt $($i+1)/6" }
+          }
+          if ($null -eq $status) { throw 'COM3 flash completed, but gateway HTTP recovery not confirmed' }
+          $health = Invoke-RestMethod -Uri ([Uri]::new($base,'/api/v1/radio/rx-health')) -Headers $headers -TimeoutSec 8
+          [ordered]@{
+            collected_utc = (Get-Date).ToUniversalTime().ToString('o')
+            version = $status.version
+            radio_detected = $status.radio_detected
+            rx_at_boot = $status.cc1101_rx_at_boot
+            initial_marcstate = $status.cc1101_boot_marcstate
+            rf_uart_bytes = $status.rf_uart_bytes
+            rf_syncs = $status.rf_syncs
+            valid_frames = $status.valid_frames
+            health = $health
+          } | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 local-lab-output/post-flash-health.json
+          "Gateway responded: version $($status.version); boot RX confirmed=$($status.cc1101_rx_at_boot); latest MARCSTATE=$($health.latest.marcstate). RF packet reception still unverified." | Tee-Object -FilePath local-lab-output/post-flash-summary.txt
+
+      - name: Analyze captured metrics with preinstalled Codex in Ubuntu WSL
+        if: github.event_name == 'workflow_dispatch' && (inputs.operation == 'diagnose' || inputs.operation == 'flash') && inputs.use_codex
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = (& wsl.exe --distribution Ubuntu -- wslpath -a "$env:GITHUB_WORKSPACE").Trim()
+          if ($LASTEXITCODE -ne 0 -or -not $path) { throw 'Windows runner cannot access checkout through Ubuntu WSL' }
+          if ($path.Contains("'")) { throw 'Unsupported checkout path quoting' }
+          $script = "cd '$path' && command -v codex && codex exec --sandbox read-only --output-last-message local-lab-output/codex-analysis.txt 'Analyze local-lab-output/gateway-rx-health.json and the RAMSES CC1101 receive path in firmware/arduino-wroom32e/RamsesGateway. Do not modify files. Distinguish proven findings from hypotheses, identify whether RX state 13 is reached, and recommend the smallest safe RX-only change. Do not transmit, pair, or flash.'"
+          & wsl.exe --distribution Ubuntu -- bash -lc $script
+          if ($LASTEXITCODE -ne 0) { throw 'WSL Codex analysis failed; check runner service account authentication and WSL access' }
 
       - name: Save sanitized diagnostics (short retention)
         if: always()

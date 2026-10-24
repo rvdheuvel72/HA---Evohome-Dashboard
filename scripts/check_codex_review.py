@@ -265,7 +265,7 @@ def check_review_only(token, full_repo, number, sha):
     owner, name = full_repo.split("/", 1)
     findings = blockers(token, owner, name, number, sha)
     if findings:
-        return "blocked", "P1/P2 must be fixed before CI: " + "; ".join(findings[:8])
+        return "blocked", f"Codex has {len(findings)} blocking P1/P2 finding(s); self-hosted CI is intentionally skipped. See PR review threads."
     prefix = "/repos/" + full_repo
     reviews = pages(token, prefix + f"/pulls/{number}/reviews")
     comments = pages(token, prefix + f"/issues/{number}/comments")

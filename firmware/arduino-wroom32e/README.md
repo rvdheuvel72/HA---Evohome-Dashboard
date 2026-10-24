@@ -1,3 +1,13 @@
+## Beta.21: Preserve confirmed RX and provide UART byte evidence
+
+**Release:** [RAMSES Arduino Gateway v0.4.0-beta.21](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.21) after CI, Codex review and merge.
+
+**Arduino IDE ZIP:** `RAMSES-Arduino-Gateway-v0.4.0-beta.21-ESP32-WROOM-32E.zip`.
+
+The last user-confirmed successful RAMSES packet on the M5Stack M146 was on beta.16 (`sync=1 valid=1`). The decoder and core radio-frequency settings are unchanged through beta.20, but beta.20 shows `initial_MARC=31 RX_at_boot=0`, and no RAMSES sync. Beta.21 stops unconditional 30-second RX re-entry, recovers only after two confirmed consecutive IDLE/overflow readings, and provides **read-only** UART evidence at `/api/v1/radio/uart-probe`. To correlate the radio state and raw receive bytes, query `/api/v1/status`, `/api/v1/radio/rx-health`, `/api/v1/radio/uart-probe`, and `/api/v1/packets` on the authenticated local gateway.
+
+**RF communication is not considered repaired until new valid packets are observed on the physical gateway.** No automated RF TX, pairing, or boiler commands are added.
+
 ## Beta.20: Avoid disruptive CC1101 reset and measure web/MQTT slowdown
 
 **Release:** [RAMSES Arduino Gateway v0.4.0-beta.20](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.20), after required CI and review checks.

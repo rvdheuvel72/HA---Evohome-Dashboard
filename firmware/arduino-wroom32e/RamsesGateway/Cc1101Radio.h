@@ -35,6 +35,7 @@ class Cc1101Radio {
     part_=version_=0xFF;
     startupMarcState_=0xFF;
     startupRxConfirmed_=false;
+    startupRxRetries_=0;
     for (uint8_t attempt=0;attempt<3;attempt++) {
       if(reset()){
         part_=status(0x30); // PARTNUM
@@ -68,6 +69,21 @@ class Cc1101Radio {
       delayMicroseconds(150);
     } while(static_cast<uint32_t>(micros()-started)<15000u);
     startupRxConfirmed_=cc1101_startup::receiving(startupMarcState_);
+    // Recover an actual stable IDLE/overflow state once, without SRES.
+    // Do not disturb active RX or retry on a failed SPI status read (0xFF).
+    if(!startupRxConfirmed_ &&
+       (startupMarcState_==0x01u || startupMarcState_==0x11u)) {
+      ++startupRxRetries_;
+      if(enterReceive()) {
+        const uint32_t retryStart=micros();
+        do {
+          startupMarcState_=cc1101_startup::decodeMarcState(status(0x35));
+          if(cc1101_startup::receiving(startupMarcState_))break;
+          delayMicroseconds(150);
+        } while(static_cast<uint32_t>(micros()-retryStart)<15000u);
+        startupRxConfirmed_=cc1101_startup::receiving(startupMarcState_);
+      }
+    }
     initStage_="initialized";
     return cc1101_startup::ready(part_,version_,rxCommandAccepted);
   }
@@ -88,6 +104,7 @@ class Cc1101Radio {
   uint8_t version() const { return version_; }
   uint8_t startupMarcState() const { return startupMarcState_; }
   bool startupRxConfirmed() const { return startupRxConfirmed_; }
+  uint8_t startupRxRetries() const { return startupRxRetries_; }
   const char* initStage() const { return initStage_; }
   uint32_t frequencyKhz() const { return frequencyKhz_; }
   uint16_t moduleBand() const { return moduleBand_; }
@@ -296,6 +313,7 @@ class Cc1101Radio {
   uint8_t part_ = 0xFF, version_ = 0xFF;
   uint8_t startupMarcState_ = 0xFF;
   bool startupRxConfirmed_ = false;
+  uint8_t startupRxRetries_ = 0;
   const char* initStage_ = "not_started";
   uint32_t frequencyKhz_ = 868300;
   uint16_t moduleBand_ = 868;

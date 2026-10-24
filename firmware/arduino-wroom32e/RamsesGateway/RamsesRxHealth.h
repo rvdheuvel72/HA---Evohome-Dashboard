@@ -17,6 +17,31 @@ struct Sample {
     return iocfg2==EXPECTED_IOCFG2 && pktctrl0==EXPECTED_PKTCTRL0;
   }
 };
+
+// Never disturb an already-receiving radio merely because no packet arrived.
+// Two consecutive independent 5-second snapshots must show a genuine,
+// readable non-RX state and intact asynchronous GDO2 configuration.
+// SPI read failures (0xFF) and temporary CAL/SETTLING are not RX faults.
+struct RecoveryMonitor {
+  uint8_t confirmed_not_rx=0;
+  bool observe(const Sample& s, bool decoder_active) {
+    if (decoder_active || !s.settingsMatch() || s.marcstate==0xFFu ||
+        s.inRx()) {
+      confirmed_not_rx=0;
+      return false;
+    }
+    // Only stable IDLE or RX FIFO overflow is actionable. Other states
+    // can be transient while the modem calibrates or settles.
+    if(s.marcstate!=0x01u && s.marcstate!=0x11u) {
+      confirmed_not_rx=0;
+      return false;
+    }
+    if(confirmed_not_rx<2u) ++confirmed_not_rx;
+    return confirmed_not_rx==2u;
+  }
+  void recovered() { confirmed_not_rx=0; }
+};
+
 struct Report {
   Sample latest={},before_recalibration={},after_recalibration={};
   uint32_t samples=0;

@@ -14,6 +14,12 @@ on:
       - ".github/workflows/ramses-local-hardware.yml"
   workflow_dispatch:
 
+# Superseded firmware PR builds should not occupy the self-hosted runner.
+# Main-branch builds remain non-cancellable.
+concurrency:
+  group: ramses-firmware-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
@@ -156,6 +162,13 @@ jobs:
         run: python3 firmware/arduino-wroom32e/tests/test_release_contract.py
       - name: Validate manual-only WSL hardware workflow and flash protections
         run: python3 firmware/arduino-wroom32e/tests/test_wsl_lab_contract.py
+      - name: Check WSL local Codex lab Python syntax
+        run: python3 -m py_compile firmware/arduino-wroom32e/tools/wsl_lab.py
+      - name: Test passive bounded RAMSES UART probe
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror \
+            firmware/arduino-wroom32e/tests/test_uart_probe.cpp -o /tmp/test-ramses-uart-probe
+          /tmp/test-ramses-uart-probe
       - name: Compile for ESP32-WROOM-32E
         run: |
           arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all firmware/arduino-wroom32e/RamsesGateway --output-dir "$RUNNER_TEMP/arduino-build"

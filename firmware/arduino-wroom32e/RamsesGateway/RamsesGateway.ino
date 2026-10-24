@@ -17,6 +17,7 @@
 #include "Cc1101Radio.h"
 #include "RamsesTxLoopback.h"
 #include "RamsesRxHealth.h"
+#include "RamsesUartProbe.h"
 #include "RamsesCodec.h"
 #include "GatewayDebug.h"
 #include "GatewayWebPage.h"
@@ -89,7 +90,7 @@ constexpr uint32_t HEARTBEAT_MS = 15000;
 constexpr uint32_t RADIO_RECOVERY_RETRY_MS = 5000;
 constexpr uint32_t RX_HEALTH_SAMPLE_MS = 5000;
 constexpr uint8_t DEBUG_QUEUE_SIZE = 16;
-constexpr char FW_VERSION[] = "0.4.0-beta.20";
+constexpr char FW_VERSION[] = "0.4.0-beta.21";
 constexpr uint32_t MDNS_RETRY_MS = 15000;
 constexpr uint32_t MQTT_STATE_INTERVAL_MS = 15000;
 
@@ -130,6 +131,8 @@ volatile bool radioReady = false;
 // Only radioTask touches CC1101 SPI; HTTP copies the protected report.
 portMUX_TYPE rxHealthMux = portMUX_INITIALIZER_UNLOCKED;
 ramses_rx_health::Report rxHealth;
+portMUX_TYPE uartProbeMux = portMUX_INITIALIZER_UNLOCKED;
+ramses_uart_probe::Snapshot uartProbe;
 portMUX_TYPE loopbackMux = portMUX_INITIALIZER_UNLOCKED;
 ramses_loopback::Report loopbackReport;
 // The main loop queues a request, and only radioTask operates UART1 or UART2.
@@ -354,6 +357,7 @@ void runTxPinLoopback(HardwareSerial& transmitter,Cc1101Radio& receiver) {
 void radioTask(void*) {
   ramses::FrameDecoder decoder;
   ramses::Message message;
+  ramses_rx_health::RecoveryMonitor rxRecovery;
   rfUart.setRxBufferSize(4096);
   // GDO2 receives async radio data; GDO0 is UART TX into CC1101 during STX.
   // No RF TX is attempted unless explicit, constrained diagnostic gates pass.
@@ -414,6 +418,9 @@ void radioTask(void*) {
       const uint8_t byteIn = static_cast<uint8_t>(rfUart.read());
       ++processed;
       rfUartBytes = rfUartBytes + 1u;
+      portENTER_CRITICAL(&uartProbeMux);
+      uartProbe.observe(byteIn);
+      portEXIT_CRITICAL(&uartProbeMux);
       lastByteMs = millis();
       const bool decoded = decoder.feed(byteIn, message);
       const ramses::RejectReason error=decoder.takeError();
@@ -491,35 +498,38 @@ void radioTask(void*) {
         portEXIT_CRITICAL(&rxDiagnosticsMux);
       }
     }
-    if (!decoder.receiving() && (now - lastCalibrationMs > 30000)) {
-      // Preserve existing RX re-entry: observe before/after, no new TX or RX
-      // strobes. Give MARCSTATE up to 5 ms to leave transient CAL/SETTLING.
+    // The beta.16 working driver re-entered RX every 30s regardless of
+    // MARCSTATE. That can interrupt normal packet reception and does not
+    // distinguish RF silence from radio failure. Read the state every 5s,
+    // but strobe only after two independent *valid* IDLE/overflow readings.
+    // Never SRES merely because no RAMSES packet has been heard.
+    if (!decoder.receiving() && now-lastHealthSampleMs>=RX_HEALTH_SAMPLE_MS) {
       const auto before=radio.readRxHealth(now,rfUartBytes);
-      const bool ok = radio.enterReceive();
-      if (ok) radioRxRecalibrations = radioRxRecalibrations + 1u;
-      else {
-        radioRxRecalibrationFailures = radioRxRecalibrationFailures + 1u;
-        radioLog(GatewayDebug::WARN, "CC1101 periodic RX recalibration failed");
+      const bool recover=rxRecovery.observe(before,false);
+      if(recover && now-lastCalibrationMs>=30000u) {
+        const bool ok=radio.enterReceive();
+        if(ok)radioRxRecalibrations=radioRxRecalibrations+1u;
+        else {
+          radioRxRecalibrationFailures=radioRxRecalibrationFailures+1u;
+          radioLog(GatewayDebug::WARN,"CC1101 confirmed non-RX; safe SRX re-entry failed");
+        }
+        const uint32_t started=micros();
+        auto after=radio.readRxHealth(millis(),rfUartBytes);
+        while(ok && !after.inRx() &&
+              static_cast<uint32_t>(micros()-started)<5000u) {
+          delayMicroseconds(100);
+          after=radio.readRxHealth(millis(),rfUartBytes);
+        }
+        portENTER_CRITICAL(&rxHealthMux);
+        rxHealth.recalibration(before,after,ok);
+        portEXIT_CRITICAL(&rxHealthMux);
+        rxRecovery.recovered();
+        lastCalibrationMs=now;
+      } else {
+        portENTER_CRITICAL(&rxHealthMux);
+        rxHealth.observe(before);
+        portEXIT_CRITICAL(&rxHealthMux);
       }
-      const uint32_t started=micros();
-      auto after=radio.readRxHealth(millis(),rfUartBytes);
-      while (ok && !after.inRx() &&
-             static_cast<uint32_t>(micros()-started)<5000u) {
-        delayMicroseconds(100);
-        after=radio.readRxHealth(millis(),rfUartBytes);
-      }
-      portENTER_CRITICAL(&rxHealthMux);
-      rxHealth.recalibration(before,after,ok);
-      portEXIT_CRITICAL(&rxHealthMux);
-      lastCalibrationMs=now;
-      lastHealthSampleMs=now;
-    } else if (!decoder.receiving() &&
-               now-lastHealthSampleMs>=RX_HEALTH_SAMPLE_MS) {
-      // A read-only register/GPIO snapshot is not proof of RF reception.
-      const auto sample=radio.readRxHealth(now,rfUartBytes);
-      portENTER_CRITICAL(&rxHealthMux);
-      rxHealth.observe(sample);
-      portEXIT_CRITICAL(&rxHealthMux);
       lastHealthSampleMs=now;
     }
     // Perform the GPIO bench test before the OpenTherm scheduler.
@@ -977,6 +987,32 @@ void formatRxHealthSample(const ramses_rx_health::Sample& s,char* out,size_t cap
     static_cast<unsigned>(s.marcstate),s.inRx()?"true":"false",
     static_cast<unsigned>(s.iocfg2),static_cast<unsigned>(s.pktctrl0),
     s.settingsMatch()?"true":"false",static_cast<unsigned>(s.gdo2_level));
+}
+// Passive UART evidence: distinguishes an inactive GDO2/UART path from
+// byte stream corruption without changing CC1101 registers or sending RF.
+void httpUartProbe() {
+  if(!authorized())return;
+  ramses_uart_probe::Snapshot snapshot;
+  portENTER_CRITICAL(&uartProbeMux);
+  snapshot=uartProbe;
+  portEXIT_CRITICAL(&uartProbeMux);
+  char hex[2*ramses_uart_probe::CAPACITY+1]={};
+  snapshot.toHex(hex,sizeof(hex));
+  char response[275];
+  const int n=snprintf(response,sizeof(response),
+    "{\"uart_bytes\":%lu,\"zeros\":%lu,\"all_ones\":%lu,"
+    "\"last_bytes_hex\":\"%s\",\"sample_capacity\":%u,"
+    "\"note\":\"UART1 RX data only; does not prove RF reception\"}",
+    static_cast<unsigned long>(snapshot.received),
+    static_cast<unsigned long>(snapshot.zeros),
+    static_cast<unsigned long>(snapshot.all_ones),hex,
+    static_cast<unsigned>(ramses_uart_probe::CAPACITY));
+  if(n<0 || static_cast<size_t>(n)>=sizeof(response)) {
+    web.send(500,"application/json","{\"error\":\"uart_probe_overflow\"}");
+    return;
+  }
+  web.sendHeader("Cache-Control","no-store");
+  web.send(200,"application/json",response);
 }
 void httpRxHealth() {
   if(!authorized())return;
@@ -1512,8 +1548,8 @@ void handlePacket(const PacketEvent& event) {
 void setup() {
   Serial.begin(115200);
   delay(250);
-  Serial.println("\n# RAMSES II Arduino v0.4.0-beta.20 (read-only OpenTherm discovery)");
-  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-beta.20");
+  Serial.println("\n# RAMSES II Arduino v0.4.0-beta.21 (read-only OpenTherm discovery)");
+  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-beta.21");
   char bootInfo[96];
   snprintf(bootInfo, sizeof(bootInfo), "Reset reason: %s", resetReason());
   recordLog(GatewayDebug::INFO, bootInfo);
@@ -1573,6 +1609,7 @@ void setup() {
   web.on("/api/v1/capture/action", HTTP_POST, httpCaptureAction);
   web.on("/api/v1/capture/download", HTTP_GET, httpCaptureDownload);
   web.on("/api/v1/radio/rx-health", HTTP_GET, httpRxHealth);
+  web.on("/api/v1/radio/uart-probe", HTTP_GET, httpUartProbe);
   web.on("/api/v1/radio/diagnostics", HTTP_GET, httpRadioDiagnostics);
   web.on("/api/v1/radio/diagnostics", HTTP_POST, httpRadioDiagnostics);
   web.on("/api/v1/opentherm/profile", HTTP_GET, httpOtProfile);
@@ -1682,10 +1719,18 @@ void loop() {
   static uint32_t lastHeartbeat = 0;
   if (millis() - lastHeartbeat >= HEARTBEAT_MS) {
     lastHeartbeat = millis();
-    char heartbeat[200];
+    ramses_rx_health::Sample lastRxSample;
+    bool rxSampleValid=false;
+    portENTER_CRITICAL(&rxHealthMux);
+    lastRxSample=rxHealth.latest;
+    rxSampleValid=rxHealth.has_latest;
+    portEXIT_CRITICAL(&rxHealthMux);
+    char heartbeat[270];
     snprintf(heartbeat,sizeof(heartbeat),
-             "HEARTBEAT CC1101=%s UART=%lu sync=%lu valid=%lu rejected=%lu heap=%lu HTTPmax=%lums MQTTconnectMax=%lums MQTTloopMax=%lums",
+             "HEARTBEAT CC1101=%s RX=%s MARC=%u UART=%lu sync=%lu valid=%lu rejected=%lu heap=%lu HTTPmax=%lums MQTTconnectMax=%lums MQTTloopMax=%lums",
              radioReady?"ok":"missing",
+             !rxSampleValid?"unknown":lastRxSample.marcstate==0xFFu?"spi_unreadable":lastRxSample.inRx()?"active":"not_in_rx",
+             static_cast<unsigned>(lastRxSample.marcstate),
              static_cast<unsigned long>(rfUartBytes),
              static_cast<unsigned long>(rfSyncs),
              static_cast<unsigned long>(validFrames),

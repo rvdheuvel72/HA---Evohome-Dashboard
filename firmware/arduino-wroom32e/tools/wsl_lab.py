@@ -243,6 +243,22 @@ def build_and_maybe_flash(flash):
                  "--input-dir", output, sketch], env=env, timeout=180)
         save("upload-result.json", {"uploaded": True, "port": str(port),
                                     "rf_reception_verified": False})
+        # Record post-flash recovery separately. Upload success alone does not
+        # demonstrate HTTP readiness or successful on-air RAMSES reception.
+        time.sleep(10)
+        try:
+            sample_api()
+        except Exception as ex:
+            save("postflash-diagnostics.json", {
+                "verified": False, "error_type": type(ex).__name__,
+                "note": "USB upload succeeded, but gateway HTTP/RF is unverified"
+            })
+            raise RuntimeError("USB flashed; postflash gateway API was not verified") from None
+        else:
+            save("postflash-diagnostics.json", {
+                "verified": True,
+                "note": "Gateway API responded; RF reception only if valid-frame delta is positive"
+            })
 
 
 def main():
@@ -254,9 +270,29 @@ def main():
         raise RuntimeError("Physical WSL lab is manual-only on main")
     cli_setup()
     probe()
-    if mode in ("diagnose", "flash"):
+    if mode == "diagnose":
         sample_api()
         codex_analyze()
+    elif mode == "flash":
+        # Recovery flashing must remain possible when the old firmware has a
+        # broken HTTP server, Wi-Fi settings, or unavailable RX diagnostics.
+        try:
+            sample_api()
+        except Exception as ex:
+            save("preflash-diagnostics.json", {
+                "available": False, "reason": type(ex).__name__,
+                "detail": "Preflash gateway API unavailable; USB flash may proceed"
+            })
+        else:
+            # Codex analysis is optional for recovery and may not prevent upload.
+            if os.getenv("LAB_USE_CODEX", "false").lower() == "true":
+                try:
+                    codex_analyze()
+                except Exception as ex:
+                    save("preflash-codex.json", {
+                        "available": False, "reason": type(ex).__name__,
+                        "detail": "Codex unavailable; firmware USB flash not blocked"
+                    })
     if mode in ("compile", "flash"):
         build_and_maybe_flash(mode == "flash")
 

@@ -1,12 +1,8 @@
 name: RAMSES WSL-Ubuntu Hardware Lab
 
-# Only the wsl-ubuntu self-hosted Linux runner performs Arduino and ESP32 work.
-# Neither mb-ubuntu nor Windows jobs are eligible.
+# Hardware operations are manual-only and execute exclusively on wsl-ubuntu.
+# Non-hardware source lint runs in the existing firmware CI; never on this runner.
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/ramses-local-hardware.yml'
-      - 'firmware/arduino-wroom32e/tools/wsl_lab.py'
   workflow_dispatch:
     inputs:
       operation:
@@ -42,35 +38,6 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  workflow-safety:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, Linux, X64, wsl-ubuntu]
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-      - name: Verify WSL-only hardware guard and Python syntax
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "${RUNNER_NAME,,}" = "wsl-ubuntu"
-          grep -qi microsoft /proc/sys/kernel/osrelease
-          python3 -m py_compile firmware/arduino-wroom32e/tools/wsl_lab.py
-          python3 - <<'PY'
-          from pathlib import Path
-          y = Path(".github/workflows/ramses-local-hardware.yml").read_text()
-          import re
-          # Test the actual hardware job, not strings inside these assertions.
-          match = re.search(r"(?m)^  hardware:\n    if: ([^\n]+)\n    runs-on: ([^\n]+)$", y)
-          assert match, "hardware job's condition and runner labels not found"
-          assert match.group(1) == "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'"
-          assert match.group(2) == "[self-hosted, Linux, X64, wsl-ubuntu]"
-          assert "FLASH-WSL-USB" in y
-          assert "mb-ubuntu" not in match.group(2)
-          print("WSL-only lab guard PASS")
-          PY
-
   hardware:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: [self-hosted, Linux, X64, wsl-ubuntu]

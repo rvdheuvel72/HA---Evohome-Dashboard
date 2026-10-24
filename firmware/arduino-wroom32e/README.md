@@ -1,3 +1,13 @@
+## Beta.26: RX startup software bypass and IDLE-versus-RX test
+
+**Release:** [RAMSES Arduino Gateway v0.4.0-beta.26](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.26).
+
+**Arduino IDE ZIP:** `RAMSES-Arduino-Gateway-v0.4.0-beta.26-ESP32-WROOM-32E.zip`.
+
+Earlier logs proved normal CC1101 registers are readable through SRX calibration, but all data becomes `0x1F` once the radio enters RX. Slowing the bus to 125 kHz did not fix it. Beta.26 first **lets RX settle for 25 ms without status polling**, then tries two alternative read-only SPI methods (the existing slower clock and a real one-CSn assertion burst read). Only if the radio remains unreadable, one bounded receive-only `SIDLE → read individual and burst config → restore SRX` attempt compares IDLE against active reception. All evidence is logged automatically as `SPI-rxburst`, `SPI-idle-check`, `SPI-idle-burst`, `SPI-return` and `SPI-bypass` in the timestamped debug log.
+
+The diagnostic is only attempted following an actual SPI readback problem; normal RF silence never causes it. There is no RF TX or pairing, no new hardware requirement, and no guaranteed physical reception recovery without a subsequent valid RAMSES packet.
+
 ## Beta.25: Try slower SPI automatically if register reads collapse after SRX
 
 **Release:** [RAMSES Arduino Gateway v0.4.0-beta.25](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.25).

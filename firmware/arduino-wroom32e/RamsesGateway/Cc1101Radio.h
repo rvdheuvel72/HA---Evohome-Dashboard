@@ -10,6 +10,7 @@
 #include "RamsesRxHealth.h"
 #include "Cc1101Startup.h"
 #include "RamsesSpiAudit.h"
+#include "RamsesRxBypass.h"
 
 class Cc1101Radio {
  public:
@@ -43,6 +44,7 @@ class Cc1101Radio {
     startupSlowRetained_=false;
     startupSlowAudit1_={};
     startupSlowAudit2_={};
+    rxBypass_={};
     startupBeforeConfig_={};
     startupAfterConfig_={};
     startupAfterRx_={};
@@ -78,30 +80,28 @@ class Cc1101Radio {
     initStage_="rx_strobe";
     const bool rxCommandAccepted=enterReceive(true);
     if(!rxCommandAccepted)return false;
-    const uint32_t started=micros();
-    do {
-      startupMarcState_=cc1101_startup::decodeMarcState(status(0x35));
-      if(cc1101_startup::receiving(startupMarcState_))break;
-      delayMicroseconds(150);
-    } while(static_cast<uint32_t>(micros()-started)<15000u);
-    startupRxConfirmed_=cc1101_startup::receiving(startupMarcState_);
-    // Recover an actual stable IDLE/overflow state once, without SRES.
-    // Do not disturb active RX or retry on a failed SPI status read (0xFF).
-    if(!startupRxConfirmed_ &&
+    // Avoid rapid, repeated status SPI transactions during the
+    // crystal/PLL transition into RX. The asynchronous GDO2/UART output
+    // does not require the host to poll the radio while it settles.
+    delay(25);
+    startupRxSteps_[4]=readSpiAudit(millis());
+    startupAfterRx_=startupRxSteps_[4];
+    startupMarcState_=cc1101_startup::decodeMarcState(startupAfterRx_.marc_raw);
+    startupRxConfirmed_=startupAfterRx_.config_ok() &&
+      cc1101_startup::receiving(startupMarcState_);
+    // Preserve the existing one bounded re-entry for a genuinely readable
+    // IDLE/overflow state. Never retry merely because SPI returns 0x1F.
+    if(startupAfterRx_.config_ok() && !startupRxConfirmed_ &&
        (startupMarcState_==0x01u || startupMarcState_==0x11u)) {
       ++startupRxRetries_;
       if(enterReceive()) {
-        const uint32_t retryStart=micros();
-        do {
-          startupMarcState_=cc1101_startup::decodeMarcState(status(0x35));
-          if(cc1101_startup::receiving(startupMarcState_))break;
-          delayMicroseconds(150);
-        } while(static_cast<uint32_t>(micros()-retryStart)<15000u);
-        startupRxConfirmed_=cc1101_startup::receiving(startupMarcState_);
+        delay(25);
+        startupAfterRx_=readSpiAudit(millis());
+        startupMarcState_=cc1101_startup::decodeMarcState(startupAfterRx_.marc_raw);
+        startupRxConfirmed_=startupAfterRx_.config_ok() &&
+          cc1101_startup::receiving(startupMarcState_);
       }
     }
-    // This is the earliest post-SRX readback, not a later 30s sample.
-    startupAfterRx_=readSpiAudit(millis());
     // If all register readback fails only after SRX, test the same reads
     // at 125 kHz without changing radio state or programming any register.
     // Keep the slower rate only after TWO independent complete, correct
@@ -119,6 +119,40 @@ class Cc1101Radio {
       } else {
         spiClockHz_=1000000u;
       }
+    }
+    // One bounded software escape attempt after both 1 MHz and 125 kHz
+    // ordinary register reads fail. Test an independent true SPI burst in
+    // RX, then SIDLE -> verify -> return to RX (never STX/pairing).
+    if(ramses_rx_bypass::shouldTry(startupAfterRx_,startupSlowRetained_)) {
+      rxBypass_.attempted=true;
+      rxBypass_.rx_burst=readConfigBurst();
+      rxBypass_.sidle_issued=strobe(0x36); // one SIDLE, not SRES
+      if(rxBypass_.sidle_issued) {
+        delay(3);
+        rxBypass_.idle_audit=readSpiAudit(millis());
+        rxBypass_.idle_burst=readConfigBurst();
+        rxBypass_.reentry_issued=enterReceive();
+        if(!rxBypass_.reentry_issued) {
+          // A failed register write inside enterReceive() may leave the chip
+          // in IDLE. Issue exactly one bounded RX-only fallback command.
+          // Never claim initialized if we cannot even issue an SRX strobe.
+          rxBypass_.fallback_srx_issued=strobe(0x34);
+        }
+        if(rxBypass_.reentry_issued || rxBypass_.fallback_srx_issued) {
+          delay(25);
+          rxBypass_.resumed_audit=readSpiAudit(millis());
+          rxBypass_.restored_valid_spi=rxBypass_.resumed_audit.config_ok();
+          if(rxBypass_.restored_valid_spi) {
+            startupAfterRx_=rxBypass_.resumed_audit;
+            startupMarcState_=cc1101_startup::decodeMarcState(startupAfterRx_.marc_raw);
+            startupRxConfirmed_=cc1101_startup::receiving(startupMarcState_);
+          }
+        }
+      }
+    }
+    if(!ramses_rx_bypass::restoreIssued(rxBypass_)) {
+      initStage_="rx_restore_failed";
+      return false;
     }
     initStage_="initialized";
     return cc1101_startup::ready(part_,version_,rxCommandAccepted);
@@ -165,6 +199,22 @@ class Cc1101Radio {
   uint32_t spiClockHz() const { return spiClockHz_; }
   const ramses_spi_audit::Snapshot& startupRxStep(uint8_t index) const {
     return startupRxSteps_[index<5u?index:4u];
+  }
+  const ramses_rx_bypass::Result& rxBypassResult() const {
+    return rxBypass_;
+  }
+  // True configuration burst read, one CSn assertion and auto-incremented
+  // addresses 0x00..0x12. Valid for normal config registers, NOT for
+  // special status registers 0x30..0x3D.
+  ramses_rx_bypass::Burst readConfigBurst() {
+    ramses_rx_bypass::Burst x;
+    x.uptime_ms=millis();
+    if(!select())return x;
+    x.chip_status=SPI.transfer(0xC0); // config address 0 + R/W + BURST
+    for(uint8_t i=0;i<19;i++)x.regs[i]=SPI.transfer(0);
+    release();
+    x.sampled=true;
+    return x;
   }
   uint8_t part() const { return part_; }
   uint8_t version() const { return version_; }
@@ -326,7 +376,8 @@ class Cc1101Radio {
     if (!strobe(0x3A)) return false; // SFRX
     if(startupTrace)startupRxSteps_[3]=readSpiAudit(millis());
     const bool rx=strobe(0x34); // SRX; never STX
-    if(startupTrace && rx)startupRxSteps_[4]=readSpiAudit(millis());
+    // Do NOT sample immediately after SRX: that would violate the 25 ms
+    // quiet radio/PLL settle test performed by begin().
     return rx;
   }
 
@@ -383,6 +434,7 @@ class Cc1101Radio {
       0xF8,0x56,0x10,0xE9,0x21,0x00,0x1F,0x41,
       0x00,0x59,0x7F,0x3F,0x81,0x35,0x09
   };
+  ramses_rx_bypass::Result rxBypass_{};
   ramses_spi_audit::Snapshot startupBeforeConfig_{}, startupAfterConfig_{}, startupAfterRx_{};
   ramses_spi_audit::Snapshot startupSlowAudit1_{}, startupSlowAudit2_{};
   uint32_t spiClockHz_=1000000u;

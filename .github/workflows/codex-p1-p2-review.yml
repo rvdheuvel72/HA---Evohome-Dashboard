@@ -4,8 +4,9 @@ on:
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
-  issue_comment:
-    types: [created, edited]
+  # Temporary safety hotfix: do not restart CI on every Codex summary edit.
+  # PR synchronize still triggers exact-head review. The reviewed staged
+  # controller will reintroduce authenticated late-completion handling.
 
 permissions:
   contents: read

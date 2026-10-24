@@ -1,3 +1,11 @@
+## Beta.25: Try slower SPI automatically if register reads collapse after SRX
+
+**Release:** [RAMSES Arduino Gateway v0.4.0-beta.25](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.25).
+
+**Arduino IDE ZIP:** `RAMSES-Arduino-Gateway-v0.4.0-beta.25-ESP32-WROOM-32E.zip`.
+
+The beta.24 logs narrowed the fault to the transition from calibration to RX: after SRX, valid register readback changes to identical `0x1F` chip-status-like bytes. The firmware now automatically compares **two complete 125 kHz read-only SPI snapshots** after a failed normal 1 MHz post-SRX audit, logs `SPI-slow1`, `SPI-slow2`, and `SPI-clock RX comparison ... accepted=...`. It retains the 125 kHz clock only if **both** slower snapshots confirm the CC1101 identity and all programmed register values; otherwise it immediately restores 1 MHz. Radio configuration, GDO/RX wiring, RF transmit safeguards, and boiler behavior are untouched. Normal RX packet reception must still be confirmed physically.
+
 ## Beta.24: Precisely locate the CC1101 SPI error inside RX startup
 
 **Release:** [RAMSES Arduino Gateway v0.4.0-beta.24](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.24).

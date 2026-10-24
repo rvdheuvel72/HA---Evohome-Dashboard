@@ -60,11 +60,15 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           y = Path(".github/workflows/ramses-local-hardware.yml").read_text()
-          assert "runs-on: [self-hosted, Linux, X64, wsl-ubuntu]" in y
-          assert "github.ref == 'refs/heads/main'" in y
-          assert "github.event_name == 'workflow_dispatch'" in y
+          import re
+          # Test the actual hardware job, not strings inside these assertions.
+          match = re.search(r"(?m)^  hardware:\n    if: ([^\n]+)\n    runs-on: ([^\n]+)$", y)
+          assert match, "hardware job's condition and runner labels not found"
+          assert match.group(1) == "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'"
+          assert match.group(2) == "[self-hosted, Linux, X64, wsl-ubuntu]"
           assert "FLASH-WSL-USB" in y
           assert "COM3" not in y
+          assert "mb-ubuntu" not in match.group(2)
           print("WSL-only lab guard PASS")
           PY
 

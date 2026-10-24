@@ -49,10 +49,12 @@ def dispatch_followups(token, repo, changed):
     """
     workflows = []
     if arduino_validation_required(changed):
-        workflows += [
-            "ramses-arduino-wroom32e.yml",
-            "publish-ramses-arduino-v0.4-beta.yml",
-        ]
+        workflows.append("ramses-arduino-wroom32e.yml")
+    # Never re-publish an existing immutable beta after a CI-policy-only PR.
+    # Firmware PRs that change the release/version contract dispatch a
+    # main-branch publisher which itself validates tag uniqueness.
+    if any(path.startswith("firmware/arduino-wroom32e/") for path in changed):
+        workflows.append("publish-ramses-arduino-v0.4-beta.yml")
     if ha_validation_required(changed) or any(
             f.startswith(".github/workflows/") or f.startswith("scripts/")
             for f in changed):

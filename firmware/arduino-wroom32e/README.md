@@ -1,3 +1,11 @@
+## Beta.22: Diagnose the repeated 0x1F CC1101 SPI readbacks
+
+**Release:** [RAMSES Arduino Gateway v0.4.0-beta.22](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.22), after required compile and review checks.
+
+**Arduino IDE ZIP:** `RAMSES-Arduino-Gateway-v0.4.0-beta.22-ESP32-WROOM-32E.zip`.
+
+The M5Stack M146 still identifies over SPI, but beta.21 RX-health returned MARCSTATE, IOCFG2 and PKTCTRL0 all as 31 despite those being different registers. The user's SPI signal wiring and M146 DIP-selectable signal mappings match the intended connections. `/api/v1/radio/spi-audit` now caches a **read-only, unmasked register audit** from the radio task (PARTNUM/VERSION, MARCSTATE, duplicate IOCFG2/PKTCTRL0 reads, modem config and frequency registers), with a conservative `uniform_spi_readback_suspected` diagnosis when every unrelated normal register returns the same byte. `/api/v1/radio/rx-health` and `/api/v1/radio/uart-probe` remain available. No radio resets or TX are performed by this audit. **RF recovery must be confirmed with live valid RAMSES frames.**
+
 ## Beta.21: Preserve confirmed RX and provide UART byte evidence
 
 **Release:** [RAMSES Arduino Gateway v0.4.0-beta.21](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.21) after CI, Codex review and merge.

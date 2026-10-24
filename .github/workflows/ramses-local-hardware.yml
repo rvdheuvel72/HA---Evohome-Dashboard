@@ -28,6 +28,10 @@ on:
         required: true
         default: true
         type: boolean
+      expected_com3_pnp_id:
+        description: 'Exact COM3 PNPDeviceID from inventory probe, required for flashing'
+        required: false
+        type: string
       confirm_flash:
         description: 'Only for flash: type FLASH-COM3 (never triggered by CI)'
         required: false
@@ -86,11 +90,17 @@ jobs:
           $ports = @(Get-CimInstance Win32_PnPEntity | Where-Object { $_.Name -match '\(COM3\)' })
           "COM3 devices detected: $($ports.Count)" | Tee-Object -FilePath local-lab-output/inventory.txt -Append
           foreach ($port in $ports) { "COM3: $($port.Name) [$($port.PNPDeviceID)]" | Add-Content local-lab-output/inventory.txt }
-          if (Get-Command arduino-cli -ErrorAction SilentlyContinue) {
-            "Arduino CLI: $(& arduino-cli version)" | Add-Content local-lab-output/inventory.txt
-          } else {
-            "Arduino CLI not on Windows PATH; Arduino IDE alone does not prove CLI access" | Add-Content local-lab-output/inventory.txt
+          $cli = Get-Command arduino-cli -ErrorAction SilentlyContinue
+          if (-not $cli) {
+            $possible = @("$env:ProgramFiles\Arduino IDE\resources\app\lib\backend\resources\arduino-cli.exe",
+                          "$env:LOCALAPPDATA\Programs\Arduino IDE\resources\app\lib\backend\resources\arduino-cli.exe")
+            foreach ($p in $possible) { if (Test-Path -LiteralPath $p -PathType Leaf) { $cli = $p; break } }
           }
+          if ($cli) {
+            $exe = if ($cli -is [string]) { $cli } else { $cli.Source }
+            "ARDUINO_CLI=$exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            "Arduino CLI: $(& $exe version) ($exe)" | Add-Content local-lab-output/inventory.txt
+          } else { "Arduino CLI unavailable to Windows runner account" | Add-Content local-lab-output/inventory.txt }
           if (Get-Command wsl.exe -ErrorAction SilentlyContinue) {
             $distro = & wsl.exe --list --quiet 2>&1
             "WSL distributions: $($distro -join ', ')" | Add-Content local-lab-output/inventory.txt
@@ -108,9 +118,15 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.operation == 'flash'
         env:
           CONFIRM_FLASH: ${{ inputs.confirm_flash }}
+          EXPECTED_COM3_PNP_ID: ${{ inputs.expected_com3_pnp_id }}
         run: |
           if ($env:CONFIRM_FLASH -cne 'FLASH-COM3') {
             throw 'Refusing to flash COM3 without exact manual confirmation'
+          }
+          if (-not $env:EXPECTED_COM3_PNP_ID) { throw 'Exact COM3 PNPDeviceID from inventory is required' }
+          $ports = @(Get-CimInstance Win32_PnPEntity | Where-Object { $_.Name -match '\(COM3\)' })
+          if ($ports.Count -ne 1 -or $ports[0].PNPDeviceID -cne $env:EXPECTED_COM3_PNP_ID) {
+            throw 'Refusing to flash: COM3 PNP identity differs from approved device'
           }
 
       - name: Capture sanitized live gateway RX and HTTP metrics
@@ -176,8 +192,8 @@ jobs:
           if (-not $env:SECRETS_HEADER -or -not (Test-Path -LiteralPath $env:SECRETS_HEADER -PathType Leaf)) {
             throw 'Refusing flash: RAMSES_SECRETS_HEADER_PATH must point to an existing private GatewaySecrets.h on the Windows runner host'
           }
-          $arduino = Get-Command arduino-cli -ErrorAction SilentlyContinue
-          if (-not $arduino) { throw 'arduino-cli not found on Windows runner PATH; check Arduino IDE CLI installation' }
+          $arduino = $env:ARDUINO_CLI
+          if (-not $arduino -or -not (Test-Path -LiteralPath $arduino -PathType Leaf)) { throw 'Arduino CLI executable unavailable to Windows runner account' }
           $sketch = Join-Path $env:GITHUB_WORKSPACE 'firmware/arduino-wroom32e/RamsesGateway'
           $privateHeader = Join-Path $sketch 'GatewaySecrets.h'
           if (Test-Path $privateHeader) { throw 'Unexpected checkout contains GatewaySecrets.h' }
@@ -185,9 +201,9 @@ jobs:
           New-Item -ItemType Directory -Force -Path $out | Out-Null
           try {
             Copy-Item -LiteralPath $env:SECRETS_HEADER -Destination $privateHeader
-            & $arduino.Source compile --fqbn esp32:esp32:esp32 --warnings all --output-dir $out $sketch
+            & $arduino compile --fqbn esp32:esp32:esp32 --warnings all --output-dir $out $sketch
             if ($LASTEXITCODE -ne 0) { throw 'Compilation failed; COM3 untouched' }
-            & $arduino.Source upload -p COM3 --fqbn esp32:esp32:esp32 --input-dir $out $sketch
+            & $arduino upload -p COM3 --fqbn esp32:esp32:esp32 --input-dir $out $sketch
             if ($LASTEXITCODE -ne 0) { throw 'COM3 upload failed' }
             'COM3 upload completed; RF reception has NOT been verified yet.' | Set-Content local-lab-output/upload-result.txt
           } finally {

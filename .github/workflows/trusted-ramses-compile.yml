@@ -35,13 +35,23 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
           test ! -f firmware/arduino-wroom32e/RamsesGateway/GatewaySecrets.h
+      - name: Isolate Arduino configuration per job
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "ARDUINO_CONFIG_FILE=$RUNNER_TEMP/arduino-cli.yaml"
+            echo "ARDUINO_DIRECTORIES_DATA=$RUNNER_TEMP/arduino-data"
+            echo "ARDUINO_DIRECTORIES_USER=$RUNNER_TEMP/arduino-sketchbook"
+            echo "ARDUINO_DIRECTORIES_DOWNLOADS=$RUNNER_TEMP/arduino-downloads"
+          } >> "$GITHUB_ENV"
       - name: Install Arduino CLI
         uses: arduino/setup-arduino-cli@v2
       - name: Install pinned ESP32 board core and PubSubClient
         shell: bash
         run: |
           set -euo pipefail
-          arduino-cli config init
+          arduino-cli config init --dest-file "$ARDUINO_CONFIG_FILE" --overwrite
           arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
           arduino-cli core update-index
           arduino-cli core install esp32:esp32@3.3.12

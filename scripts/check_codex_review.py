@@ -275,15 +275,45 @@ def check_review_only(token, full_repo, number, sha):
     return "pending", "Waiting for pre-CI Codex review of " + sha
 
 
-def final_review_requested_at(comments, sha):
-    """Return the time of a trusted workflow's post-CI request for this SHA."""
-    matching = [
-        parse_utc(c.get("created_at")) for c in comments
-        if (c.get("user") or {}).get("login", "").lower() in
-            ("github-actions[bot]", "github-actions")
-        and ("<!-- codex-final-review:" + sha + " -->") in c.get("body", "")
-    ]
-    return max((x for x in matching if x), default=None)
+def final_review_requested_at(token, full_repo, comments, sha):
+    """Authenticate a final review marker through the actual protected job.
+
+    The github-actions[bot] author alone is NOT proof. A PR-owned workflow
+    may post with the same identity. Verify the referenced workflow run,
+    job name, source workflow and the comment's timestamp within that job.
+    """
+    prefix = "/repos/" + full_repo
+    pattern = re.compile(r"<!-- codex-final-review:" + re.escape(sha) +
+                         r":run=([0-9]+) -->")
+    matches = []
+    for comment in comments:
+        if (comment.get("user") or {}).get("login", "").lower() not in (
+                "github-actions[bot]", "github-actions"):
+            continue
+        match = pattern.search(comment.get("body", ""))
+        created = parse_utc(comment.get("created_at"))
+        if not match or not created:
+            continue
+        run_id = int(match.group(1))
+        workflow = request(token, prefix + f"/actions/runs/{run_id}")
+        if (workflow.get("path") != ".github/workflows/codex-p1-p2-review.yml"
+                or workflow.get("event") not in ("pull_request_target", "issue_comment")
+                or (workflow.get("repository") or {}).get("full_name") != full_repo):
+            continue
+        jobs = pages(token, prefix + f"/actions/runs/{run_id}/jobs")
+        for job in jobs:
+            if (job.get("name") != "Request second Codex review AFTER CI"
+                    or job.get("conclusion") != "success"):
+                continue
+            began = parse_utc(job.get("started_at"))
+            ended = parse_utc(job.get("completed_at"))
+            # Accept only an actual comment created during that exact
+            # privileged job (allow 2s for GitHub timestamp rounding).
+            if began and ended and (
+                    began - timedelta(seconds=2) <= created <= ended + timedelta(seconds=2)):
+                matches.append(created)
+    return max(matches, default=None)
+
 
 
 def check_final_review(token, full_repo, number, sha):
@@ -296,7 +326,7 @@ def check_final_review(token, full_repo, number, sha):
         return state, message
     prefix = "/repos/" + full_repo
     comments = pages(token, prefix + f"/issues/{number}/comments")
-    requested = final_review_requested_at(comments, sha)
+    requested = final_review_requested_at(token, full_repo, comments, sha)
     if not requested:
         return "pending", "Waiting for an exact-head post-CI Codex review request"
     summaries = [

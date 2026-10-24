@@ -41,6 +41,7 @@ class Cc1101Radio {
     startupBeforeConfig_={};
     startupAfterConfig_={};
     startupAfterRx_={};
+    for (auto& x:startupRxSteps_)x={};
     for (uint8_t attempt=0;attempt<3;attempt++) {
       if(reset()){
         part_=status(0x30); // PARTNUM
@@ -70,7 +71,7 @@ class Cc1101Radio {
     // and retried SRES forever. Observe RX state but do NOT treat it as a
     // second chip-detection gate. The rx-health API reports live state.
     initStage_="rx_strobe";
-    const bool rxCommandAccepted=enterReceive();
+    const bool rxCommandAccepted=enterReceive(true);
     if(!rxCommandAccepted)return false;
     const uint32_t started=micros();
     do {
@@ -117,10 +118,10 @@ class Cc1101Radio {
   ramses_spi_audit::Snapshot readSpiAudit(uint32_t uptimeMs) {
     ramses_spi_audit::Snapshot x;
     x.uptime_ms=uptimeMs;
-    x.part=status(0x30);
+    x.part=status(0x30,&x.part_header);
     x.version=status(0x31);
-    x.marc_raw=status(0x35); // preserve raw 8-bit data, not masked 5-bit state
-    x.iocfg2_a=readRegister(0x00);
+    x.marc_raw=status(0x35,&x.marc_header); // preserve raw 8-bit data, not masked 5-bit state
+    x.iocfg2_a=readRegister(0x00,&x.io2_header);
     x.iocfg2_b=readRegister(0x00);
     x.pktctrl0_a=readRegister(0x08);
     x.pktctrl0_b=readRegister(0x08);
@@ -135,6 +136,9 @@ class Cc1101Radio {
   const ramses_spi_audit::Snapshot& startupBeforeConfig() const { return startupBeforeConfig_; }
   const ramses_spi_audit::Snapshot& startupAfterConfig() const { return startupAfterConfig_; }
   const ramses_spi_audit::Snapshot& startupAfterRx() const { return startupAfterRx_; }
+  const ramses_spi_audit::Snapshot& startupRxStep(uint8_t index) const {
+    return startupRxSteps_[index<5u?index:4u];
+  }
   uint8_t part() const { return part_; }
   uint8_t version() const { return version_; }
   uint8_t startupMarcState() const { return startupMarcState_; }
@@ -285,12 +289,18 @@ class Cc1101Radio {
     return d.phase==ot_tx::LOCAL_COMPLETE;
   }
 
-  bool enterReceive() {
+  bool enterReceive(bool startupTrace=false) {
     if (!strobe(0x36)) return false; // SIDLE
+    if(startupTrace)startupRxSteps_[0]=readSpiAudit(millis());
     if (!writeRegister(0x02, 0x2E)) return false; // IOCFG0 unused in RX
+    if(startupTrace)startupRxSteps_[1]=readSpiAudit(millis());
     if (!writeRegister(0x08, 0x32)) return false; // PKTCTRL0 async RX
+    if(startupTrace)startupRxSteps_[2]=readSpiAudit(millis());
     if (!strobe(0x3A)) return false; // SFRX
-    return strobe(0x34); // SRX; never STX
+    if(startupTrace)startupRxSteps_[3]=readSpiAudit(millis());
+    const bool rx=strobe(0x34); // SRX; never STX
+    if(startupTrace && rx)startupRxSteps_[4]=readSpiAudit(millis());
+    return rx;
   }
 
   // HGI80-style positive attenuation magnitude; signed CC1101 RSSI.
@@ -305,9 +315,10 @@ class Cc1101Radio {
       (experiment && radio_frequency::experimentalOneShotFrequency(
         frequencyKhz_,moduleBand_,experimentalRx_));
   }
-  uint8_t readRegister(uint8_t reg) {
+  uint8_t readRegister(uint8_t reg,uint8_t* headerStatus=nullptr) {
     if(!select())return 0xff;
-    SPI.transfer(reg|0x80u);
+    const uint8_t header=SPI.transfer(reg|0x80u);
+    if(headerStatus)*headerStatus=header;
     const uint8_t result=SPI.transfer(0);
     release();return result;
   }
@@ -346,6 +357,7 @@ class Cc1101Radio {
       0x00,0x59,0x7F,0x3F,0x81,0x35,0x09
   };
   ramses_spi_audit::Snapshot startupBeforeConfig_{}, startupAfterConfig_{}, startupAfterRx_{};
+  ramses_spi_audit::Snapshot startupRxSteps_[5]={};
   uint8_t part_ = 0xFF, version_ = 0xFF;
   uint8_t startupMarcState_ = 0xFF;
   bool startupRxConfirmed_ = false;
@@ -373,9 +385,10 @@ class Cc1101Radio {
     digitalWrite(CS, HIGH);
     SPI.endTransaction();
   }
-  uint8_t status(uint8_t reg) {
+  uint8_t status(uint8_t reg,uint8_t* headerStatus=nullptr) {
     if (!select()) return 0xFF;
-    SPI.transfer(reg | 0xC0); // Status register: burst-read bit required
+    const uint8_t header=SPI.transfer(reg | 0xC0); // Status register needs burst bit
+    if(headerStatus)*headerStatus=header;
     const uint8_t result = SPI.transfer(0x00);
     release();
     return result;

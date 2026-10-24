@@ -1,3 +1,13 @@
+## Beta.24: Precisely locate the CC1101 SPI error inside RX startup
+
+**Release:** [RAMSES Arduino Gateway v0.4.0-beta.24](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.24).
+
+**Arduino IDE ZIP:** `RAMSES-Arduino-Gateway-v0.4.0-beta.24-ESP32-WROOM-32E.zip`.
+
+Beta.23 showed correct SPI readback both before and after programming, but identical `0x1F` bytes across all registers after entering RX. This release adds automatic early logs after each **existing** RX-entry instruction: `SPI-idle` (SIDLE), `SPI-iocfg` (IOCFG0), `SPI-packet` (PKTCTRL0), `SPI-flush` (SFRX), and `SPI-srx-now` (SRX), then the previous settled `SPI-srx` log. Each line also reports `hdr=` — the first SPI chip-status byte returned during PARTNUM, MARCSTATE and IOCFG2 reads — separately from the requested register values. The raw chip-status bytes are also added to `/api/v1/radio/spi-audit`.
+
+No additional radio reset or transmission is performed. These probes are passive SPI reads taken by radioTask; the existing timestamped `/api/v1/debug/logs` captures the sequence automatically, before Wi-Fi connects. The goal is to distinguish a status-byte/double-clocking issue from a state-specific electrical failure, not to claim RF reception is fixed.
+
 ## Beta.23: Capture the first SPI register readings automatically at boot
 
 **Release:** [RAMSES Arduino Gateway v0.4.0-beta.23](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.23).

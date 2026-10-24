@@ -90,8 +90,8 @@ constexpr uint32_t RX_IDLE_TIMEOUT_MS = 250;
 constexpr uint32_t HEARTBEAT_MS = 15000;
 constexpr uint32_t RADIO_RECOVERY_RETRY_MS = 5000;
 constexpr uint32_t RX_HEALTH_SAMPLE_MS = 5000;
-constexpr uint8_t DEBUG_QUEUE_SIZE = 16;
-constexpr char FW_VERSION[] = "0.4.0-beta.23";
+constexpr uint8_t DEBUG_QUEUE_SIZE = 32;
+constexpr char FW_VERSION[] = "0.4.0-beta.24";
 constexpr uint32_t MDNS_RETRY_MS = 15000;
 constexpr uint32_t MQTT_STATE_INTERVAL_MS = 15000;
 
@@ -229,6 +229,13 @@ void logSpiStage(const char* phase,const ramses_spi_audit::Snapshot& s) {
 void logBootSpiTimeline() {
   logSpiStage("pre",radio.startupBeforeConfig());
   logSpiStage("cfg",radio.startupAfterConfig());
+  // Readback after each existing receive-start operation. No extra RF
+  // state transitions are introduced, only read-only SPI transactions.
+  logSpiStage("idle",radio.startupRxStep(0));
+  logSpiStage("iocfg",radio.startupRxStep(1));
+  logSpiStage("packet",radio.startupRxStep(2));
+  logSpiStage("flush",radio.startupRxStep(3));
+  logSpiStage("srx-now",radio.startupRxStep(4));
   logSpiStage("srx",radio.startupAfterRx());
 }
 
@@ -1071,33 +1078,8 @@ void httpSpiAudit() {
   s=spiAudit;
   count=spiAuditSamples;
   portEXIT_CRITICAL(&spiAuditMux);
-  char output[550];
-  const int n=snprintf(output,sizeof(output),
-    "{\"ready\":%s,\"read_only\":true,\"uptime_ms\":%lu,\"sample_count\":%lu,"
-    "\"diagnosis\":\"%s\",\"uniform_data\":%s,\"identifiers_ok\":%s,"
-    "\"config_readback_matches\":%s,"
-    "\"part\":%u,\"version\":%u,\"marc_raw\":%u,"
-    "\"iocfg2_first\":%u,\"iocfg2_second\":%u,"
-    "\"pktctrl0_first\":%u,\"pktctrl0_second\":%u,"
-    "\"mdmcfg2\":%u,\"freq2\":%u,\"freq1\":%u,\"freq0\":%u,"
-    "\"freq_word\":%lu,\"expected_freq_word\":%lu,"
-    "\"note\":\"Raw SPI reads only; no reset, strobe, RF TX or pairing\"}",
-    s.sampled?"true":"false",
-    static_cast<unsigned long>(s.uptime_ms),
-    static_cast<unsigned long>(count),s.diagnosis(),
-    s.uniform_data()?"true":"false",
-    s.identifiers_ok()?"true":"false",
-    s.config_ok()?"true":"false",
-    static_cast<unsigned>(s.part),static_cast<unsigned>(s.version),
-    static_cast<unsigned>(s.marc_raw),
-    static_cast<unsigned>(s.iocfg2_a),static_cast<unsigned>(s.iocfg2_b),
-    static_cast<unsigned>(s.pktctrl0_a),static_cast<unsigned>(s.pktctrl0_b),
-    static_cast<unsigned>(s.mdmcfg2),
-    static_cast<unsigned>(s.freq2),static_cast<unsigned>(s.freq1),
-    static_cast<unsigned>(s.freq0),
-    static_cast<unsigned long>(s.received_freq_word()),
-    static_cast<unsigned long>(s.expected_freq_word));
-  if(n<0 || static_cast<size_t>(n)>=sizeof(output)) {
+  char output[768];
+  if(!ramses_spi_audit::formatAuditJson(s,count,output,sizeof(output))) {
     web.send(500,"application/json","{\"error\":\"spi_audit_overflow\"}");
     return;
   }
@@ -1638,8 +1620,8 @@ void handlePacket(const PacketEvent& event) {
 void setup() {
   Serial.begin(115200);
   delay(250);
-  Serial.println("\n# RAMSES II Arduino v0.4.0-beta.23 (read-only OpenTherm discovery)");
-  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-beta.23");
+  Serial.println("\n# RAMSES II Arduino v0.4.0-beta.24 (read-only OpenTherm discovery)");
+  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-beta.24");
   char bootInfo[96];
   snprintf(bootInfo, sizeof(bootInfo), "Reset reason: %s", resetReason());
   recordLog(GatewayDebug::INFO, bootInfo);

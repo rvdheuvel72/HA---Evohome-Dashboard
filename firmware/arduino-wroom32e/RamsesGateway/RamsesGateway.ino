@@ -1000,15 +1000,15 @@ void httpUartProbe() {
   snapshot.toHex(hex,sizeof(hex));
   char response[275];
   const int n=snprintf(response,sizeof(response),
-    "{\\"uart_bytes\\":%lu,\\"zeros\\":%lu,\\"all_ones\\":%lu,"
-    "\\"last_bytes_hex\\":\\"%s\\",\\"sample_capacity\\":%u,"
-    "\\"note\\":\\"UART1 RX data only; does not prove RF reception\\"}",
+    "{\"uart_bytes\":%lu,\"zeros\":%lu,\"all_ones\":%lu,"
+    "\"last_bytes_hex\":\"%s\",\"sample_capacity\":%u,"
+    "\"note\":\"UART1 RX data only; does not prove RF reception\"}",
     static_cast<unsigned long>(snapshot.received),
     static_cast<unsigned long>(snapshot.zeros),
     static_cast<unsigned long>(snapshot.all_ones),hex,
     static_cast<unsigned>(ramses_uart_probe::CAPACITY));
   if(n<0 || static_cast<size_t>(n)>=sizeof(response)) {
-    web.send(500,"application/json","{\\"error\\":\\"uart_probe_overflow\\"}");
+    web.send(500,"application/json","{\"error\":\"uart_probe_overflow\"}");
     return;
   }
   web.sendHeader("Cache-Control","no-store");

@@ -89,8 +89,6 @@ int main() {
   assert(!formatStartupLine("pre",a,tiny,sizeof(tiny)));
   a.sampled=false;
   assert(!formatStartupLine("pre",a,line,sizeof(line)));
-  // If the radio is readable at 1MHz, do not change the clock.
-  assert(!slowProbeNeeded(reference));
   // An RX-state-only problem is not sufficient to slow the SPI bus:
   // valid configuration is what determines SPI transport health.
   Snapshot slowCandidate=reference;

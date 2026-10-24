@@ -91,7 +91,7 @@ constexpr uint32_t HEARTBEAT_MS = 15000;
 constexpr uint32_t RADIO_RECOVERY_RETRY_MS = 5000;
 constexpr uint32_t RX_HEALTH_SAMPLE_MS = 5000;
 constexpr uint8_t DEBUG_QUEUE_SIZE = 16;
-constexpr char FW_VERSION[] = "0.4.0-beta.22";
+constexpr char FW_VERSION[] = "0.4.0-beta.23";
 constexpr uint32_t MDNS_RETRY_MS = 15000;
 constexpr uint32_t MQTT_STATE_INTERVAL_MS = 15000;
 
@@ -213,6 +213,23 @@ void radioLog(GatewayDebug::Level level, const char* message) {
   event.level = level;
   snprintf(event.line, sizeof(event.line), "%s", message);
   xQueueSend(debugQueue, &event, 0);
+}
+
+// Collect the earliest SPI observations before a browser can connect.
+// Only radioTask touches CC1101; these are queued into serial/web debug log.
+void logSpiStage(const char* phase,const ramses_spi_audit::Snapshot& s) {
+  if(!s.sampled)return;
+  char line[GatewayDebug::LINE_BYTES]={};
+  if(!ramses_spi_audit::formatStartupLine(phase,s,line,sizeof(line))) {
+    radioLog(GatewayDebug::ERROR,"SPI startup diagnostic line overflow");
+    return;
+  }
+  radioLog(s.uniform_data()?GatewayDebug::WARN:GatewayDebug::INFO,line);
+}
+void logBootSpiTimeline() {
+  logSpiStage("pre",radio.startupBeforeConfig());
+  logSpiStage("cfg",radio.startupAfterConfig());
+  logSpiStage("srx",radio.startupAfterRx());
 }
 
 const char* resetReason() {
@@ -369,6 +386,7 @@ void radioTask(void*) {
   radioReady = radio.begin(configuration.current.rfFrequencyKhz,
                             configuration.current.rfModuleBand,
                             configuration.current.rfExperimentalRx==1);
+  logBootSpiTimeline();
   if(radioReady) {
     otGateway.begin();
     const auto first=radio.readRxHealth(millis(),rfUartBytes);
@@ -396,6 +414,7 @@ void radioTask(void*) {
     radioReady = radio.begin(configuration.current.rfFrequencyKhz,
                              configuration.current.rfModuleBand,
                              configuration.current.rfExperimentalRx==1);
+    logBootSpiTimeline();
     if(radioReady) {
       otGateway.begin();
       const auto sample=radio.readRxHealth(millis(),rfUartBytes);
@@ -425,6 +444,7 @@ void radioTask(void*) {
       radioReady=radio.begin(configuration.current.rfFrequencyKhz,
                               configuration.current.rfModuleBand,
                               configuration.current.rfExperimentalRx==1);
+      logBootSpiTimeline();
       if(!radioReady)continue;
       radioLog(GatewayDebug::INFO,"CC1101 recovered after retry; RX verified");
     }
@@ -550,10 +570,14 @@ void radioTask(void*) {
     // Passive SPI register readback every 30s. No command strobes or writes.
     if(!decoder.receiving() && now-lastSpiAuditMs>=30000u) {
       const auto audit=radio.readSpiAudit(now);
+      bool logRuntime=false;
       portENTER_CRITICAL(&spiAuditMux);
+      // First runtime comparison (~30s), then only changed registers.
+      logRuntime=(spiAuditSamples==1u) || audit.changedFrom(spiAudit);
       spiAudit=audit;
       ++spiAuditSamples;
       portEXIT_CRITICAL(&spiAuditMux);
+      if(logRuntime)logSpiStage("runtime",audit);
       lastSpiAuditMs=now;
     }
     // Perform the GPIO bench test before the OpenTherm scheduler.
@@ -1614,8 +1638,8 @@ void handlePacket(const PacketEvent& event) {
 void setup() {
   Serial.begin(115200);
   delay(250);
-  Serial.println("\n# RAMSES II Arduino v0.4.0-beta.22 (read-only OpenTherm discovery)");
-  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-beta.22");
+  Serial.println("\n# RAMSES II Arduino v0.4.0-beta.23 (read-only OpenTherm discovery)");
+  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-beta.23");
   char bootInfo[96];
   snprintf(bootInfo, sizeof(bootInfo), "Reset reason: %s", resetReason());
   recordLog(GatewayDebug::INFO, bootInfo);

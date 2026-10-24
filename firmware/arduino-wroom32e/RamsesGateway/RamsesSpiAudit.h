@@ -1,6 +1,8 @@
 // Read-only CC1101 SPI register diagnostics, independent of Arduino runtime.
 #pragma once
 #include <stdint.h>
+#include <stddef.h>
+#include <stdio.h>
 namespace ramses_spi_audit {
 constexpr uint8_t IOCFG2_RX = 0x0D;
 constexpr uint8_t PKTCTRL0_RX = 0x32;
@@ -20,6 +22,17 @@ struct Snapshot {
   uint32_t received_freq_word() const {
     return (static_cast<uint32_t>(freq2)<<16) |
            (static_cast<uint32_t>(freq1)<<8) | freq0;
+  }
+  // Ignore uptime: it changes on every sample. Compare every SPI value,
+  // including duplicate reads, so intermittent corruption is never hidden.
+  bool changedFrom(const Snapshot& previous) const {
+    return sampled!=previous.sampled || part!=previous.part ||
+      version!=previous.version || marc_raw!=previous.marc_raw ||
+      iocfg2_a!=previous.iocfg2_a || iocfg2_b!=previous.iocfg2_b ||
+      pktctrl0_a!=previous.pktctrl0_a || pktctrl0_b!=previous.pktctrl0_b ||
+      mdmcfg2!=previous.mdmcfg2 ||
+      freq2!=previous.freq2 || freq1!=previous.freq1 ||
+      freq0!=previous.freq0 || expected_freq_word!=previous.expected_freq_word;
   }
   // An equal value in every register, including ones programmed with different
   // data, means SPI readback cannot currently be trusted. It is not proof of
@@ -49,4 +62,24 @@ struct Snapshot {
     return "config_readback_matches";
   }
 };
+// Compact format sized for GatewayDebug::LINE_BYTES (144 bytes). Captures
+// original register bytes, not the 5-bit interpretation of MARCSTATE.
+// A truncated line is never sent to the log because it could be misleading.
+inline bool formatStartupLine(const char* phase,const Snapshot& s,
+                              char* out,size_t capacity) {
+  if(!phase || !out || !capacity || !s.sampled)return false;
+  const int n=snprintf(out,capacity,
+    "SPI-%s t=%lu part=%02X ver=%02X marc=%02X io2=%02X/%02X pkt=%02X/%02X mdm=%02X freq=%02X%02X%02X expected=%06lX uni=%u",
+    phase,static_cast<unsigned long>(s.uptime_ms),
+    static_cast<unsigned>(s.part),static_cast<unsigned>(s.version),
+    static_cast<unsigned>(s.marc_raw),
+    static_cast<unsigned>(s.iocfg2_a),static_cast<unsigned>(s.iocfg2_b),
+    static_cast<unsigned>(s.pktctrl0_a),static_cast<unsigned>(s.pktctrl0_b),
+    static_cast<unsigned>(s.mdmcfg2),
+    static_cast<unsigned>(s.freq2),static_cast<unsigned>(s.freq1),
+    static_cast<unsigned>(s.freq0),
+    static_cast<unsigned long>(s.expected_freq_word),
+    s.uniform_data()?1u:0u);
+  return n>0 && static_cast<size_t>(n)<capacity;
+}
 } // namespace ramses_spi_audit

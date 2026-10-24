@@ -38,6 +38,9 @@ class Cc1101Radio {
     startupMarcState_=0xFF;
     startupRxConfirmed_=false;
     startupRxRetries_=0;
+    startupBeforeConfig_={};
+    startupAfterConfig_={};
+    startupAfterRx_={};
     for (uint8_t attempt=0;attempt<3;attempt++) {
       if(reset()){
         part_=status(0x30); // PARTNUM
@@ -49,6 +52,9 @@ class Cc1101Radio {
       delay(40);
     }
     if(!resetOk)return false;
+    // Capture the *first* readable register state before any configuration
+    // writes; preserve it across HTTP/Wi-Fi startup and subsequent RF samples.
+    startupBeforeConfig_=readSpiAudit(millis());
     initStage_="register_programming";
     for (uint8_t i = 0; i < sizeof(settings_); ++i)
       if (!writeRegister(i, settings_[i])) return false;
@@ -56,6 +62,8 @@ class Cc1101Radio {
     if (!writeRegister(0x0D, static_cast<uint8_t>(synthesizer >> 16)) ||
         !writeRegister(0x0E, static_cast<uint8_t>(synthesizer >> 8)) ||
         !writeRegister(0x0F, static_cast<uint8_t>(synthesizer))) return false;
+    // Capture programmed register readback before the SRX sequence.
+    startupAfterConfig_=readSpiAudit(millis());
     // This was the beta.18 regression: MARCSTATE sampled immediately after
     // SRX can be transient (e.g. IDLE/CAL) even when SPI and the SRX strobe
     // succeeded. That check caused detected=0 with PARTNUM=00 VERSION=14,
@@ -86,6 +94,8 @@ class Cc1101Radio {
         startupRxConfirmed_=cc1101_startup::receiving(startupMarcState_);
       }
     }
+    // This is the earliest post-SRX readback, not a later 30s sample.
+    startupAfterRx_=readSpiAudit(millis());
     initStage_="initialized";
     return cc1101_startup::ready(part_,version_,rxCommandAccepted);
   }
@@ -122,6 +132,9 @@ class Cc1101Radio {
     x.sampled=true;
     return x;
   }
+  const ramses_spi_audit::Snapshot& startupBeforeConfig() const { return startupBeforeConfig_; }
+  const ramses_spi_audit::Snapshot& startupAfterConfig() const { return startupAfterConfig_; }
+  const ramses_spi_audit::Snapshot& startupAfterRx() const { return startupAfterRx_; }
   uint8_t part() const { return part_; }
   uint8_t version() const { return version_; }
   uint8_t startupMarcState() const { return startupMarcState_; }
@@ -332,6 +345,7 @@ class Cc1101Radio {
       0xF8,0x56,0x10,0xE9,0x21,0x00,0x1F,0x41,
       0x00,0x59,0x7F,0x3F,0x81,0x35,0x09
   };
+  ramses_spi_audit::Snapshot startupBeforeConfig_{}, startupAfterConfig_{}, startupAfterRx_{};
   uint8_t part_ = 0xFF, version_ = 0xFF;
   uint8_t startupMarcState_ = 0xFF;
   bool startupRxConfirmed_ = false;

@@ -17,6 +17,7 @@
 #include "Cc1101Radio.h"
 #include "RamsesTxLoopback.h"
 #include "RamsesRxHealth.h"
+#include "RamsesSpiAudit.h"
 #include "RamsesUartProbe.h"
 #include "RamsesCodec.h"
 #include "GatewayDebug.h"
@@ -131,6 +132,9 @@ volatile bool radioReady = false;
 // Only radioTask touches CC1101 SPI; HTTP copies the protected report.
 portMUX_TYPE rxHealthMux = portMUX_INITIALIZER_UNLOCKED;
 ramses_rx_health::Report rxHealth;
+portMUX_TYPE spiAuditMux = portMUX_INITIALIZER_UNLOCKED;
+ramses_spi_audit::Snapshot spiAudit;
+uint32_t spiAuditSamples=0;
 portMUX_TYPE uartProbeMux = portMUX_INITIALIZER_UNLOCKED;
 ramses_uart_probe::Snapshot uartProbe;
 portMUX_TYPE loopbackMux = portMUX_INITIALIZER_UNLOCKED;
@@ -371,6 +375,11 @@ void radioTask(void*) {
     portENTER_CRITICAL(&rxHealthMux);
     rxHealth.observe(first);
     portEXIT_CRITICAL(&rxHealthMux);
+    const auto audit=radio.readSpiAudit(millis());
+    portENTER_CRITICAL(&spiAuditMux);
+    spiAudit=audit;
+    ++spiAuditSamples;
+    portEXIT_CRITICAL(&spiAuditMux);
   }
   char radioInfo[130];
   snprintf(radioInfo, sizeof(radioInfo), "CC1101 initialized=%u PARTNUM=0x%02X VERSION=0x%02X stage=%s initial_MARC=%u RX_at_boot=%u",
@@ -393,6 +402,11 @@ void radioTask(void*) {
       portENTER_CRITICAL(&rxHealthMux);
       rxHealth.observe(sample);
       portEXIT_CRITICAL(&rxHealthMux);
+      const auto audit=radio.readSpiAudit(millis());
+      portENTER_CRITICAL(&spiAuditMux);
+      spiAudit=audit;
+      ++spiAuditSamples;
+      portEXIT_CRITICAL(&spiAuditMux);
       radioLog(GatewayDebug::INFO,"CC1101 recovered after SPI/SRES retry; RX only");
     } else {
       radioLog(GatewayDebug::WARN,"CC1101 not initialized; retry in 5s (RX only)");
@@ -402,6 +416,7 @@ void radioTask(void*) {
   uint32_t lastByteMs = millis();
   uint32_t lastCalibrationMs = millis();
   uint32_t lastHealthSampleMs = millis();
+  uint32_t lastSpiAuditMs=millis();
   uint32_t lastRxDebugLogMs=millis();
   uint32_t nextSilentRecoveryMs=millis()+120000u;
   for (;;) {
@@ -531,6 +546,15 @@ void radioTask(void*) {
         portEXIT_CRITICAL(&rxHealthMux);
       }
       lastHealthSampleMs=now;
+    }
+    // Passive SPI register readback every 30s. No command strobes or writes.
+    if(!decoder.receiving() && now-lastSpiAuditMs>=30000u) {
+      const auto audit=radio.readSpiAudit(now);
+      portENTER_CRITICAL(&spiAuditMux);
+      spiAudit=audit;
+      ++spiAuditSamples;
+      portEXIT_CRITICAL(&spiAuditMux);
+      lastSpiAuditMs=now;
     }
     // Perform the GPIO bench test before the OpenTherm scheduler.
     bool startLoopback=false;
@@ -1013,6 +1037,48 @@ void httpUartProbe() {
   }
   web.sendHeader("Cache-Control","no-store");
   web.send(200,"application/json",response);
+}
+// HTTP only copies the audit; CC1101 SPI remains exclusive to radioTask.
+void httpSpiAudit() {
+  if(!authorized())return;
+  ramses_spi_audit::Snapshot s;
+  uint32_t count=0;
+  portENTER_CRITICAL(&spiAuditMux);
+  s=spiAudit;
+  count=spiAuditSamples;
+  portEXIT_CRITICAL(&spiAuditMux);
+  char output[550];
+  const int n=snprintf(output,sizeof(output),
+    "{\"ready\":%s,\"read_only\":true,\"uptime_ms\":%lu,\"sample_count\":%lu,"
+    "\"diagnosis\":\"%s\",\"uniform_data\":%s,\"identifiers_ok\":%s,"
+    "\"config_readback_matches\":%s,"
+    "\"part\":%u,\"version\":%u,\"marc_raw\":%u,"
+    "\"iocfg2_first\":%u,\"iocfg2_second\":%u,"
+    "\"pktctrl0_first\":%u,\"pktctrl0_second\":%u,"
+    "\"mdmcfg2\":%u,\"freq2\":%u,\"freq1\":%u,\"freq0\":%u,"
+    "\"freq_word\":%lu,\"expected_freq_word\":%lu,"
+    "\"note\":\"Raw SPI reads only; no reset, strobe, RF TX or pairing\"}",
+    s.sampled?"true":"false",
+    static_cast<unsigned long>(s.uptime_ms),
+    static_cast<unsigned long>(count),s.diagnosis(),
+    s.uniform_data()?"true":"false",
+    s.identifiers_ok()?"true":"false",
+    s.config_ok()?"true":"false",
+    static_cast<unsigned>(s.part),static_cast<unsigned>(s.version),
+    static_cast<unsigned>(s.marc_raw),
+    static_cast<unsigned>(s.iocfg2_a),static_cast<unsigned>(s.iocfg2_b),
+    static_cast<unsigned>(s.pktctrl0_a),static_cast<unsigned>(s.pktctrl0_b),
+    static_cast<unsigned>(s.mdmcfg2),
+    static_cast<unsigned>(s.freq2),static_cast<unsigned>(s.freq1),
+    static_cast<unsigned>(s.freq0),
+    static_cast<unsigned long>(s.received_freq_word()),
+    static_cast<unsigned long>(s.expected_freq_word));
+  if(n<0 || static_cast<size_t>(n)>=sizeof(output)) {
+    web.send(500,"application/json","{\"error\":\"spi_audit_overflow\"}");
+    return;
+  }
+  web.sendHeader("Cache-Control","no-store");
+  web.send(200,"application/json",output);
 }
 void httpRxHealth() {
   if(!authorized())return;
@@ -1609,6 +1675,7 @@ void setup() {
   web.on("/api/v1/capture/action", HTTP_POST, httpCaptureAction);
   web.on("/api/v1/capture/download", HTTP_GET, httpCaptureDownload);
   web.on("/api/v1/radio/rx-health", HTTP_GET, httpRxHealth);
+  web.on("/api/v1/radio/spi-audit", HTTP_GET, httpSpiAudit);
   web.on("/api/v1/radio/uart-probe", HTTP_GET, httpUartProbe);
   web.on("/api/v1/radio/diagnostics", HTTP_GET, httpRadioDiagnostics);
   web.on("/api/v1/radio/diagnostics", HTTP_POST, httpRadioDiagnostics);

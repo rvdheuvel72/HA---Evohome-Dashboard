@@ -237,6 +237,16 @@ void logBootSpiTimeline() {
   logSpiStage("flush",radio.startupRxStep(3));
   logSpiStage("srx-now",radio.startupRxStep(4));
   logSpiStage("srx",radio.startupAfterRx());
+  if(radio.startupSlowAudit1().sampled) {
+    logSpiStage("slow1",radio.startupSlowAudit1());
+    logSpiStage("slow2",radio.startupSlowAudit2());
+    char clockLine[GatewayDebug::LINE_BYTES]={};
+    snprintf(clockLine,sizeof(clockLine),
+      "SPI-clock RX comparison 1MHz->125kHz accepted=%u selected_hz=%lu",
+      radio.startupSlowRetained()?1u:0u,
+      static_cast<unsigned long>(radio.spiClockHz()));
+    radioLog(radio.startupSlowRetained()?GatewayDebug::INFO:GatewayDebug::WARN,clockLine);
+  }
 }
 
 const char* resetReason() {

@@ -1719,10 +1719,18 @@ void loop() {
   static uint32_t lastHeartbeat = 0;
   if (millis() - lastHeartbeat >= HEARTBEAT_MS) {
     lastHeartbeat = millis();
-    char heartbeat[200];
+    ramses_rx_health::Sample lastRxSample;
+    bool rxSampleValid=false;
+    portENTER_CRITICAL(&rxHealthMux);
+    lastRxSample=rxHealth.latest;
+    rxSampleValid=rxHealth.has_latest;
+    portEXIT_CRITICAL(&rxHealthMux);
+    char heartbeat[270];
     snprintf(heartbeat,sizeof(heartbeat),
-             "HEARTBEAT CC1101=%s UART=%lu sync=%lu valid=%lu rejected=%lu heap=%lu HTTPmax=%lums MQTTconnectMax=%lums MQTTloopMax=%lums",
+             "HEARTBEAT CC1101=%s RX=%s MARC=%u UART=%lu sync=%lu valid=%lu rejected=%lu heap=%lu HTTPmax=%lums MQTTconnectMax=%lums MQTTloopMax=%lums",
              radioReady?"ok":"missing",
+             !rxSampleValid?"unknown":lastRxSample.marcstate==0xFFu?"spi_unreadable":lastRxSample.inRx()?"active":"not_in_rx",
+             static_cast<unsigned>(lastRxSample.marcstate),
              static_cast<unsigned long>(rfUartBytes),
              static_cast<unsigned long>(rfSyncs),
              static_cast<unsigned long>(validFrames),

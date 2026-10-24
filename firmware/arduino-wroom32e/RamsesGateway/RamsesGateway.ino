@@ -577,7 +577,10 @@ void radioTask(void*) {
         audit.part!=spiAudit.part || audit.version!=spiAudit.version ||
         audit.marc_raw!=spiAudit.marc_raw ||
         audit.iocfg2_a!=spiAudit.iocfg2_a ||
+        audit.iocfg2_b!=spiAudit.iocfg2_b ||
         audit.pktctrl0_a!=spiAudit.pktctrl0_a ||
+        audit.pktctrl0_b!=spiAudit.pktctrl0_b ||
+        audit.mdmcfg2!=spiAudit.mdmcfg2 ||
         audit.freq2!=spiAudit.freq2 || audit.freq1!=spiAudit.freq1 ||
         audit.freq0!=spiAudit.freq0;
       spiAudit=audit;

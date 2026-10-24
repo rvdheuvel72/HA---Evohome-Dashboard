@@ -63,7 +63,7 @@ class Cc1101Radio {
     if(!rxCommandAccepted)return false;
     const uint32_t started=micros();
     do {
-      startupMarcState_=status(0x35)&0x1Fu;
+      startupMarcState_=cc1101_startup::decodeMarcState(status(0x35));
       if(cc1101_startup::receiving(startupMarcState_))break;
       delayMicroseconds(150);
     } while(static_cast<uint32_t>(micros()-started)<15000u);
@@ -78,7 +78,7 @@ class Cc1101Radio {
     ramses_rx_health::Sample s;
     s.uptime_ms=now;
     s.uart_bytes=uartBytes;
-    s.marcstate=status(0x35)&0x1Fu;
+    s.marcstate=cc1101_startup::decodeMarcState(status(0x35));
     s.iocfg2=readRegister(0x00);
     s.pktctrl0=readRegister(0x08);
     s.gdo2_level=static_cast<uint8_t>(digitalRead(GDO2));

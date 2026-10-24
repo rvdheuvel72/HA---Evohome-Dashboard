@@ -177,6 +177,20 @@ def arduino_validation_required(paths):
                for path in paths)
 
 
+HA_CHECK_PATHS = (
+    "custom_components/", "frontend-package/", "tests/",
+    "tests_integration/", "scripts/",
+)
+HA_CHECK_FILES = {
+    "hacs.json", "manifest.json", ".github/workflows/phase1-self-hosted.yml",
+}
+
+def ha_validation_required(paths):
+    """Match the path filters in phase1-self-hosted.yml."""
+    return any(path.startswith(HA_CHECK_PATHS) or path in HA_CHECK_FILES
+               for path in paths)
+
+
 TRUSTED_ARDUINO_WORKFLOW = ".github/workflows/trusted-ramses-compile.yml"
 TRUSTED_ARDUINO_JOB = "Trusted Arduino compile"
 
@@ -207,11 +221,14 @@ def trusted_arduino_provenance(token, full_repo, sha, check):
 
 def required_ci_state(token, full_repo, sha, pr_number=None):
     """Require all relevant source tests, and a radio compile for firmware PRs."""
-    required = list(REQUIRED_CHECKS)
+    required = list(REQUIRED_CHECKS) if pr_number is None else []
     if pr_number is not None:
         changed = pages(token, "/repos/" + full_repo +
                         "/pulls/" + str(pr_number) + "/files")
-        if arduino_validation_required([f.get("filename", "") for f in changed]):
+        paths = [f.get("filename", "") for f in changed]
+        if ha_validation_required(paths):
+            required.extend(REQUIRED_CHECKS)
+        if arduino_validation_required(paths):
             required.append("Trusted Arduino compile")
     response = request(
         token, "/repos/" + full_repo + "/commits/" + sha + "/check-runs?per_page=100"

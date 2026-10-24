@@ -1,10 +1,15 @@
 name: Trusted RAMSES Arduino compile
 
-# Protected base workflow. Unlike pull_request this is read from main.
+# Protected-base firmware gate: PR source must not control this workflow.
 on:
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
+    paths:
+      - 'firmware/arduino-wroom32e/**'
+      - '.github/workflows/ramses-arduino-wroom32e.yml'
+      - '.github/workflows/trusted-ramses-compile.yml'
+      - '.github/workflows/publish-ramses-arduino-v0.4-beta.yml'
 
 permissions:
   contents: read
@@ -12,10 +17,10 @@ permissions:
 jobs:
   verified-arduino:
     name: Trusted Arduino compile
-    if: github.event.pull_request.draft == false
-    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 30
-    # No secrets, writes, persistent credentials or self-hosted runners.
+    # No secrets, writes or persistent credentials. Only trusted project branches should run on self-hosted hardware.
     steps:
       - name: Checkout exact PR source without persistent credentials
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -30,16 +35,26 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
           test ! -f firmware/arduino-wroom32e/RamsesGateway/GatewaySecrets.h
+      - name: Isolate Arduino configuration per job
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "ARDUINO_CONFIG_FILE=$RUNNER_TEMP/arduino-cli.yaml"
+            echo "ARDUINO_DIRECTORIES_DATA=$RUNNER_TEMP/arduino-data"
+            echo "ARDUINO_DIRECTORIES_USER=$RUNNER_TEMP/arduino-sketchbook"
+            echo "ARDUINO_DIRECTORIES_DOWNLOADS=$RUNNER_TEMP/arduino-downloads"
+          } >> "$GITHUB_ENV"
       - name: Install Arduino CLI
         uses: arduino/setup-arduino-cli@v2
       - name: Install pinned ESP32 board core and PubSubClient
         shell: bash
         run: |
           set -euo pipefail
-          arduino-cli config init
+          arduino-cli config init --dest-file "$ARDUINO_CONFIG_FILE" --overwrite
           arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
           arduino-cli core update-index
-          arduino-cli core install esp32:esp32@3.3.4
+          arduino-cli core install esp32:esp32@3.3.12
           arduino-cli lib install "PubSubClient@2.8"
       - name: Compile actual PR firmware for ESP32-WROOM-32E
         shell: bash

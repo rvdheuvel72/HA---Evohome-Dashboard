@@ -89,7 +89,7 @@ constexpr uint32_t HEARTBEAT_MS = 15000;
 constexpr uint32_t RADIO_RECOVERY_RETRY_MS = 5000;
 constexpr uint32_t RX_HEALTH_SAMPLE_MS = 5000;
 constexpr uint8_t DEBUG_QUEUE_SIZE = 16;
-constexpr char FW_VERSION[] = "0.4.0-beta.19";
+constexpr char FW_VERSION[] = "0.4.0-beta.20";
 constexpr uint32_t MDNS_RETRY_MS = 15000;
 constexpr uint32_t MQTT_STATE_INTERVAL_MS = 15000;
 
@@ -150,8 +150,20 @@ volatile uint32_t rfUartBytes = 0;
 volatile uint32_t rfSyncs = 0;
 volatile uint32_t radioRxRecalibrations = 0;
 volatile uint32_t radioRxRecalibrationFailures = 0;
-volatile uint32_t radioSilentRecoveryAttempts=0;
-volatile uint32_t radioSilentRecoveryFailures=0;
+// No RAMSES sync is not grounds for resetting a previously detected radio.
+volatile uint32_t radioSilenceWarnings=0;
+struct LoopLatency {
+  uint32_t last_ms=0, max_ms=0, slow_calls=0;
+  void observe(uint32_t elapsed) {
+    last_ms=elapsed;
+    if(elapsed>max_ms)max_ms=elapsed;
+    if(elapsed>=500u)++slow_calls;
+  }
+};
+LoopLatency httpLatency, mqttConnectLatency, mqttLoopLatency;
+uint32_t httpServicedCount=0; // only HTTP handlers, never idle poll() calls
+uint32_t httpUnservedSlowCalls=0, httpUnservedMaxMs=0;
+uint32_t webAssetMaxMs=0, webAssetLastMs=0;
 // Low-cost receive accounting always runs; optional 15s log summaries can be
 // enabled or disabled instantly without writing NVS or restarting the ESP32.
 portMUX_TYPE rxDiagnosticsMux = portMUX_INITIALIZER_UNLOCKED;
@@ -212,6 +224,10 @@ const char* resetReason() {
 }
 
 bool authorized() {
+  // Every registered HTTP endpoint calls authorized() once at entry.
+  // Count serviced requests even when Basic Auth rejects them, so last_ms
+  // remains the duration of the last request instead of idle polls.
+  ++httpServicedCount;
   if (!configuration.current.webUser[0] || !configuration.current.webPassword[0]) return true;
   if (web.authenticate(configuration.current.webUser, configuration.current.webPassword)) return true;
   web.requestAuthentication(BASIC_AUTH, "RAMSES Gateway Diagnostics");
@@ -451,30 +467,16 @@ void radioTask(void*) {
     }
 
     const uint32_t now = millis();
-    // A valid SPI silicon ID does not prove the GDO2 UART receive path has
-    // resumed following an ESP32-only reboot. Try no more than two RX-only
-    // software resets, and only if no RAMSES sync and little UART activity.
+    // Quiet RAMSES traffic or a failing GDO2 wire is diagnostic evidence,
+    // not permission to issue SRES. The old auto reset downgraded OK to
+    // missing when no sync was found after two minutes.
     if(static_cast<int32_t>(now-nextSilentRecoveryMs)>=0 &&
-       radioSilentRecoveryAttempts<2 && rfSyncs==0 && validFrames==0 &&
+       radioSilenceWarnings<2 && rfSyncs==0 && validFrames==0 &&
        rfUartBytes<256 && !decoder.receiving()) {
-      ++radioSilentRecoveryAttempts;
-      radioLog(GatewayDebug::WARN,"CC1101 silent since boot; RX-only SRES retry");
-      radioReady=radio.begin(configuration.current.rfFrequencyKhz,
-                             configuration.current.rfModuleBand,
-                             configuration.current.rfExperimentalRx==1);
-      if(!radioReady) {
-        ++radioSilentRecoveryFailures;
-        radioLog(GatewayDebug::WARN,"CC1101 RX recovery failed, retry in 5s");
-      } else {
-        const auto sample=radio.readRxHealth(now,rfUartBytes);
-        portENTER_CRITICAL(&rxHealthMux);
-        rxHealth.observe(sample);
-        portEXIT_CRITICAL(&rxHealthMux);
-      }
+      radioSilenceWarnings=radioSilenceWarnings+1u;
+      radioLog(GatewayDebug::WARN,
+               "CC1101 no RAMSES sync; inspect RX health and GDO2; no SRES issued");
       nextSilentRecoveryMs=now+120000u;
-      lastCalibrationMs=now;
-      lastHealthSampleMs=now;
-      if(!radioReady)continue;
     }
     if (decoder.receiving() && (now - lastByteMs > RX_IDLE_TIMEOUT_MS)) {
       decoder.abortIdleTimeout();
@@ -913,7 +915,12 @@ void httpStatus() {
            "\"hostname\":\"%s\",\"mdns_active\":%s,\"cc1101_frequency_khz\":%lu,\"cc1101_module_band\":%u,\"ot_tx_enabled\":%s,"
            "\"valid_frames\":%lu,\"rejected_frames\":%lu,\"dropped_frames\":%lu,"
            "\"rf_uart_bytes\":%lu,\"rf_syncs\":%lu,\"radio_recalibrations\":%lu,"
-           "\"radio_recalibration_failures\":%lu,"
+           "\"radio_recalibration_failures\":%lu,\"radio_silence_warnings\":%lu,"
+           "\"http_last_ms\":%lu,\"http_max_ms\":%lu,\"http_slow_calls\":%lu,\"http_serviced\":%lu,"
+           "\"http_unserved_slow_calls\":%lu,\"http_unserved_max_ms\":%lu,"
+           "\"mqtt_connect_max_ms\":%lu,\"mqtt_connect_slow_calls\":%lu,"
+           "\"mqtt_loop_max_ms\":%lu,\"mqtt_loop_slow_calls\":%lu,"
+           "\"web_asset_last_ms\":%lu,\"web_asset_max_ms\":%lu,"
            "\"last_frame_uptime_ms\":%lu,\"last_rssi\":%u,"
            "\"uptime_ms\":%lu,\"free_heap\":%lu,\"gateway_id\":\"%s\","
            "\"ip\":\"%s\",\"ap_ip\":\"%s\",\"ap_ssid\":\"%s\",\"reset_reason\":\"%s\"}",
@@ -937,6 +944,19 @@ void httpStatus() {
            static_cast<unsigned long>(rfSyncs),
            static_cast<unsigned long>(radioRxRecalibrations),
            static_cast<unsigned long>(radioRxRecalibrationFailures),
+           static_cast<unsigned long>(radioSilenceWarnings),
+           static_cast<unsigned long>(httpLatency.last_ms),
+           static_cast<unsigned long>(httpLatency.max_ms),
+           static_cast<unsigned long>(httpLatency.slow_calls),
+           static_cast<unsigned long>(httpServicedCount),
+           static_cast<unsigned long>(httpUnservedSlowCalls),
+           static_cast<unsigned long>(httpUnservedMaxMs),
+           static_cast<unsigned long>(mqttConnectLatency.max_ms),
+           static_cast<unsigned long>(mqttConnectLatency.slow_calls),
+           static_cast<unsigned long>(mqttLoopLatency.max_ms),
+           static_cast<unsigned long>(mqttLoopLatency.slow_calls),
+           static_cast<unsigned long>(webAssetLastMs),
+           static_cast<unsigned long>(webAssetMaxMs),
            static_cast<unsigned long>(lastFrameMs), lastRssi,
            static_cast<unsigned long>(millis()),
            static_cast<unsigned long>(ESP.getFreeHeap()), deviceId,
@@ -1302,6 +1322,8 @@ void httpDebugDownload() {
 // Separate HTML/JS assets and send small flash-backed blocks with yields.
 // Content-Length is exact, so clients never wait for an unfinished chunk.
 void sendFlashAsset(const char* data,size_t length,const char* mime){
+  const uint32_t transferStart=millis();
+  web.client().setNoDelay(true);
   web.sendHeader("Cache-Control","no-store");
   web.sendHeader("X-Content-Type-Options","nosniff");
   web.setContentLength(length);
@@ -1312,6 +1334,8 @@ void sendFlashAsset(const char* data,size_t length,const char* mime){
     web.sendContent_P(data+pos,n);
     delay(0); // allow TCP/IP task and Wi-Fi to drain between blocks
   }
+  webAssetLastMs=millis()-transferStart;
+  if(webAssetLastMs>webAssetMaxMs)webAssetMaxMs=webAssetLastMs;
 }
 void httpIndex() {
   if(!authorized())return;
@@ -1488,8 +1512,8 @@ void handlePacket(const PacketEvent& event) {
 void setup() {
   Serial.begin(115200);
   delay(250);
-  Serial.println("\n# RAMSES II Arduino v0.4.0-beta.19 (read-only OpenTherm discovery)");
-  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-beta.19");
+  Serial.println("\n# RAMSES II Arduino v0.4.0-beta.20 (read-only OpenTherm discovery)");
+  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-beta.20");
   char bootInfo[96];
   snprintf(bootInfo, sizeof(bootInfo), "Reset reason: %s", resetReason());
   recordLog(GatewayDebug::INFO, bootInfo);
@@ -1590,16 +1614,37 @@ void loop() {
   }
   wifiConnect();
   serviceMdns();
+  // HTTP first: MQTT reconnect and network socket timeouts must not
+  // delay an already queued browser request in the same loop pass.
+  uint32_t started=millis();
+  const uint32_t handledBefore=httpServicedCount;
+  web.handleClient();
+  const uint32_t httpElapsed=static_cast<uint32_t>(millis()-started);
+  if(httpServicedCount!=handledBefore) {
+    httpLatency.observe(httpElapsed);
+  } else if(httpElapsed>=500u) {
+    // WebServer can block while parsing an incomplete client request
+    // without dispatching an endpoint; keep it separate from handler latency.
+    ++httpUnservedSlowCalls;
+    if(httpElapsed>httpUnservedMaxMs)httpUnservedMaxMs=httpElapsed;
+  }
+  started=millis();
   mqttConnect();
+  mqttConnectLatency.observe(static_cast<uint32_t>(millis()-started));
   if (mqtt.connected()) {
-    mqtt.loop();
+    static uint32_t lastMqttLoopMs=0;
+    if(millis()-lastMqttLoopMs>=100u){
+      lastMqttLoopMs=millis();
+      started=millis();
+      mqtt.loop();
+      mqttLoopLatency.observe(static_cast<uint32_t>(millis()-started));
+    }
     if (millis() - lastMqttStateMs >= MQTT_STATE_INTERVAL_MS) {
       lastMqttStateMs = millis();
       if (!publishGatewayState())
         recordLog(GatewayDebug::WARN, "MQTT state publish failed");
     }
   }
-  web.handleClient();
   if(restartDueMs && static_cast<int32_t>(millis()-restartDueMs)>=0)ESP.restart();
   if(configuration.pending) {
     // Roll back staged credentials if Wi-Fi never reconnects after an edit.
@@ -1637,12 +1682,18 @@ void loop() {
   static uint32_t lastHeartbeat = 0;
   if (millis() - lastHeartbeat >= HEARTBEAT_MS) {
     lastHeartbeat = millis();
-    char heartbeat[130];
-    snprintf(heartbeat, sizeof(heartbeat), "HEARTBEAT CC1101=%s UART=%lu sync=%lu valid=%lu rejected=%lu heap=%lu",
-             radioReady ? "ok" : "missing",
-             static_cast<unsigned long>(rfUartBytes), static_cast<unsigned long>(rfSyncs),
-             static_cast<unsigned long>(validFrames), static_cast<unsigned long>(rejectedFrames),
-             static_cast<unsigned long>(ESP.getFreeHeap()));
+    char heartbeat[200];
+    snprintf(heartbeat,sizeof(heartbeat),
+             "HEARTBEAT CC1101=%s UART=%lu sync=%lu valid=%lu rejected=%lu heap=%lu HTTPmax=%lums MQTTconnectMax=%lums MQTTloopMax=%lums",
+             radioReady?"ok":"missing",
+             static_cast<unsigned long>(rfUartBytes),
+             static_cast<unsigned long>(rfSyncs),
+             static_cast<unsigned long>(validFrames),
+             static_cast<unsigned long>(rejectedFrames),
+             static_cast<unsigned long>(ESP.getFreeHeap()),
+             static_cast<unsigned long>(httpLatency.max_ms),
+             static_cast<unsigned long>(mqttConnectLatency.max_ms),
+             static_cast<unsigned long>(mqttLoopLatency.max_ms));
     recordLog(GatewayDebug::INFO, heartbeat);
   }
   delay(2);

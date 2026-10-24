@@ -17,6 +17,10 @@ int main() {
   }
   assert(!ready(0x00,0x14,false));
   assert(!ready(0xFF,0xFF,true));
+  assert(decodeMarcState(0xFF)==0xFF);
+  assert(decodeMarcState(0x8D)==0x0D);
+  assert(decodeMarcState(0x01)==0x01);
+  assert(!receiving(decodeMarcState(0xFF)));
   assert(receiving(0x8D)); // status register may contain unrelated upper bits
   std::puts("CC1101 boot identification independent from transient RX state PASS");
 }

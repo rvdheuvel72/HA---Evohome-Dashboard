@@ -1,4 +1,4 @@
-name: Release RAMSES Arduino v0.4.0 beta.19
+name: Release RAMSES Arduino v0.4.0 beta.20
 
 on:
   # A reviewed/merged push to main can publish the beta. The mandatory
@@ -89,7 +89,7 @@ jobs:
           arduino-cli config init --dest-file "$ARDUINO_CONFIG_FILE" --overwrite
           arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
           arduino-cli core update-index
-          arduino-cli core install esp32:esp32@3.3.4
+          arduino-cli core install esp32:esp32@3.3.12
           arduino-cli lib install "PubSubClient@2.8"
           arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all \
             firmware/arduino-wroom32e/RamsesGateway \
@@ -137,12 +137,12 @@ jobs:
           if not binaries:
               raise SystemExit('No compiled ESP32 firmware binaries')
           docs = ['README.md', 'READ_ONLY_OPENTHERM.md',
-                  'RELEASE_NOTES_v0.4.0-beta.19.md']
+                  'RELEASE_NOTES_v0.4.0-beta.20.md']
           for name in docs:
               assert (root / name).is_file(), f'Missing {name}'
           out = Path('dist')
           out.mkdir(exist_ok=True)
-          name = 'RAMSES-Arduino-Gateway-v0.4.0-beta.19-ESP32-WROOM-32E.zip'
+          name = 'RAMSES-Arduino-Gateway-v0.4.0-beta.20-ESP32-WROOM-32E.zip'
           bundle = out / name
           with ZipFile(bundle, 'w', compression=ZIP_DEFLATED, compresslevel=9) as z:
               for p in sources:
@@ -196,8 +196,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAG="ramses-arduino-v0.4.0-beta.19"
-          FILE="RAMSES-Arduino-Gateway-v0.4.0-beta.19-ESP32-WROOM-32E.zip"
+          TAG="ramses-arduino-v0.4.0-beta.20"
+          FILE="RAMSES-Arduino-Gateway-v0.4.0-beta.20-ESP32-WROOM-32E.zip"
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "::error::Release $TAG already exists: do not overwrite an immutable beta. Bump beta number for another build."
             exit 1
@@ -209,8 +209,8 @@ jobs:
           gh release create "$TAG" \
             "dist/$FILE" "dist/$FILE.sha256" \
             --target "$GITHUB_SHA" \
-            --title "RAMSES Arduino Gateway v0.4.0-beta.19 (ESP32-WROOM-32E)" \
-            --notes-file firmware/arduino-wroom32e/RELEASE_NOTES_v0.4.0-beta.19.md \
+            --title "RAMSES Arduino Gateway v0.4.0-beta.20 (ESP32-WROOM-32E)" \
+            --notes-file firmware/arduino-wroom32e/RELEASE_NOTES_v0.4.0-beta.20.md \
             --prerelease
 
       - name: Add published date in CET/CEST to beta description
@@ -218,7 +218,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         shell: bash
-        run: python3 scripts/release_local_time.py --tag ramses-arduino-v0.4.0-beta.19
+        run: python3 scripts/release_local_time.py --tag ramses-arduino-v0.4.0-beta.20
 
       - name: Verify release exists and has both downloads
         env:
@@ -227,8 +227,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAG="ramses-arduino-v0.4.0-beta.19"
-          FILE="RAMSES-Arduino-Gateway-v0.4.0-beta.19-ESP32-WROOM-32E.zip"
+          TAG="ramses-arduino-v0.4.0-beta.20"
+          FILE="RAMSES-Arduino-Gateway-v0.4.0-beta.20-ESP32-WROOM-32E.zip"
           gh release view "$TAG" --json isPrerelease,assets \
             --jq '.isPrerelease == true' | grep -Fx true
           gh release view "$TAG" --json assets --jq '.assets[].name' | grep -Fx "$FILE"

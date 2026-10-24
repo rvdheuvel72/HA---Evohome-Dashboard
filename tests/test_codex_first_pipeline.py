@@ -54,7 +54,7 @@ class CodexFirstTests(unittest.TestCase):
         # A new reviewed attempt may be queued, but the old skipped check
         # must NEVER be treated as success or a permanent CI error.
         with patch.object(gate, "pages",
-                          return_value=[{"filename": "firmware/arduino-wroom32e/test.h"}]), \\
+                          return_value=[{"filename": "firmware/arduino-wroom32e/test.h"}]), \
              patch.object(gate, "request", return_value={
                  "check_runs": [{"name": "Trusted Arduino compile",
                                  "status": "completed", "conclusion": "skipped"}]}):

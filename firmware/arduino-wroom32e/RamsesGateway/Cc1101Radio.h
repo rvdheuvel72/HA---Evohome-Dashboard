@@ -84,7 +84,8 @@ class Cc1101Radio {
     // crystal/PLL transition into RX. The asynchronous GDO2/UART output
     // does not require the host to poll the radio while it settles.
     delay(25);
-    startupAfterRx_=readSpiAudit(millis());
+    startupRxSteps_[4]=readSpiAudit(millis());
+    startupAfterRx_=startupRxSteps_[4];
     startupMarcState_=cc1101_startup::decodeMarcState(startupAfterRx_.marc_raw);
     startupRxConfirmed_=startupAfterRx_.config_ok() &&
       cc1101_startup::receiving(startupMarcState_);
@@ -375,7 +376,8 @@ class Cc1101Radio {
     if (!strobe(0x3A)) return false; // SFRX
     if(startupTrace)startupRxSteps_[3]=readSpiAudit(millis());
     const bool rx=strobe(0x34); // SRX; never STX
-    if(startupTrace && rx)startupRxSteps_[4]=readSpiAudit(millis());
+    // Do NOT sample immediately after SRX: that would violate the 25 ms
+    // quiet radio/PLL settle test performed by begin().
     return rx;
   }
 

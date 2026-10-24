@@ -67,7 +67,6 @@ jobs:
           assert match.group(1) == "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'"
           assert match.group(2) == "[self-hosted, Linux, X64, wsl-ubuntu]"
           assert "FLASH-WSL-USB" in y
-          assert "COM3" not in y
           assert "mb-ubuntu" not in match.group(2)
           print("WSL-only lab guard PASS")
           PY

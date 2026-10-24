@@ -12,6 +12,8 @@ from check_codex_review import check_review_only, request
 WORKFLOWS = (
     ("ramses-arduino-wroom32e.yml", "pull_request"),
     ("phase1-self-hosted.yml", "pull_request"),
+    # pull_request_target is recovered through an explicit approved-run
+    # check by the final controller, never by untrusted PR-controlled YAML.
     ("trusted-ramses-compile.yml", "pull_request_target"),
 )
 
@@ -42,18 +44,34 @@ def resume(token, repo, number, sha):
         matching = [
             x for x in runs
             if x.get("status") == "completed"
-            and x.get("conclusion") == "failure"
-            and any(p.get("number") == number and
-                    ((p.get("head") or {}).get("sha") == sha or
-                     x.get("head_sha") == sha)
+            and int(x.get("run_attempt", 1)) == 1
+            and x.get("head_sha") == sha
+            and any(p.get("number") == number
                     for p in x.get("pull_requests", []))
         ]
         if not matching:
-            print("No exact-head failed pre-review workflow to restart:", filename)
+            print("No skipped exact-head PR workflow to restart:", filename)
             continue
         latest = max(matching, key=lambda x: x.get("id", 0))
-        post_retry(token, f"/repos/{repo}/actions/runs/{latest['id']}/rerun-failed-jobs")
-        print("Restarted failed review-gated workflow", filename, latest["id"])
+        jobs_response = request(
+            token, f"/repos/{repo}/actions/runs/{latest['id']}/jobs?per_page=100"
+        )
+        jobs = jobs_response.get("jobs", [])
+        if (jobs_response.get("total_count", 0) != len(jobs)
+                or not any(j.get("name", "").startswith("Codex BEFORE CI")
+                           and j.get("conclusion") == "success" for j in jobs)
+                or not any(j.get("conclusion") == "skipped"
+                           and not j.get("name", "").startswith("Codex BEFORE CI")
+                           for j in jobs)):
+            print("Nothing to resume (or incomplete job evidence):", filename)
+            continue
+        # A successful workflow with intentionally skipped builds needs a
+        # full rerun, NOT rerun-failed-jobs. Its trusted preflight re-checks
+        # exact-head review before any self-hosted code is executed.
+        post_retry(token, f"/repos/{repo}/actions/runs/{latest['id']}/rerun")
+        print("Restarted review-approved workflow", filename, latest["id"])
+
+
 
 
 def main():

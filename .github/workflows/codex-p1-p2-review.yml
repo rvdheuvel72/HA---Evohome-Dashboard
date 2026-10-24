@@ -29,7 +29,10 @@ jobs:
        (github.event_name == 'issue_comment' &&
         github.event.issue.pull_request != null &&
         (github.event.comment.user.login == 'chatgpt-codex-connector[bot]' ||
-         github.event.comment.user.login == 'chatgpt-codex-connector')))
+         github.event.comment.user.login == 'chatgpt-codex-connector') &&
+        contains(github.event.comment.body, '"status":"completed"') &&
+        contains(github.event.comment.body, '"has_any_findings":false') &&
+        contains(github.event.comment.body, '"has_unresolved_findings":false')))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -63,10 +66,37 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 scripts/check_codex_review.py --review-only
 
+  resume-approved-ci:
+    name: Resume skipped CI after late Codex completion
+    needs: [first-review]
+    if: >-
+      needs.first-review.result == 'success' &&
+      github.event_name == 'issue_comment'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      actions: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Resume pre-reviewed CI without bypassing review checks
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/resume_after_codex.py
+
   await-validation:
     name: Await required build and test checks
-    needs: [first-review]
-    if: needs.first-review.result == 'success'
+    needs: [first-review, resume-approved-ci]
+    if: >-
+      always() &&
+      needs.first-review.result == 'success' &&
+      (github.event_name != 'issue_comment' ||
+       needs.resume-approved-ci.result == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 33
     steps:
@@ -111,7 +141,10 @@ jobs:
        (github.event_name == 'issue_comment' &&
         github.event.issue.pull_request != null &&
         (github.event.comment.user.login == 'chatgpt-codex-connector[bot]' ||
-         github.event.comment.user.login == 'chatgpt-codex-connector')))
+         github.event.comment.user.login == 'chatgpt-codex-connector') &&
+        contains(github.event.comment.body, '"status":"completed"') &&
+        contains(github.event.comment.body, '"has_any_findings":false') &&
+        contains(github.event.comment.body, '"has_unresolved_findings":false')))
     runs-on: ubuntu-latest
     timeout-minutes: 33
     steps:

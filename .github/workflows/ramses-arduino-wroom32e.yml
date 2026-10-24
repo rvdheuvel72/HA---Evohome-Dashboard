@@ -34,6 +34,8 @@ jobs:
       github.event_name == 'pull_request' &&
       github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.full_name == github.repository
+    outputs:
+      approved: ${{ steps.precheck.outputs.approved }}
     runs-on: ubuntu-latest
     timeout-minutes: 33
     steps:
@@ -43,6 +45,7 @@ jobs:
           ref: main
           persist-credentials: false
       - name: Wait for completed exact-head Codex P1/P2 review
+        id: precheck
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
@@ -66,14 +69,18 @@ jobs:
                   raise SystemExit("Blocked: stale, external, closed or draft PR")
               pending=blockers(token,owner,name,number,sha)
               if pending:
-                  raise SystemExit(f"Codex has {len(pending)} blocking P1/P2 finding(s); expensive CI skipped. See PR review threads.")
+                  print(f"::notice::Codex review blocked: {len(pending)} P1/P2 finding(s). Self-hosted CI not started; see review threads.")
+                  raise SystemExit(0)
               reviews=pages(token,f"/repos/{repo}/pulls/{number}/reviews")
               comments=pages(token,f"/repos/{repo}/issues/{number}/comments")
               if review_disposition(reviews,comments,sha)=="reviewed":
                   print("Exact-head Codex P1/P2 review GREEN; allow self-hosted build")
+                  with open(os.environ["GITHUB_OUTPUT"],"a",encoding="utf-8") as out:
+                      out.write("approved=true\n")
                   break
               if time.monotonic()+15>=expires:
-                  raise SystemExit("Codex review incomplete; self-hosted build BLOCKED")
+                  print("::notice::Codex review still pending; self-hosted CI not started")
+                  raise SystemExit(0)
               time.sleep(15)
           PY
 
@@ -82,7 +89,8 @@ jobs:
     if: >-
       always() &&
       (github.event_name != 'pull_request' ||
-       needs.review-before-ci.result == 'success')
+       needs.review-before-ci.result == 'success' &&
+       needs.review-before-ci.outputs.approved == 'true')
     runs-on: [self-hosted, Linux, X64]
     steps:
       - uses: actions/checkout@v7

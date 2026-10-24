@@ -66,7 +66,7 @@ jobs:
                   raise SystemExit("Blocked: stale, external, closed or draft PR")
               pending=blockers(token,owner,name,number,sha)
               if pending:
-                  raise SystemExit("P1/P2 before CI: "+"; ".join(pending[:5]))
+                  raise SystemExit(f"Codex has {len(pending)} blocking P1/P2 finding(s); expensive CI skipped. See PR review threads.")
               reviews=pages(token,f"/repos/{repo}/pulls/{number}/reviews")
               comments=pages(token,f"/repos/{repo}/issues/{number}/comments")
               if review_disposition(reviews,comments,sha)=="reviewed":

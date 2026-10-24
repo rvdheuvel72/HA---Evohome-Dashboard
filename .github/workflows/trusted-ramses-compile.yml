@@ -1,10 +1,15 @@
 name: Trusted RAMSES Arduino compile
 
-# Protected base workflow. Unlike pull_request this is read from main.
+# Firmware-only PR gate; unrelated HA changes must not invoke firmware compile.
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
+    paths:
+      - 'firmware/arduino-wroom32e/**'
+      - '.github/workflows/ramses-arduino-wroom32e.yml'
+      - '.github/workflows/trusted-ramses-compile.yml'
+      - '.github/workflows/publish-ramses-arduino-v0.4-beta.yml'
 
 permissions:
   contents: read
@@ -13,9 +18,9 @@ jobs:
   verified-arduino:
     name: Trusted Arduino compile
     if: github.event.pull_request.draft == false
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 30
-    # No secrets, writes, persistent credentials or self-hosted runners.
+    # No secrets, writes or persistent credentials. Only trusted project branches should run on self-hosted hardware.
     steps:
       - name: Checkout exact PR source without persistent credentials
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

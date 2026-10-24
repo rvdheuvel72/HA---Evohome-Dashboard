@@ -1,5 +1,6 @@
 #include <cassert>
 #include <cstdio>
+#include <cstring>
 #include "../RamsesGateway/RamsesSpiAudit.h"
 int main() {
   using namespace ramses_spi_audit;
@@ -38,5 +39,24 @@ int main() {
   a.part=0xff;
   assert(!a.identifiers_ok() && !a.config_ok());
   assert(a.diagnosis()[0]=='c'); // chip_identity_unreliable
+  // Boot timeline must preserve all raw bytes in a single 144-byte
+  // GatewayDebug entry and reject any potentially truncated result.
+  a.part=0;
+  a.version=0x14;
+  a.marc_raw=0x1f;
+  a.iocfg2_a=a.iocfg2_b=0x1f;
+  a.pktctrl0_a=a.pktctrl0_b=0x1f;
+  a.mdmcfg2=0x1f;
+  a.freq2=a.freq1=a.freq0=0x1f;
+  char line[144]={};
+  assert(formatStartupLine("pre",a,line,sizeof(line)));
+  assert(strstr(line,"SPI-pre") && strstr(line,"part=00") && strstr(line,"ver=14"));
+  assert(strstr(line,"marc=1F") && strstr(line,"io2=1F/1F"));
+  assert(strstr(line,"pkt=1F/1F") && strstr(line,"freq=1F1F1F"));
+  assert(strstr(line,"uni=1"));
+  char tiny[32]={};
+  assert(!formatStartupLine("pre",a,tiny,sizeof(tiny)));
+  a.sampled=false;
+  assert(!formatStartupLine("pre",a,line,sizeof(line)));
   puts("Read-only CC1101 SPI audit tests PASS");
 }

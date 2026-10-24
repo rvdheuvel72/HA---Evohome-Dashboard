@@ -215,6 +215,23 @@ void radioLog(GatewayDebug::Level level, const char* message) {
   xQueueSend(debugQueue, &event, 0);
 }
 
+// Collect the earliest SPI observations before a browser can connect.
+// Only radioTask touches CC1101; these are queued into serial/web debug log.
+void logSpiStage(const char* phase,const ramses_spi_audit::Snapshot& s) {
+  if(!s.sampled)return;
+  char line[GatewayDebug::LINE_BYTES]={};
+  if(!ramses_spi_audit::formatStartupLine(phase,s,line,sizeof(line))) {
+    radioLog(GatewayDebug::ERROR,"SPI startup diagnostic line overflow");
+    return;
+  }
+  radioLog(s.uniform_data()?GatewayDebug::WARN:GatewayDebug::INFO,line);
+}
+void logBootSpiTimeline() {
+  logSpiStage("pre",radio.startupBeforeConfig());
+  logSpiStage("cfg",radio.startupAfterConfig());
+  logSpiStage("srx",radio.startupAfterRx());
+}
+
 const char* resetReason() {
   switch (esp_reset_reason()) {
     case ESP_RST_POWERON: return "power_on";
@@ -369,6 +386,7 @@ void radioTask(void*) {
   radioReady = radio.begin(configuration.current.rfFrequencyKhz,
                             configuration.current.rfModuleBand,
                             configuration.current.rfExperimentalRx==1);
+  logBootSpiTimeline();
   if(radioReady) {
     otGateway.begin();
     const auto first=radio.readRxHealth(millis(),rfUartBytes);
@@ -396,6 +414,7 @@ void radioTask(void*) {
     radioReady = radio.begin(configuration.current.rfFrequencyKhz,
                              configuration.current.rfModuleBand,
                              configuration.current.rfExperimentalRx==1);
+    logBootSpiTimeline();
     if(radioReady) {
       otGateway.begin();
       const auto sample=radio.readRxHealth(millis(),rfUartBytes);
@@ -425,6 +444,7 @@ void radioTask(void*) {
       radioReady=radio.begin(configuration.current.rfFrequencyKhz,
                               configuration.current.rfModuleBand,
                               configuration.current.rfExperimentalRx==1);
+      logBootSpiTimeline();
       if(!radioReady)continue;
       radioLog(GatewayDebug::INFO,"CC1101 recovered after retry; RX verified");
     }
@@ -550,10 +570,20 @@ void radioTask(void*) {
     // Passive SPI register readback every 30s. No command strobes or writes.
     if(!decoder.receiving() && now-lastSpiAuditMs>=30000u) {
       const auto audit=radio.readSpiAudit(now);
+      bool logRuntime=false;
       portENTER_CRITICAL(&spiAuditMux);
+      // First runtime comparison (~30s), then only changed registers.
+      logRuntime=(spiAuditSamples==1u) ||
+        audit.part!=spiAudit.part || audit.version!=spiAudit.version ||
+        audit.marc_raw!=spiAudit.marc_raw ||
+        audit.iocfg2_a!=spiAudit.iocfg2_a ||
+        audit.pktctrl0_a!=spiAudit.pktctrl0_a ||
+        audit.freq2!=spiAudit.freq2 || audit.freq1!=spiAudit.freq1 ||
+        audit.freq0!=spiAudit.freq0;
       spiAudit=audit;
       ++spiAuditSamples;
       portEXIT_CRITICAL(&spiAuditMux);
+      if(logRuntime)logSpiStage("runtime",audit);
       lastSpiAuditMs=now;
     }
     // Perform the GPIO bench test before the OpenTherm scheduler.

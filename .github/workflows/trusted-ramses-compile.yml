@@ -1,8 +1,8 @@
 name: Trusted RAMSES Arduino compile
 
-# Firmware-only PR gate; unrelated HA changes must not invoke firmware compile.
+# Protected-base firmware gate: PR source must not control this workflow.
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
     paths:

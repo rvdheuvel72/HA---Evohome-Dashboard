@@ -13,11 +13,32 @@ on:
 
 permissions:
   contents: read
+  issues: read
+  pull-requests: read
 
 jobs:
+  review-before-ci:
+    name: Codex BEFORE CI - protected Arduino
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 33
+    steps:
+      - name: Trusted main review logic only; never execute PR source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Require exact-head Codex complete with zero P1/P2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/check_codex_review.py --review-only
+
   verified-arduino:
     name: Trusted Arduino compile
-    if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository
+    needs: [review-before-ci]
+    if: needs.review-before-ci.result == 'success'
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 30
     # No secrets, writes or persistent credentials. Only trusted project branches should run on self-hosted hardware.

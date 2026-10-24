@@ -1,0 +1,204 @@
+name: RAMSES Local Hardware Lab (Windows COM3)
+
+# Ordinary PRs never access COM3 or the gateway. A merge of this workflow
+# performs one non-invasive inventory; subsequent hardware runs are manual.
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ramses-local-hardware.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ramses-local-hardware.yml'
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: 'probe (read-only inventory), diagnose (read-only gateway capture), flash (COM3)'
+        required: true
+        default: probe
+        type: choice
+        options: [probe, diagnose, flash]
+      gateway_url:
+        description: 'Trusted LAN gateway URL (HTTP Basic Auth, LAN only)'
+        required: true
+        default: 'http://evohome-gateway.local'
+        type: string
+      use_codex:
+        description: 'Run existing Codex CLI within Ubuntu WSL, read-only'
+        required: true
+        default: true
+        type: boolean
+      confirm_flash:
+        description: 'Only for flash: type FLASH-COM3 (never triggered by CI)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ramses-windows-com3
+  cancel-in-progress: false
+
+jobs:
+  workflow-safety:
+    if: github.event_name == 'pull_request'
+    runs-on: [self-hosted, Linux, X64]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Verify local hardware operation requires trusted main and explicit dispatch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          x = Path('.github/workflows/ramses-local-hardware.yml').read_text()
+          assert "github.ref == 'refs/heads/main'" in x
+          assert "github.event_name != 'pull_request'" in x
+          assert "FLASH-COM3" in x
+          assert "runs-on: [self-hosted, Windows, X64]" in x
+          assert "firmware/arduino-wroom32e/RamsesGateway" in x
+          print("Local hardware safety contract PASS; no PR-triggered COM3 upload")
+          PY
+
+  hardware:
+    # Absolutely no physical hardware access from PR code or any non-main ref.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Probe Windows COM3, Arduino CLI and WSL Codex
+        env:
+          LAB_MODE: ${{ inputs.operation || 'probe' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path local-lab-output | Out-Null
+          "Mode: $env:LAB_MODE" | Tee-Object -FilePath local-lab-output/inventory.txt
+          "Windows runner: $([Environment]::OSVersion.VersionString)" | Add-Content local-lab-output/inventory.txt
+          $ports = @(Get-CimInstance Win32_PnPEntity | Where-Object { $_.Name -match '\(COM3\)' })
+          "COM3 devices detected: $($ports.Count)" | Tee-Object -FilePath local-lab-output/inventory.txt -Append
+          foreach ($port in $ports) { "COM3: $($port.Name) [$($port.PNPDeviceID)]" | Add-Content local-lab-output/inventory.txt }
+          if (Get-Command arduino-cli -ErrorAction SilentlyContinue) {
+            "Arduino CLI: $(& arduino-cli version)" | Add-Content local-lab-output/inventory.txt
+          } else {
+            "Arduino CLI not on Windows PATH; Arduino IDE alone does not prove CLI access" | Add-Content local-lab-output/inventory.txt
+          }
+          if (Get-Command wsl.exe -ErrorAction SilentlyContinue) {
+            $distro = & wsl.exe --list --quiet 2>&1
+            "WSL distributions: $($distro -join ', ')" | Add-Content local-lab-output/inventory.txt
+            $codex = & wsl.exe --distribution Ubuntu -- bash -lc 'command -v codex >/dev/null && codex --version' 2>&1
+            "WSL Ubuntu Codex probe: $($codex -join ' ')" | Add-Content local-lab-output/inventory.txt
+          } else {
+            "WSL executable unavailable to Windows runner account" | Add-Content local-lab-output/inventory.txt
+          }
+          Get-Content local-lab-output/inventory.txt
+          if ($env:LAB_MODE -eq 'flash' -and $ports.Count -ne 1) {
+            throw 'Refusing upload: COM3 identity is not uniquely enumerated'
+          }
+
+      - name: Enforce explicit physical flashing consent
+        if: github.event_name == 'workflow_dispatch' && inputs.operation == 'flash'
+        env:
+          CONFIRM_FLASH: ${{ inputs.confirm_flash }}
+        run: |
+          if ($env:CONFIRM_FLASH -cne 'FLASH-COM3') {
+            throw 'Refusing to flash COM3 without exact manual confirmation'
+          }
+
+      - name: Capture sanitized live gateway RX and HTTP metrics
+        if: github.event_name == 'workflow_dispatch' && (inputs.operation == 'diagnose' || inputs.operation == 'flash')
+        env:
+          GATEWAY_URL: ${{ inputs.gateway_url }}
+          GATEWAY_USER: ${{ secrets.RAMSES_GATEWAY_HTTP_USER }}
+          GATEWAY_PASSWORD: ${{ secrets.RAMSES_GATEWAY_HTTP_PASSWORD }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $base = [Uri]$env:GATEWAY_URL
+          if ($base.Scheme -ne 'http' -or $base.UserInfo) { throw 'Use a trusted LAN HTTP URL without embedded credentials' }
+          if (-not $env:GATEWAY_USER -or -not $env:GATEWAY_PASSWORD) {
+            throw 'Missing RAMSES_GATEWAY_HTTP_USER / RAMSES_GATEWAY_HTTP_PASSWORD repository secrets'
+          }
+          $bytes = [Text.Encoding]::UTF8.GetBytes("$($env:GATEWAY_USER):$($env:GATEWAY_PASSWORD)")
+          $headers = @{ Authorization = "Basic $([Convert]::ToBase64String($bytes))" }
+          $keys = @('version','mode','radio_detected','radio_verified','cc1101_part','cc1101_version',
+            'cc1101_boot_marcstate','cc1101_rx_at_boot','cc1101_frequency_khz',
+            'rf_uart_bytes','rf_syncs','valid_frames','rejected_frames','dropped_frames',
+            'radio_recalibrations','radio_recalibration_failures','radio_silence_warnings',
+            'http_last_ms','http_max_ms','http_slow_calls','http_unserved_max_ms',
+            'mqtt_connect_max_ms','mqtt_loop_max_ms','uptime_ms','free_heap')
+          $snapshots = @()
+          for ($sample=0; $sample -lt 3; $sample++) {
+            $status = Invoke-RestMethod -Uri ([Uri]::new($base,'/api/v1/status')) -Headers $headers -TimeoutSec 10
+            $rx = Invoke-RestMethod -Uri ([Uri]::new($base,'/api/v1/radio/rx-health')) -Headers $headers -TimeoutSec 10
+            $diag = Invoke-RestMethod -Uri ([Uri]::new($base,'/api/v1/radio/diagnostics')) -Headers $headers -TimeoutSec 10
+            $selected = [ordered]@{}
+            foreach ($k in $keys) { $selected[$k] = $status.$k }
+            $snapshots += [ordered]@{
+              collected_utc = (Get-Date).ToUniversalTime().ToString('o')
+              status = $selected
+              rx_health = $rx
+              rx_rejections = $diag.rejected
+              last_rejection = $diag.last_rejection
+            }
+            if ($sample -lt 2) { Start-Sleep -Seconds 15 }
+          }
+          $snapshots | ConvertTo-Json -Depth 12 | Set-Content -Encoding utf8 local-lab-output/gateway-rx-health.json
+          $first = $snapshots[0].status
+          $last = $snapshots[-1].status
+          "UART byte delta: $($last.rf_uart_bytes - $first.rf_uart_bytes); sync delta: $($last.rf_syncs - $first.rf_syncs); valid frame delta: $($last.valid_frames - $first.valid_frames)" | Tee-Object -FilePath local-lab-output/summary.txt
+          "Last CC1101 MARCSTATE: $($snapshots[-1].rx_health.latest.marcstate); in_rx: $($snapshots[-1].rx_health.latest.in_rx)" | Tee-Object -FilePath local-lab-output/summary.txt -Append
+
+      - name: Analyze captured metrics with preinstalled Codex in Ubuntu WSL
+        if: github.event_name == 'workflow_dispatch' && (inputs.operation == 'diagnose' || inputs.operation == 'flash') && inputs.use_codex
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = (& wsl.exe --distribution Ubuntu -- wslpath -a "$env:GITHUB_WORKSPACE").Trim()
+          if ($LASTEXITCODE -ne 0 -or -not $path) { throw 'Windows runner cannot access checkout through Ubuntu WSL' }
+          if ($path.Contains("'")) { throw 'Unsupported checkout path quoting' }
+          $script = "cd '$path' && command -v codex && codex exec --sandbox read-only --output-last-message local-lab-output/codex-analysis.txt 'Analyze local-lab-output/gateway-rx-health.json and the RAMSES CC1101 receive path in firmware/arduino-wroom32e/RamsesGateway. Do not modify files. Distinguish proven findings from hypotheses, identify whether RX state 13 is reached, and recommend the smallest safe RX-only change. Do not transmit, pair, or flash.'"
+          & wsl.exe --distribution Ubuntu -- bash -lc $script
+          if ($LASTEXITCODE -ne 0) { throw 'WSL Codex analysis failed; check runner service account authentication and WSL access' }
+
+      - name: Compile and flash firmware directly to COM3 on Windows
+        if: github.event_name == 'workflow_dispatch' && inputs.operation == 'flash' && inputs.confirm_flash == 'FLASH-COM3'
+        env:
+          SECRETS_HEADER: ${{ vars.RAMSES_SECRETS_HEADER_PATH }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:SECRETS_HEADER -or -not (Test-Path -LiteralPath $env:SECRETS_HEADER -PathType Leaf)) {
+            throw 'Refusing flash: RAMSES_SECRETS_HEADER_PATH must point to an existing private GatewaySecrets.h on the Windows runner host'
+          }
+          $arduino = Get-Command arduino-cli -ErrorAction SilentlyContinue
+          if (-not $arduino) { throw 'arduino-cli not found on Windows runner PATH; check Arduino IDE CLI installation' }
+          $sketch = Join-Path $env:GITHUB_WORKSPACE 'firmware/arduino-wroom32e/RamsesGateway'
+          $privateHeader = Join-Path $sketch 'GatewaySecrets.h'
+          if (Test-Path $privateHeader) { throw 'Unexpected checkout contains GatewaySecrets.h' }
+          $out = Join-Path $env:RUNNER_TEMP 'ramses-com3-build'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          try {
+            Copy-Item -LiteralPath $env:SECRETS_HEADER -Destination $privateHeader
+            & $arduino.Source compile --fqbn esp32:esp32:esp32 --warnings all --output-dir $out $sketch
+            if ($LASTEXITCODE -ne 0) { throw 'Compilation failed; COM3 untouched' }
+            & $arduino.Source upload -p COM3 --fqbn esp32:esp32:esp32 --input-dir $out $sketch
+            if ($LASTEXITCODE -ne 0) { throw 'COM3 upload failed' }
+            'COM3 upload completed; RF reception has NOT been verified yet.' | Set-Content local-lab-output/upload-result.txt
+          } finally {
+            Remove-Item -LiteralPath $privateHeader -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Save sanitized diagnostics (short retention)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ramses-local-hardware-lab
+          path: local-lab-output/
+          if-no-files-found: warn
+          retention-days: 3

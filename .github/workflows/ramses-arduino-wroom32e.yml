@@ -32,6 +32,8 @@ jobs:
             echo "ARDUINO_DIRECTORIES_DOWNLOADS=$RUNNER_TEMP/arduino-downloads"
           } >> "$GITHUB_ENV"
       - uses: arduino/setup-arduino-cli@v2
+        with:
+          version: '1.5.1'
       - name: Install Espressif core and MQTT library
         run: |
           arduino-cli config init --dest-file "$ARDUINO_CONFIG_FILE" --overwrite

@@ -131,7 +131,7 @@ class CodexFirstTests(unittest.TestCase):
     def test_recovery_skips_unsafe_ref(self):
         import resume_after_codex as recovery
         with patch.object(recovery, "check_review_only",
-                          return_value=("blocked", "P1 found")), \\
+                          return_value=("blocked", "P1 found")), \
              patch.object(recovery, "post_retry") as retry:
             recovery.resume("token", self.REPO, 12, self.SHA)
             retry.assert_not_called()

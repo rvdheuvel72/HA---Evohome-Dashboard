@@ -91,7 +91,7 @@ constexpr uint32_t HEARTBEAT_MS = 15000;
 constexpr uint32_t RADIO_RECOVERY_RETRY_MS = 5000;
 constexpr uint32_t RX_HEALTH_SAMPLE_MS = 5000;
 constexpr uint8_t DEBUG_QUEUE_SIZE = 32;
-constexpr char FW_VERSION[] = "0.4.0-beta.24";
+constexpr char FW_VERSION[] = "0.4.0-beta.25";
 constexpr uint32_t MDNS_RETRY_MS = 15000;
 constexpr uint32_t MQTT_STATE_INTERVAL_MS = 15000;
 
@@ -237,6 +237,16 @@ void logBootSpiTimeline() {
   logSpiStage("flush",radio.startupRxStep(3));
   logSpiStage("srx-now",radio.startupRxStep(4));
   logSpiStage("srx",radio.startupAfterRx());
+  if(radio.startupSlowAudit1().sampled) {
+    logSpiStage("slow1",radio.startupSlowAudit1());
+    logSpiStage("slow2",radio.startupSlowAudit2());
+    char clockLine[GatewayDebug::LINE_BYTES]={};
+    snprintf(clockLine,sizeof(clockLine),
+      "SPI-clock RX comparison 1MHz->125kHz accepted=%u selected_hz=%lu",
+      radio.startupSlowRetained()?1u:0u,
+      static_cast<unsigned long>(radio.spiClockHz()));
+    radioLog(radio.startupSlowRetained()?GatewayDebug::INFO:GatewayDebug::WARN,clockLine);
+  }
 }
 
 const char* resetReason() {
@@ -1620,8 +1630,8 @@ void handlePacket(const PacketEvent& event) {
 void setup() {
   Serial.begin(115200);
   delay(250);
-  Serial.println("\n# RAMSES II Arduino v0.4.0-beta.24 (read-only OpenTherm discovery)");
-  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-beta.24");
+  Serial.println("\n# RAMSES II Arduino v0.4.0-beta.25 (read-only OpenTherm discovery)");
+  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-beta.25");
   char bootInfo[96];
   snprintf(bootInfo, sizeof(bootInfo), "Reset reason: %s", resetReason());
   recordLog(GatewayDebug::INFO, bootInfo);

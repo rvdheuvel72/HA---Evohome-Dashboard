@@ -38,6 +38,11 @@ class Cc1101Radio {
     startupMarcState_=0xFF;
     startupRxConfirmed_=false;
     startupRxRetries_=0;
+    // Every fresh hardware initialization starts at the established 1 MHz.
+    spiClockHz_=1000000u;
+    startupSlowRetained_=false;
+    startupSlowAudit1_={};
+    startupSlowAudit2_={};
     startupBeforeConfig_={};
     startupAfterConfig_={};
     startupAfterRx_={};
@@ -97,6 +102,24 @@ class Cc1101Radio {
     }
     // This is the earliest post-SRX readback, not a later 30s sample.
     startupAfterRx_=readSpiAudit(millis());
+    // If all register readback fails only after SRX, test the same reads
+    // at 125 kHz without changing radio state or programming any register.
+    // Keep the slower rate only after TWO independent complete, correct
+    // register/configuration/frequency readbacks; otherwise revert to 1 MHz.
+    if(ramses_spi_audit::slowProbeNeeded(startupAfterRx_)) {
+      spiClockHz_=125000u;
+      startupSlowAudit1_=readSpiAudit(millis());
+      startupSlowAudit2_=readSpiAudit(millis());
+      startupSlowRetained_=ramses_spi_audit::keepSlowClock(
+        startupSlowAudit1_,startupSlowAudit2_);
+      if(startupSlowRetained_) {
+        startupRxConfirmed_=startupRxConfirmed_ ||
+          cc1101_startup::receiving(
+            cc1101_startup::decodeMarcState(startupSlowAudit2_.marc_raw));
+      } else {
+        spiClockHz_=1000000u;
+      }
+    }
     initStage_="initialized";
     return cc1101_startup::ready(part_,version_,rxCommandAccepted);
   }
@@ -136,6 +159,10 @@ class Cc1101Radio {
   const ramses_spi_audit::Snapshot& startupBeforeConfig() const { return startupBeforeConfig_; }
   const ramses_spi_audit::Snapshot& startupAfterConfig() const { return startupAfterConfig_; }
   const ramses_spi_audit::Snapshot& startupAfterRx() const { return startupAfterRx_; }
+  const ramses_spi_audit::Snapshot& startupSlowAudit1() const { return startupSlowAudit1_; }
+  const ramses_spi_audit::Snapshot& startupSlowAudit2() const { return startupSlowAudit2_; }
+  bool startupSlowRetained() const { return startupSlowRetained_; }
+  uint32_t spiClockHz() const { return spiClockHz_; }
   const ramses_spi_audit::Snapshot& startupRxStep(uint8_t index) const {
     return startupRxSteps_[index<5u?index:4u];
   }
@@ -357,6 +384,9 @@ class Cc1101Radio {
       0x00,0x59,0x7F,0x3F,0x81,0x35,0x09
   };
   ramses_spi_audit::Snapshot startupBeforeConfig_{}, startupAfterConfig_{}, startupAfterRx_{};
+  ramses_spi_audit::Snapshot startupSlowAudit1_{}, startupSlowAudit2_{};
+  uint32_t spiClockHz_=1000000u;
+  bool startupSlowRetained_=false;
   ramses_spi_audit::Snapshot startupRxSteps_[5]={};
   uint8_t part_ = 0xFF, version_ = 0xFF;
   uint8_t startupMarcState_ = 0xFF;
@@ -369,7 +399,7 @@ class Cc1101Radio {
   bool experimentalRx_=false;
 
   bool select() {
-    SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE0));
+    SPI.beginTransaction(SPISettings(spiClockHz_, MSBFIRST, SPI_MODE0));
     digitalWrite(CS, LOW);
     const uint32_t start = micros();
     while (digitalRead(MISO) == HIGH) {

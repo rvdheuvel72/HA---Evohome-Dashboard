@@ -1,6 +1,7 @@
 name: Build RAMSES Arduino WROOM-32E
 on:
   push:
+    branches: [main]
     paths:
       - "firmware/arduino-wroom32e/**"
       - ".github/workflows/publish-ramses-arduino-v0.4-beta.yml"
@@ -22,9 +23,35 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: read
+  issues: read
 
 jobs:
+  review-before-ci:
+    name: Codex BEFORE CI - RAMSES
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 33
+    steps:
+      - name: Checkout trusted main review gate only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Wait for completed exact-head Codex P1/P2 review
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/check_codex_review.py --review-only
+
   compile:
+    needs: [review-before-ci]
+    if: >-
+      always() &&
+      (github.event_name != 'pull_request' ||
+       needs.review-before-ci.result == 'success')
     runs-on: [self-hosted, Linux, X64]
     steps:
       - uses: actions/checkout@v7

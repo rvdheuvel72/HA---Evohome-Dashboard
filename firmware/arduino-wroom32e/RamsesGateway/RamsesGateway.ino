@@ -254,7 +254,7 @@ void logBootSpiTimeline() {
   logSpiStage("iocfg",radio.startupRxStep(1));
   logSpiStage("packet",radio.startupRxStep(2));
   logSpiStage("flush",radio.startupRxStep(3));
-  logSpiStage("srx-now",radio.startupRxStep(4));
+  logSpiStage("srx-quiet",radio.startupRxStep(4));
   logSpiStage("srx",radio.startupAfterRx());
   // The radio driver also tried a quiet settle, an independent true
   // configuration burst and one bounded IDLE-to-RX recovery, if necessary.

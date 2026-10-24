@@ -131,7 +131,13 @@ class Cc1101Radio {
         rxBypass_.idle_audit=readSpiAudit(millis());
         rxBypass_.idle_burst=readConfigBurst();
         rxBypass_.reentry_issued=enterReceive();
-        if(rxBypass_.reentry_issued) {
+        if(!rxBypass_.reentry_issued) {
+          // A failed register write inside enterReceive() may leave the chip
+          // in IDLE. Issue exactly one bounded RX-only fallback command.
+          // Never claim initialized if we cannot even issue an SRX strobe.
+          rxBypass_.fallback_srx_issued=strobe(0x34);
+        }
+        if(rxBypass_.reentry_issued || rxBypass_.fallback_srx_issued) {
           delay(25);
           rxBypass_.resumed_audit=readSpiAudit(millis());
           rxBypass_.restored_valid_spi=rxBypass_.resumed_audit.config_ok();
@@ -142,6 +148,10 @@ class Cc1101Radio {
           }
         }
       }
+    }
+    if(!ramses_rx_bypass::restoreIssued(rxBypass_)) {
+      initStage_="rx_restore_failed";
+      return false;
     }
     initStage_="initialized";
     return cc1101_startup::ready(part_,version_,rxCommandAccepted);

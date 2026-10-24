@@ -173,6 +173,10 @@ jobs:
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror firmware/arduino-wroom32e/tests/test_spi_audit.cpp -o /tmp/test-ramses-spi-audit
           /tmp/test-ramses-spi-audit
+      - name: Test bounded RX escape policy and true CC1101 SPI burst validation
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror firmware/arduino-wroom32e/tests/test_rx_bypass.cpp -o /tmp/test-ramses-rx-bypass
+          /tmp/test-ramses-rx-bypass
       - name: Compile for ESP32-WROOM-32E
         run: |
           arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all firmware/arduino-wroom32e/RamsesGateway --output-dir "$RUNNER_TEMP/arduino-build"

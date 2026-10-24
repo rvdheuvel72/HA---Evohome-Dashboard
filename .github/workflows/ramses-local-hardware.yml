@@ -104,14 +104,51 @@ jobs:
           if (Get-Command wsl.exe -ErrorAction SilentlyContinue) {
             $distro = & wsl.exe --list --quiet 2>&1
             "WSL distributions: $($distro -join ', ')" | Add-Content local-lab-output/inventory.txt
-            $codex = & wsl.exe --distribution Ubuntu -- bash -lc 'command -v codex >/dev/null && codex --version' 2>&1
-            "WSL Ubuntu Codex probe: $($codex -join ' ')" | Add-Content local-lab-output/inventory.txt
+            $codexProbe = & wsl.exe --distribution Ubuntu -- bash -lc 'command -v codex >/dev/null && codex --version || echo codex-unavailable' 2>&1
+            $wslExit = $LASTEXITCODE
+            "WSL Ubuntu Codex probe: $($codexProbe -join ' ') (exit=$wslExit)" | Add-Content local-lab-output/inventory.txt
+            $global:LASTEXITCODE = 0
           } else {
             "WSL executable unavailable to Windows runner account" | Add-Content local-lab-output/inventory.txt
           }
           Get-Content local-lab-output/inventory.txt
           if ($env:LAB_MODE -eq 'flash' -and $ports.Count -ne 1) {
             throw 'Refusing upload: COM3 identity is not uniquely enumerated'
+          }
+
+      - name: Install verified Arduino CLI v1.5.1 into Ubuntu WSL (user-local)
+        # WSL may not be available to the Windows runner service account.
+        # Missing WSL is reported during inventory; never convert that into a fake install.
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
+            'WSL unavailable; Arduino CLI Linux installation not attempted' | Add-Content local-lab-output/inventory.txt
+          } else {
+            $bootstrap = @'
+          set -euo pipefail
+          target="$HOME/.local/share/ramses-arduino-cli/1.5.1"
+          mkdir -p "$target"
+          if [ ! -x "$target/arduino-cli" ] || ! "$target/arduino-cli" version | grep -q '1.5.1'; then
+            tmp="$(mktemp -d)"
+            trap 'rm -rf "$tmp"' EXIT
+            curl -fLSs --retry 3 "https://github.com/arduino/arduino-cli/releases/download/v1.5.1/arduino-cli_1.5.1_Linux_64bit.tar.gz" -o "$tmp/arduino-cli.tar.gz"
+            echo "28a8e119c498a25607821c36cb2dc49e8463941b261a0d99091baa7bc692dd2b  $tmp/arduino-cli.tar.gz" | sha256sum --check --status
+            tar -xzf "$tmp/arduino-cli.tar.gz" -C "$target" arduino-cli
+            chmod 755 "$target/arduino-cli"
+          fi
+          "$target/arduino-cli" version
+          '@
+            $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($bootstrap))
+            $run = & wsl.exe --distribution Ubuntu -- bash -lc "echo '$encoded' | base64 -d | bash" 2>&1
+            $code = $LASTEXITCODE
+            "WSL Arduino CLI v1.5.1 installation/probe: $($run -join ' ') (exit=$code)" | Add-Content local-lab-output/inventory.txt
+            if ($code -ne 0) {
+              if ('${{ github.event_name }}' -eq 'workflow_dispatch' -and '${{ inputs.operation }}' -ne 'probe') {
+                throw "WSL installation unavailable during diagnostic/flash operation (exit=$code)"
+              }
+              Write-Warning "WSL Arduino CLI installation not verified; inventory retains error (exit=$code)"
+              $global:LASTEXITCODE = 0
+            }
           }
 
       - name: Enforce explicit physical flashing consent
@@ -192,6 +229,12 @@ jobs:
             Copy-Item -LiteralPath $env:SECRETS_HEADER -Destination $privateHeader
             & $arduino compile --fqbn esp32:esp32:esp32 --warnings all --output-dir $out $sketch
             if ($LASTEXITCODE -ne 0) { throw 'Compilation failed; COM3 untouched' }
+            # COM3 may have been reallocated during capture or compilation.
+            $approved = $env:EXPECTED_COM3_PNP_ID
+            $ports = @(Get-CimInstance Win32_PnPEntity | Where-Object { $_.Name -match '\(COM3\)' })
+            if (-not $approved -or $ports.Count -ne 1 -or $ports[0].PNPDeviceID -cne $approved) {
+              throw 'Refusing COM3 upload: approved USB PNP identity changed after compilation'
+            }
             & $arduino upload -p COM3 --fqbn esp32:esp32:esp32 --input-dir $out $sketch
             if ($LASTEXITCODE -ne 0) { throw 'COM3 upload failed' }
             'COM3 upload completed; RF reception has NOT been verified yet.' | Set-Content local-lab-output/upload-result.txt

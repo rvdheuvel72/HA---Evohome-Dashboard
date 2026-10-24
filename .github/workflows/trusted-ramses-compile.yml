@@ -17,7 +17,7 @@ permissions:
 jobs:
   verified-arduino:
     name: Trusted Arduino compile
-    if: github.event.pull_request.draft == false
+    if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 30
     # No secrets, writes or persistent credentials. Only trusted project branches should run on self-hosted hardware.

@@ -14,6 +14,12 @@ on:
       - ".github/workflows/ramses-local-hardware.yml"
   workflow_dispatch:
 
+# Superseded firmware PR builds should not occupy the self-hosted runner.
+# Main-branch builds remain non-cancellable.
+concurrency:
+  group: ramses-firmware-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 

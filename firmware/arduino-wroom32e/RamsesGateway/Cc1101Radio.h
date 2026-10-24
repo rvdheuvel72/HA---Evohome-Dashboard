@@ -9,6 +9,7 @@
 #include "RamsesRxDiagnostics.h"
 #include "RamsesRxHealth.h"
 #include "Cc1101Startup.h"
+#include "RamsesSpiAudit.h"
 
 class Cc1101Radio {
  public:
@@ -20,6 +21,7 @@ class Cc1101Radio {
     initStage_="frequency_validation";
     uint32_t synthesizer=0;
     if (!radio_frequency::synth(frequencyKhz,moduleBand,synthesizer,experimentalRx)) return false;
+    expectedFrequencyWord_=synthesizer;
     frequencyKhz_=frequencyKhz;
     moduleBand_=moduleBand;
     experimentalRx_=experimentalRx;
@@ -99,6 +101,26 @@ class Cc1101Radio {
     s.pktctrl0=readRegister(0x08);
     s.gdo2_level=static_cast<uint8_t>(digitalRead(GDO2));
     return s;
+  }
+  // Collect a bounded register readback on radioTask only. This never
+  // strobes, rewrites registers, resets the CC1101 or transmits RF.
+  ramses_spi_audit::Snapshot readSpiAudit(uint32_t uptimeMs) {
+    ramses_spi_audit::Snapshot x;
+    x.uptime_ms=uptimeMs;
+    x.part=status(0x30);
+    x.version=status(0x31);
+    x.marc_raw=status(0x35); // preserve raw 8-bit data, not masked 5-bit state
+    x.iocfg2_a=readRegister(0x00);
+    x.iocfg2_b=readRegister(0x00);
+    x.pktctrl0_a=readRegister(0x08);
+    x.pktctrl0_b=readRegister(0x08);
+    x.mdmcfg2=readRegister(0x12);
+    x.freq2=readRegister(0x0D);
+    x.freq1=readRegister(0x0E);
+    x.freq0=readRegister(0x0F);
+    x.expected_freq_word=expectedFrequencyWord_;
+    x.sampled=true;
+    return x;
   }
   uint8_t part() const { return part_; }
   uint8_t version() const { return version_; }
@@ -315,6 +337,7 @@ class Cc1101Radio {
   bool startupRxConfirmed_ = false;
   uint8_t startupRxRetries_ = 0;
   const char* initStage_ = "not_started";
+  uint32_t expectedFrequencyWord_ = 0;
   uint32_t frequencyKhz_ = 868300;
   uint16_t moduleBand_ = 868;
   bool experimentalRx_=false;

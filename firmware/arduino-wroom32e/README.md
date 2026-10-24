@@ -1,3 +1,13 @@
+## Beta.23: Capture the first SPI register readings automatically at boot
+
+**Release:** [RAMSES Arduino Gateway v0.4.0-beta.23](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.23).
+
+**Arduino IDE ZIP:** `RAMSES-Arduino-Gateway-v0.4.0-beta.23-ESP32-WROOM-32E.zip`.
+
+At every CC1101 initialization, the firmware now adds **SPI-pre**, **SPI-cfg**, and **SPI-srx** events to the existing web debug log and serial output, measuring PARTNUM, VERSION, raw MARCSTATE, IOCFG2, PKTCTRL0, MDMCFG2 and frequency readback *before programming*, *after programming*, and *after RX startup*. The first runtime audit after approximately 30 seconds is also logged, followed only by changes. This avoids losing the initial state when the web interface becomes available after boot.
+
+Retrieve the timestamped events from `/api/v1/debug/logs` or `/api/v1/debug/download`. Existing `/api/v1/radio/spi-audit` still reports the latest cached snapshot. The new audit logging is read-only and does not issue radio commands, attempt pairing or transmit RF. Reception remains unverified until new valid RAMSES packets arrive.
+
 ## Beta.22: Diagnose the repeated 0x1F CC1101 SPI readbacks
 
 **Release:** [RAMSES Arduino Gateway v0.4.0-beta.22](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.22), after required compile and review checks.

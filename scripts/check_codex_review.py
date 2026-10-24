@@ -6,6 +6,7 @@ import re
 import sys
 import time
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 
 TRUSTED_CODEX_LOGINS = {"chatgpt-codex-connector", "chatgpt-codex-connector[bot]"}
 BLOCKER = re.compile(r"(?:!\[P[12] Badge\]|\[(?:P1|P2)\]|\bP[12] Badge\b)", re.I)
@@ -295,7 +296,14 @@ def final_review_requested_at(token, full_repo, comments, sha):
         if not match or not created:
             continue
         run_id = int(match.group(1))
-        workflow = request(token, prefix + f"/actions/runs/{run_id}")
+        try:
+            workflow = request(token, prefix + f"/actions/runs/{run_id}")
+        except HTTPError as error:
+            # A forged marker may point to a nonexistent run. Ignore it,
+            # but fail closed on permission errors, rate limits or outages.
+            if error.code == 404:
+                continue
+            raise
         if (workflow.get("path") != ".github/workflows/codex-p1-p2-review.yml"
                 or workflow.get("event") not in ("pull_request_target", "issue_comment")
                 or (workflow.get("repository") or {}).get("full_name") != full_repo):

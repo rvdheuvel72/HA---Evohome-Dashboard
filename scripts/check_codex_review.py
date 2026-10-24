@@ -6,6 +6,7 @@ import re
 import sys
 import time
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 
 TRUSTED_CODEX_LOGINS = {"chatgpt-codex-connector", "chatgpt-codex-connector[bot]"}
 BLOCKER = re.compile(r"(?:!\[P[12] Badge\]|\[(?:P1|P2)\]|\bP[12] Badge\b)", re.I)
@@ -241,16 +242,119 @@ def required_ci_state(token, full_repo, sha, pr_number=None):
         if not matching:
             return "pending", "Waiting for required CI: " + name
         newest = max(matching, key=lambda run: (run.get("started_at") or "", run.get("id") or 0))
+        if newest.get("status") != "completed":
+            return "pending", "Waiting for required CI: " + name
+        if newest.get("conclusion") == "skipped":
+            # After first Codex approval, a reviewed workflow may be
+            # re-running. Older intentionally skipped checks must not be
+            # mistaken for permanent build failures, and can NEVER pass.
+            return "pending", "Waiting for approved CI rerun: " + name
         if name == "Trusted Arduino compile":
             provenance, explanation = trusted_arduino_provenance(
                 token, full_repo, sha, newest)
             if provenance != "passed":
                 return provenance, explanation
-        if newest.get("status") != "completed":
-            return "pending", "Waiting for required CI: " + name
         if newest.get("conclusion") != "success":
             return "blocked", "Required CI did not pass: " + name
     return "passed", "Required source, transport, HA runtime and trusted firmware checks passed"
+
+
+def check_review_only(token, full_repo, number, sha):
+    """Review FIRST: zero self-hosted compilation until exact-head Codex is green."""
+    info = request(token, "/repos/" + full_repo + "/pulls/" + str(number))
+    if info["head"]["sha"] != sha:
+        return "changed", "PR head changed; review the new commit"
+    if info.get("state") != "open":
+        return "skipped", "PR closed"
+    if info.get("draft"):
+        return "blocked", "Draft PR is not ready for review"
+    owner, name = full_repo.split("/", 1)
+    findings = blockers(token, owner, name, number, sha)
+    if findings:
+        return "blocked", f"Codex has {len(findings)} blocking P1/P2 finding(s); self-hosted CI is intentionally skipped. See PR review threads."
+    prefix = "/repos/" + full_repo
+    reviews = pages(token, prefix + f"/pulls/{number}/reviews")
+    comments = pages(token, prefix + f"/issues/{number}/comments")
+    # NO quota bypass. The user requires an actual completed, green review.
+    if review_disposition(reviews, comments, sha) == "reviewed":
+        return "passed", "Codex FIRST gate: exact SHA reviewed and zero P1/P2"
+    return "pending", "Waiting for pre-CI Codex review of " + sha
+
+
+def final_review_requested_at(token, full_repo, comments, sha):
+    """Authenticate a final review marker through the actual protected job.
+
+    The github-actions[bot] author alone is NOT proof. A PR-owned workflow
+    may post with the same identity. Verify the referenced workflow run,
+    job name, source workflow and the comment's timestamp within that job.
+    """
+    prefix = "/repos/" + full_repo
+    pattern = re.compile(r"<!-- codex-final-review:" + re.escape(sha) +
+                         r":run=([0-9]+) -->")
+    matches = []
+    for comment in comments:
+        if (comment.get("user") or {}).get("login", "").lower() not in (
+                "github-actions[bot]", "github-actions"):
+            continue
+        match = pattern.search(comment.get("body", ""))
+        created = parse_utc(comment.get("created_at"))
+        if not match or not created:
+            continue
+        run_id = int(match.group(1))
+        try:
+            workflow = request(token, prefix + f"/actions/runs/{run_id}")
+        except HTTPError as error:
+            # A forged marker may point to a nonexistent run. Ignore it,
+            # but fail closed on permission errors, rate limits or outages.
+            if error.code == 404:
+                continue
+            raise
+        if (workflow.get("path") != ".github/workflows/codex-p1-p2-review.yml"
+                or workflow.get("event") not in ("pull_request_target", "issue_comment")
+                or (workflow.get("repository") or {}).get("full_name") != full_repo):
+            continue
+        payload = request(token, prefix + f"/actions/runs/{run_id}/jobs?per_page=100")
+        jobs = payload.get("jobs") if isinstance(payload, dict) else None
+        if not isinstance(jobs, list) or payload.get("total_count", 0) > len(jobs):
+            continue  # no partial or unauthenticated job evidence
+        for job in jobs:
+            if (job.get("name") != "Request second Codex review AFTER CI"
+                    or job.get("conclusion") != "success"):
+                continue
+            began = parse_utc(job.get("started_at"))
+            ended = parse_utc(job.get("completed_at"))
+            # Accept only an actual comment created during that exact
+            # privileged job (allow 2s for GitHub timestamp rounding).
+            if began and ended and (
+                    began - timedelta(seconds=2) <= created <= ended + timedelta(seconds=2)):
+                matches.append(created)
+    return max(matches, default=None)
+
+
+
+def check_final_review(token, full_repo, number, sha):
+    """A SECOND Codex review must complete after required CI passed."""
+    state, message = check_ci(token, full_repo, number, sha)
+    if state != "passed":
+        return state, message
+    state, message = check_review_only(token, full_repo, number, sha)
+    if state != "passed":
+        return state, message
+    prefix = "/repos/" + full_repo
+    comments = pages(token, prefix + f"/issues/{number}/comments")
+    requested = final_review_requested_at(token, full_repo, comments, sha)
+    if not requested:
+        return "pending", "Waiting for an exact-head post-CI Codex review request"
+    summaries = [
+        x for x in comments
+        if is_codex(x.get("user"))
+        and "codex-pull-request-review-summary" in x.get("body", "")
+        and (parse_utc(x.get("updated_at")) or datetime.min.replace(tzinfo=timezone.utc))
+            > requested
+    ]
+    if review_ready([], summaries, sha):
+        return "passed", "Final post-CI Codex review completed, exact SHA, no P1/P2"
+    return "pending", "Awaiting second Codex review completed AFTER CI"
 
 
 def check_ci(token, full_repo, number, sha):
@@ -290,9 +394,10 @@ def check(token, full_repo, number, sha):
 
 
 def main():
-    if len(sys.argv) > 2 or (len(sys.argv) == 2 and sys.argv[1] != "--ci-only"):
+    if len(sys.argv) > 2 or (len(sys.argv) == 2 and sys.argv[1] not in
+                                ("--ci-only", "--review-only", "--final")):
         raise ValueError("Unknown gate option")
-    ci_only = len(sys.argv) == 2
+    mode = sys.argv[1] if len(sys.argv) == 2 else "--legacy"
     with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as stream:
         event = json.load(stream)
     token, full_repo = os.environ["GITHUB_TOKEN"], os.environ["GITHUB_REPOSITORY"]
@@ -302,9 +407,12 @@ def main():
         pr = request(token, "/repos/" + full_repo + "/pulls/" + str(number))
     if pr is None:
         raise RuntimeError("A PR event is required")
-    expires = time.monotonic() + (1800 if ci_only else 900)
+    expires = time.monotonic() + (1800 if mode in
+                           ("--ci-only", "--review-only", "--final") else 900)
     while True:
-        task = check_ci if ci_only else check
+        task = {"--ci-only": check_ci,
+                "--review-only": check_review_only,
+                "--final": check_final_review}.get(mode, check)
         result, message = task(token, full_repo, pr["number"], pr["head"]["sha"])
         print(message, flush=True)
         if result in ("passed", "skipped"):

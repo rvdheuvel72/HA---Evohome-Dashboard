@@ -300,7 +300,10 @@ def final_review_requested_at(token, full_repo, comments, sha):
                 or workflow.get("event") not in ("pull_request_target", "issue_comment")
                 or (workflow.get("repository") or {}).get("full_name") != full_repo):
             continue
-        jobs = pages(token, prefix + f"/actions/runs/{run_id}/jobs")
+        payload = request(token, prefix + f"/actions/runs/{run_id}/jobs?per_page=100")
+        jobs = payload.get("jobs") if isinstance(payload, dict) else None
+        if not isinstance(jobs, list) or payload.get("total_count", 0) > len(jobs):
+            continue  # no partial or unauthenticated job evidence
         for job in jobs:
             if (job.get("name") != "Request second Codex review AFTER CI"
                     or job.get("conclusion") != "success"):

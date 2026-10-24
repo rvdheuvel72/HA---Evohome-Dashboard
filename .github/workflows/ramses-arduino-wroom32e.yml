@@ -8,6 +8,7 @@ on:
       - ".github/workflows/ramses-arduino-wroom32e.yml"
       - ".github/workflows/ramses-local-hardware.yml"
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "firmware/arduino-wroom32e/**"
       - ".github/workflows/publish-ramses-arduino-v0.4-beta.yml"

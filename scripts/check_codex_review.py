@@ -253,6 +253,64 @@ def required_ci_state(token, full_repo, sha, pr_number=None):
     return "passed", "Required source, transport, HA runtime and trusted firmware checks passed"
 
 
+def check_review_only(token, full_repo, number, sha):
+    """Review FIRST: zero self-hosted compilation until exact-head Codex is green."""
+    info = request(token, "/repos/" + full_repo + "/pulls/" + str(number))
+    if info["head"]["sha"] != sha:
+        return "changed", "PR head changed; review the new commit"
+    if info.get("state") != "open":
+        return "skipped", "PR closed"
+    if info.get("draft"):
+        return "blocked", "Draft PR is not ready for review"
+    owner, name = full_repo.split("/", 1)
+    findings = blockers(token, owner, name, number, sha)
+    if findings:
+        return "blocked", "P1/P2 must be fixed before CI: " + "; ".join(findings[:8])
+    prefix = "/repos/" + full_repo
+    reviews = pages(token, prefix + f"/pulls/{number}/reviews")
+    comments = pages(token, prefix + f"/issues/{number}/comments")
+    # NO quota bypass. The user requires an actual completed, green review.
+    if review_disposition(reviews, comments, sha) == "reviewed":
+        return "passed", "Codex FIRST gate: exact SHA reviewed and zero P1/P2"
+    return "pending", "Waiting for pre-CI Codex review of " + sha
+
+
+def final_review_requested_at(comments, sha):
+    """Return the time of a trusted workflow's post-CI request for this SHA."""
+    matching = [
+        parse_utc(c.get("created_at")) for c in comments
+        if (c.get("user") or {}).get("login", "").lower() in
+            ("github-actions[bot]", "github-actions")
+        and ("<!-- codex-final-review:" + sha + " -->") in c.get("body", "")
+    ]
+    return max((x for x in matching if x), default=None)
+
+
+def check_final_review(token, full_repo, number, sha):
+    """A SECOND Codex review must complete after required CI passed."""
+    state, message = check_ci(token, full_repo, number, sha)
+    if state != "passed":
+        return state, message
+    state, message = check_review_only(token, full_repo, number, sha)
+    if state != "passed":
+        return state, message
+    prefix = "/repos/" + full_repo
+    comments = pages(token, prefix + f"/issues/{number}/comments")
+    requested = final_review_requested_at(comments, sha)
+    if not requested:
+        return "pending", "Waiting for an exact-head post-CI Codex review request"
+    summaries = [
+        x for x in comments
+        if is_codex(x.get("user"))
+        and "codex-pull-request-review-summary" in x.get("body", "")
+        and (parse_utc(x.get("updated_at")) or datetime.min.replace(tzinfo=timezone.utc))
+            > requested
+    ]
+    if review_ready([], summaries, sha):
+        return "passed", "Final post-CI Codex review completed, exact SHA, no P1/P2"
+    return "pending", "Awaiting second Codex review completed AFTER CI"
+
+
 def check_ci(token, full_repo, number, sha):
     """First stage: only finish when every relevant build and test has passed."""
     info = request(token, "/repos/" + full_repo + "/pulls/" + str(number))
@@ -290,9 +348,10 @@ def check(token, full_repo, number, sha):
 
 
 def main():
-    if len(sys.argv) > 2 or (len(sys.argv) == 2 and sys.argv[1] != "--ci-only"):
+    if len(sys.argv) > 2 or (len(sys.argv) == 2 and sys.argv[1] not in
+                                ("--ci-only", "--review-only", "--final")):
         raise ValueError("Unknown gate option")
-    ci_only = len(sys.argv) == 2
+    mode = sys.argv[1] if len(sys.argv) == 2 else "--legacy"
     with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as stream:
         event = json.load(stream)
     token, full_repo = os.environ["GITHUB_TOKEN"], os.environ["GITHUB_REPOSITORY"]
@@ -302,9 +361,12 @@ def main():
         pr = request(token, "/repos/" + full_repo + "/pulls/" + str(number))
     if pr is None:
         raise RuntimeError("A PR event is required")
-    expires = time.monotonic() + (1800 if ci_only else 900)
+    expires = time.monotonic() + (1800 if mode in
+                           ("--ci-only", "--review-only", "--final") else 900)
     while True:
-        task = check_ci if ci_only else check
+        task = {"--ci-only": check_ci,
+                "--review-only": check_review_only,
+                "--final": check_final_review}.get(mode, check)
         result, message = task(token, full_repo, pr["number"], pr["head"]["sha"])
         print(message, flush=True)
         if result in ("passed", "skipped"):

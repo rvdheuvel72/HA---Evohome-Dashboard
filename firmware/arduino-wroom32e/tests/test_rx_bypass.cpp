@@ -41,5 +41,16 @@ int main() {
   Result result{};
   assert(!result.attempted);
   assert(!result.reentry_issued);
+  assert(restoreIssued(result)); // no SIDLE, so RX not intentionally interrupted
+  result.attempted=true;
+  assert(restoreIssued(result));
+  result.sidle_issued=true;
+  assert(!restoreIssued(result)); // P2: do not report ready with radio in IDLE
+  result.reentry_issued=true;
+  assert(restoreIssued(result));
+  result.reentry_issued=false;
+  assert(!restoreIssued(result));
+  result.fallback_srx_issued=true;
+  assert(restoreIssued(result)); // a single bounded SRX-only fallback
   puts("CC1101 RX bypass policy and continuous-burst tests PASS");
 }

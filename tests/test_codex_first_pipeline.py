@@ -2,6 +2,7 @@
 import sys
 import unittest
 from datetime import datetime, timezone
+from urllib.error import HTTPError
 from pathlib import Path
 from unittest.mock import patch
 
@@ -118,8 +119,25 @@ class CodexFirstTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "not green"):
                 merge.validate("token", self.REPO, 12, self.SHA)
 
+    def test_nonexistent_run_marker_is_ignored_not_fatal(self):
+        marker = "<!-- codex-final-review:" + self.SHA + ":run=0 -->"
+        invalid = {"user": {"login": "github-actions[bot]"},
+                   "created_at": "2026-10-24T10:30:00Z", "body": marker}
+        error = HTTPError("https://api.github.com", 404, "Not Found", {}, None)
+        with patch.object(gate, "request", side_effect=error):
+            self.assertIsNone(gate.final_review_requested_at(
+                "token", self.REPO, [invalid], self.SHA))
+
+    def test_recovery_skips_unsafe_ref(self):
+        import resume_after_codex as recovery
+        with patch.object(recovery, "check_review_only",
+                          return_value=("blocked", "P1 found")), \\
+             patch.object(recovery, "post_retry") as retry:
+            recovery.resume("token", self.REPO, 12, self.SHA)
+            retry.assert_not_called()
+
     def test_pre_request_idempotent(self):
-        marker = "<!-- codex-pre-review:" + self.SHA + " -->"
+        marker = "<!-- codex-pre-review:" + self.SHA + ":run=1234 -->"
         comments = [{
             "user": {"login": "github-actions[bot]"},
             "body": marker,

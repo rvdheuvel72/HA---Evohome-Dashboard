@@ -8,7 +8,8 @@ import json
 import os
 import sys
 
-from check_codex_review import (check_ci, pages, request, review_disposition,\n                                final_review_requested_at)
+from check_codex_review import (check_ci, pages, request, review_disposition,
+                                final_review_requested_at)
 
 
 def ensure_request(token, repo, number, sha, phase):

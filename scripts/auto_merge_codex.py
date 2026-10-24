@@ -5,7 +5,8 @@ import os
 import sys
 from urllib.request import Request, urlopen
 
-from check_codex_review import (check_final_review, request, pages,\n                                arduino_validation_required, ha_validation_required)
+from check_codex_review import (check_final_review, request, pages,
+                                arduino_validation_required, ha_validation_required)
 
 
 def validate(token, repo, number, expected_sha):

@@ -68,6 +68,16 @@ struct Snapshot {
     return "config_readback_matches";
   }
 };
+// Read-only clock sweep. A failed normal-rate register read is NOT proof
+// that the module is defective. A slower SPI rate is retained only when
+// two consecutive independent readbacks verify the entire configuration.
+inline bool slowProbeNeeded(const Snapshot& normal) {
+  return normal.sampled && !normal.config_ok();
+}
+inline bool keepSlowClock(const Snapshot& first,const Snapshot& second) {
+  return first.config_ok() && second.config_ok() &&
+    !first.changedFrom(second);
+}
 // Compact format sized for GatewayDebug::LINE_BYTES (144 bytes). Captures
 // original register bytes, not the 5-bit interpretation of MARCSTATE.
 // A truncated line is never sent to the log because it could be misleading.

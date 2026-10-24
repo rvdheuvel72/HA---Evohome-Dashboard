@@ -75,8 +75,9 @@ inline bool slowProbeNeeded(const Snapshot& normal) {
   return normal.sampled && !normal.config_ok();
 }
 inline bool keepSlowClock(const Snapshot& first,const Snapshot& second) {
-  return first.config_ok() && second.config_ok() &&
-    !first.changedFrom(second);
+  // RX status and FIFO occupancy legitimately vary between samples.
+  // config_ok() already verifies every programmed, stable register byte.
+  return first.config_ok() && second.config_ok();
 }
 // Compact format sized for GatewayDebug::LINE_BYTES (144 bytes). Captures
 // original register bytes, not the 5-bit interpretation of MARCSTATE.

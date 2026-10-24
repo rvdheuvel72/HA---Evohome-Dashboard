@@ -1,6 +1,7 @@
 """CI policy: review-first, second final review and exact-head merge safety."""
 import sys
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -57,15 +58,51 @@ class CodexFirstTests(unittest.TestCase):
         old = self.summary(updated="2026-10-24T10:20:00Z")
         with patch.object(gate, "check_ci", return_value=("passed", "OK")), \
              patch.object(gate, "check_review_only", return_value=("passed", "OK")), \
+             patch.object(gate, "final_review_requested_at",
+                          return_value=datetime(2026, 10, 24, 10, 30, tzinfo=timezone.utc)), \
              patch.object(gate, "pages", return_value=[final, old]):
             state, _ = gate.check_final_review("token", self.REPO, 12, self.SHA)
             self.assertEqual(state, "pending")
         new = self.summary(updated="2026-10-24T10:31:00Z")
         with patch.object(gate, "check_ci", return_value=("passed", "OK")), \
              patch.object(gate, "check_review_only", return_value=("passed", "OK")), \
+             patch.object(gate, "final_review_requested_at",
+                          return_value=datetime(2026, 10, 24, 10, 30, tzinfo=timezone.utc)), \
              patch.object(gate, "pages", return_value=[final, new]):
             state, _ = gate.check_final_review("token", self.REPO, 12, self.SHA)
             self.assertEqual(state, "passed")
+
+    def test_forged_final_marker_is_rejected(self):
+        marker = "<!-- codex-final-review:" + self.SHA + ":run=1234 -->"
+        comment = {"user": {"login": "github-actions[bot]"},
+                   "created_at": "2026-10-24T10:30:00Z",
+                   "body": marker}
+        fake_run = {"path": ".github/workflows/pr-owned.yml",
+                    "event": "pull_request_target",
+                    "repository": {"full_name": self.REPO}}
+        with patch.object(gate, "request", return_value=fake_run):
+            self.assertIsNone(gate.final_review_requested_at(
+                "token", self.REPO, [comment], self.SHA))
+
+    def test_real_protected_final_job_is_authenticated(self):
+        marker = "<!-- codex-final-review:" + self.SHA + ":run=1234 -->"
+        comment = {"user": {"login": "github-actions[bot]"},
+                   "created_at": "2026-10-24T10:30:00Z",
+                   "body": marker}
+        trusted_run = {"path": ".github/workflows/codex-p1-p2-review.yml",
+                       "event": "pull_request_target",
+                       "repository": {"full_name": self.REPO}}
+        trusted_jobs = {"total_count": 1,
+            "jobs": [{"name": "Request second Codex review AFTER CI",
+                      "conclusion": "success",
+                      "started_at": "2026-10-24T10:29:55Z",
+                      "completed_at": "2026-10-24T10:30:01Z"}]}
+        with patch.object(gate, "request",
+                          side_effect=[trusted_run, trusted_jobs]):
+            self.assertEqual(
+                gate.final_review_requested_at("token", self.REPO,
+                                               [comment], self.SHA),
+                datetime(2026, 10, 24, 10, 30, tzinfo=timezone.utc))
 
     def test_auto_merge_rejects_stale_head(self):
         changed = dict(self.PR)

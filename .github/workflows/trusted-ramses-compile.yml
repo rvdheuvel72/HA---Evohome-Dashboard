@@ -47,6 +47,8 @@ jobs:
           } >> "$GITHUB_ENV"
       - name: Install Arduino CLI
         uses: arduino/setup-arduino-cli@v2
+        with:
+          version: '1.5.1'
       - name: Install pinned ESP32 board core and PubSubClient
         shell: bash
         run: |

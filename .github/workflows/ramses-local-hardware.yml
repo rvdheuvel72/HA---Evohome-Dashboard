@@ -1,0 +1,85 @@
+name: RAMSES WSL-Ubuntu Hardware Lab
+
+# Hardware operations are manual-only and execute exclusively on wsl-ubuntu.
+# Non-hardware source lint runs in the existing firmware CI; never on this runner.
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: 'probe, diagnose (read-only), compile or flash (manual)'
+        type: choice
+        options: [probe, diagnose, compile, flash]
+        required: true
+        default: probe
+      gateway_url:
+        description: 'Gateway LAN origin'
+        type: string
+        default: http://evohome-gateway.local
+        required: true
+      use_codex:
+        description: 'Use preinstalled Codex for read-only RX analysis'
+        type: boolean
+        default: true
+        required: true
+      serial_by_id:
+        description: 'For flashing: approved /dev/serial/by-id/... found by WSL probe'
+        type: string
+        required: false
+      confirm_flash:
+        description: 'For flashing: enter FLASH-WSL-USB'
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ramses-wsl-hardware-lab
+  cancel-in-progress: false
+
+jobs:
+  hardware:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, Linux, X64, wsl-ubuntu]
+    timeout-minutes: 40
+    env:
+      LAB_EVENT: ${{ github.event_name }}
+      LAB_BRANCH: ${{ github.ref }}
+      LAB_OPERATION: ${{ inputs.operation }}
+      LAB_GATEWAY_URL: ${{ inputs.gateway_url }}
+      LAB_GATEWAY_USER: ${{ secrets.RAMSES_GATEWAY_HTTP_USER }}
+      LAB_GATEWAY_PASSWORD: ${{ secrets.RAMSES_GATEWAY_HTTP_PASSWORD }}
+      LAB_USE_CODEX: ${{ inputs.use_codex }}
+      LAB_SERIAL_BY_ID: ${{ inputs.serial_by_id }}
+      LAB_CONFIRM_FLASH: ${{ inputs.confirm_flash }}
+      LAB_SECRETS_HEADER_PATH: ${{ vars.RAMSES_WSL_SECRETS_HEADER_PATH }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Enforce only wsl-ubuntu and correct USB device before any operation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${RUNNER_NAME,,}" = "wsl-ubuntu"
+          grep -qi microsoft /proc/sys/kernel/osrelease
+          if [ "$LAB_OPERATION" = flash ]; then
+            test "$LAB_CONFIRM_FLASH" = "FLASH-WSL-USB"
+            case "$LAB_SERIAL_BY_ID" in
+              /dev/serial/by-id/*) ;;
+              *) echo "::error::Flash requires WSL /dev/serial/by-id path from probe"; exit 1;;
+            esac
+          fi
+      - name: Run WSL-native Arduino CLI 1.5.1 and Codex diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 firmware/arduino-wroom32e/tools/wsl_lab.py
+      - name: Save sanitized WSL diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ramses-wsl-ubuntu-hardware-lab
+          path: local-lab-output/
+          if-no-files-found: warn
+          retention-days: 3

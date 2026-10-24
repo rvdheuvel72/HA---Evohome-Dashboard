@@ -242,13 +242,18 @@ def required_ci_state(token, full_repo, sha, pr_number=None):
         if not matching:
             return "pending", "Waiting for required CI: " + name
         newest = max(matching, key=lambda run: (run.get("started_at") or "", run.get("id") or 0))
+        if newest.get("status") != "completed":
+            return "pending", "Waiting for required CI: " + name
+        if newest.get("conclusion") == "skipped":
+            # After first Codex approval, a reviewed workflow may be
+            # re-running. Older intentionally skipped checks must not be
+            # mistaken for permanent build failures, and can NEVER pass.
+            return "pending", "Waiting for approved CI rerun: " + name
         if name == "Trusted Arduino compile":
             provenance, explanation = trusted_arduino_provenance(
                 token, full_repo, sha, newest)
             if provenance != "passed":
                 return provenance, explanation
-        if newest.get("status") != "completed":
-            return "pending", "Waiting for required CI: " + name
         if newest.get("conclusion") != "success":
             return "blocked", "Required CI did not pass: " + name
     return "passed", "Required source, transport, HA runtime and trusted firmware checks passed"

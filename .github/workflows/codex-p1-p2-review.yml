@@ -16,8 +16,10 @@ permissions:
   checks: read
 
 concurrency:
-  group: evohome-codex-gate-${{ github.event.pull_request.number || github.event.issue.number }}
-  cancel-in-progress: true
+  # Ignore human/incomplete comments for cancellation purposes: separate
+  # the comment event stream from the PR-synchronize controller run.
+  group: evohome-codex-gate-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
 
 jobs:
   request-first-review:

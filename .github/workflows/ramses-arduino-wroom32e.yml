@@ -169,6 +169,10 @@ jobs:
           g++ -std=c++17 -Wall -Wextra -Werror \
             firmware/arduino-wroom32e/tests/test_uart_probe.cpp -o /tmp/test-ramses-uart-probe
           /tmp/test-ramses-uart-probe
+      - name: Test passive CC1101 SPI audit and register diagnosis
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror firmware/arduino-wroom32e/tests/test_spi_audit.cpp -o /tmp/test-ramses-spi-audit
+          /tmp/test-ramses-spi-audit
       - name: Compile for ESP32-WROOM-32E
         run: |
           arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all firmware/arduino-wroom32e/RamsesGateway --output-dir "$RUNNER_TEMP/arduino-build"

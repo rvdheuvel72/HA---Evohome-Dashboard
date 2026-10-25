@@ -108,7 +108,9 @@ int main(){
   assert(!s.reportDue(901102) && !s.hasTemp && !s.accepted);
   assert(!s.observe(acceptance,901102));
   assert(s.cooldown(901101)==beforeForget);
-  assert(!s.request(901102,10740,145038));
+  assert(s.request(901102,10740,145038)); // first session cooldown elapsed
+  s.forget();
+  assert(!s.request(901103,10740,145038)); // new cooldown preserved
   assert(s.request(1000000,10740,145038));
   s.offered(true,1000001);
   s.forget();

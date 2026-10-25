@@ -112,6 +112,39 @@ inline bool makeTemperature(uint32_t thermostatId,uint32_t controllerId,
   body[11]=static_cast<uint8_t>(encoded>>8);body[12]=static_cast<uint8_t>(encoded);
   return pack(body,sizeof(body),out,64,used);
 }
+// Timestamped MQTT wire value: <Unix epoch seconds>:<signed centi-Celsius>.
+// PubSubClient hides MQTT RETAIN in its callback, so a plain integer cannot
+// safely distinguish a newly sampled value from a retained replay.
+inline bool mqttStampedTemperature(const char* input,size_t length,
+                                   uint32_t nowEpoch,int32_t& centi,
+                                   uint32_t& ageMs) {
+  centi=0;ageMs=0;
+  if(!input || length<12 || length>18 || nowEpoch<1600000000u)return false;
+  size_t n=0;uint64_t event=0;
+  for(;n<length && input[n]!=':';n++) {
+    if(input[n]<'0'||input[n]>'9'||n>=11)return false;
+    event=event*10u+static_cast<unsigned>(input[n]-'0');
+  }
+  if(n<10 || n>=length || input[n]!=':' || event>UINT32_MAX)return false;
+  ++n;
+  bool negative=false;
+  if(n<length && input[n]=='-'){negative=true;n++;}
+  if(n>=length)return false;
+  int32_t absValue=0;
+  for(;n<length;n++){
+    if(input[n]<'0'||input[n]>'9')return false;
+    absValue=absValue*10+static_cast<int32_t>(input[n]-'0');
+    if(absValue>8500)return false;
+  }
+  centi=negative?-absValue:absValue;
+  if(centi<-4000||centi>8500)return false;
+  if(event>static_cast<uint64_t>(nowEpoch)+30u)return false;
+  const uint32_t age=event>nowEpoch?0u:nowEpoch-static_cast<uint32_t>(event);
+  if(age>=TEMPERATURE_TTL_MS/1000u)return false;
+  ageMs=age*1000u;
+  return true;
+}
+
 struct Session {
   State state=IDLE;
   uint32_t thermostatId=0,controllerId=0,lastAttempt=0,deadline=0;

@@ -98,6 +98,19 @@ class CodexFirstTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "workflow-run ID"):
             gate.cancel_expected_blocker("token", self.REPO, "P1 found", "bad")
 
+    def test_pending_codex_status_never_reports_green(self):
+        import json
+        import codex_commit_status as status
+        response = MagicMock()
+        response.__enter__.return_value.read.return_value = b'{}'
+        with patch.object(status, "urlopen", return_value=response) as api:
+            status.post_status("token", self.REPO, self.SHA, "pending", 12)
+        req = api.call_args.args[0]
+        self.assertEqual(req.get_method(), "POST")
+        body = json.loads(req.data)
+        self.assertEqual(body["context"], "Codex P1/P2 review gate")
+        self.assertEqual(body["state"], "pending")
+
     def test_ha_ci_does_not_run_for_codex_or_firmware_changes(self):
         self.assertFalse(gate.ha_validation_required([
             "scripts/check_codex_review.py",

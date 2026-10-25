@@ -67,11 +67,16 @@ jobs:
       pull-requests: read
       issues: write
       checks: read
+      statuses: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: main
           persist-credentials: false
+      - name: Keep merge gate pending until both Codex reviews and CI pass
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/codex_commit_status.py pending
       - name: Request Codex once per exact SHA, if not already complete
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -235,6 +240,13 @@ jobs:
         contains(github.event.comment.body, '"status":"completed"')))
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      checks: read
+      actions: read
+      statuses: write
     steps:
       - name: Require all previous gates succeeded
         env:
@@ -248,6 +260,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 scripts/check_codex_review.py --final
+      - name: Publish green exact-head Codex required status
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/codex_commit_status.py success
 
   auto-merge:
     name: Auto merge after clean CI and final Codex

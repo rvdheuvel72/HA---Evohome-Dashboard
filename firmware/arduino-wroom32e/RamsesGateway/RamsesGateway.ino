@@ -15,7 +15,7 @@
 #include <time.h>
 #include <sys/time.h>
 #include "Cc1101Radio.h"
-#include "RamsesTxLoopback.h"
+#include "RamsesThermostat.h"
 #include "RamsesRxHealth.h"
 #include "RamsesSpiAudit.h"
 #include "RamsesUartProbe.h"
@@ -137,17 +137,12 @@ ramses_spi_audit::Snapshot spiAudit;
 uint32_t spiAuditSamples=0;
 portMUX_TYPE uartProbeMux = portMUX_INITIALIZER_UNLOCKED;
 ramses_uart_probe::Snapshot uartProbe;
-portMUX_TYPE loopbackMux = portMUX_INITIALIZER_UNLOCKED;
-ramses_loopback::Report loopbackReport;
-// The main loop queues a request, and only radioTask operates UART1 or UART2.
-bool loopbackBusy() {
-  portENTER_CRITICAL(&loopbackMux);
-  const bool busy=loopbackReport.state==ramses_loopback::QUEUED ||
-      loopbackReport.state==ramses_loopback::RUNNING;
-  portEXIT_CRITICAL(&loopbackMux);
-  return busy;
-}
-
+portMUX_TYPE thermostatMux = portMUX_INITIALIZER_UNLOCKED;
+ramses_thermostat::Session thermostat;
+ramses_ids::SeenControllers thermostatIds;
+ot_tx::Report thermostatTx;
+char thermostatTxAction[24]="not_started";
+char thermostatTopic[128]={};
 volatile uint32_t validFrames = 0;
 volatile uint32_t rejectedFrames = 0;
 volatile uint32_t droppedFrames = 0;
@@ -360,73 +355,87 @@ void appendCapture(ramses_capture::Kind kind,const char* message,
 }
 
 // GPIO-only UART1 TX -> UART2 RX. No CC1101 STX or RF packet transmission.
-void runTxPinLoopback(HardwareSerial& transmitter,Cc1101Radio& receiver) {
-  ramses_loopback::Report d;
-  d.state=ramses_loopback::RUNNING;
-  d.radio_marc_before=receiver.txMarcState();
-  if(!otGateway.loopbackAllowed() || d.radio_marc_before!=0x0Du) {
-    d.state=ramses_loopback::UNSAFE_RF_STATE;
-  } else {
-    size_t wireLen=0;
-    if(!ramses_loopback::makeFixture(d.expected,sizeof(d.expected),wireLen)) {
-      d.state=ramses_loopback::INVALID_FIXTURE;
-    } else {
-      d.expected_len=static_cast<uint16_t>(wireLen);
-      HardwareSerial pinMonitor(2);
-      pinMonitor.setRxBufferSize(256);
-      // Only UART2 RX is routed; UART2 TX stays disabled.
-      pinMonitor.begin(38400,SERIAL_8N1,ramses_loopback::RX_GPIO,-1);
-      // Arduino-ESP32 HardwareSerial::begin() returns void; operator bool()
-      // confirms whether the UART2 driver actually became available.
-      if(!pinMonitor) {
-        d.state=ramses_loopback::UART_START_FAILED;
-      } else {
-        delay(2);
-        while(pinMonitor.available())pinMonitor.read();
-        const uint32_t start=micros();
-        d.uart_written=static_cast<uint16_t>(
-            transmitter.write(d.expected,d.expected_len));
-        transmitter.flush();
-        d.uart_elapsed_us=micros()-start;
-        const uint32_t captureStarted=millis();
-        // Flush is finished; collect a further bounded 30ms for extra bytes.
-        while(static_cast<uint32_t>(millis()-captureStarted)<30u) {
-          while(pinMonitor.available()) {
-            const int val=pinMonitor.read();
-            if(val>=0 && d.captured_len<ramses_loopback::MAX_WIRE)
-              d.captured[d.captured_len++]=static_cast<uint8_t>(val);
-          }
-          vTaskDelay(pdMS_TO_TICKS(1));
-        }
-        d.capture_elapsed_us=micros()-start;
-        pinMonitor.end();
-        d.state=d.uart_written!=d.expected_len?
-            ramses_loopback::UART_WRITE_FAILED:ramses_loopback::compare(d);
-        if(d.state==ramses_loopback::PASS) {
-          ramses::FrameDecoder decoded;
-          ramses::Message frame;
-          for(size_t i=0;i<d.captured_len;i++)
-            if(decoded.feed(d.captured[i],frame) &&
-               frame.opcode==0x1FC9 && frame.messageType==1)
-              d.decoded_1fc9=true;
-          if(!d.decoded_1fc9)d.state=ramses_loopback::DECODE_FAILED;
-        }
-      }
-    }
+// The controller (01:) and the room thermostat (12:) use separate
+// pairing sessions and the same single radio task. No concurrent RF TX.
+bool sendThermostatFrame(const uint8_t* frame,size_t count,
+                         ot_tx::Report& d,ramses::FrameDecoder& decoder) {
+  d=ot_tx::Report{};
+  uint8_t wire[128]={};
+  const size_t size=ramses_read::encodeUART(frame,count,wire,sizeof(wire));
+  if(!size || size>sizeof(wire)) {
+    d.phase=ot_tx::TX_CONFIG_FAILED;return false;
   }
-  d.radio_marc_after=receiver.txMarcState();
-  if(d.radio_marc_after!=0x0Du)d.state=ramses_loopback::UNSAFE_RF_STATE;
-  d.completed_ms=millis();
-  portENTER_CRITICAL(&loopbackMux);
-  loopbackReport=d;
-  portEXIT_CRITICAL(&loopbackMux);
-  char logLine[128];
-  snprintf(logLine,sizeof(logLine),
-    "GPIO26->GPIO25 UART loopback: %s captured=%u/%u bytes, first_diff=%d; NO RF STX",
-    ramses_loopback::name(d.state),
-    static_cast<unsigned>(d.captured_len),static_cast<unsigned>(d.expected_len),
-    static_cast<int>(d.first_difference));
-  radioLog(d.state==ramses_loopback::PASS?GatewayDebug::INFO:GatewayDebug::WARN,logLine);
+  d.expected_bytes=static_cast<uint16_t>(size);
+  d.uart_min_expected_us=static_cast<uint32_t>(
+    (static_cast<uint64_t>(size)*10000000ULL*9ULL)/(38400ULL*10ULL));
+  const uint32_t started=micros();
+  if(!radio.beginReadRequestTx(false,&d))return false;
+  const uint32_t uartStarted=micros();
+  const size_t written=rfUart.write(wire,size);
+  rfUart.flush();
+  d.uart_elapsed_us=micros()-uartStarted;
+  d.marc_after_uart=radio.txMarcState();
+  delayMicroseconds(300);
+  const bool restored=radio.endReadRequestTx(&d);
+  radio.verifyPostTxRx(d);
+  while(rfUart.available())rfUart.read();
+  decoder.reset();
+  d.written_bytes=static_cast<uint16_t>(written);
+  d.elapsed_us=micros()-started;
+  d.phase=!restored?ot_tx::RX_RESTORE_FAILED:
+    written!=size?ot_tx::UART_WRITE_FAILED:ot_tx::LOCAL_COMPLETE;
+  return d.phase==ot_tx::LOCAL_COMPLETE;
+}
+void thermostatTick(ramses::FrameDecoder& decoder) {
+  const uint32_t now=millis();
+  ramses_thermostat::Session snap;
+  portENTER_CRITICAL(&thermostatMux);
+  thermostat.tick(now);
+  snap=thermostat;
+  portEXIT_CRITICAL(&thermostatMux);
+  const bool offers=snap.state==ramses_thermostat::OFFER_QUEUED;
+  const bool confirms=snap.state==ramses_thermostat::CONFIRM_QUEUED;
+  const bool reports=snap.reportDue(now);
+  if(!offers && !confirms && !reports)return;
+  // Prevent thermostat RF from overlapping any controller RF operations.
+  if(!otGateway.manualRfIdle())return;
+  if(!radioReady || !radio_frequency::evohomeTxFrequency(
+       configuration.current.rfFrequencyKhz,configuration.current.rfModuleBand))
+    return;
+  uint8_t frame[64]={};size_t n=0;
+  bool made=false;
+  if(offers)
+    made=ramses_thermostat::makeOffer(
+      snap.thermostatId,snap.controllerId,frame,n);
+  else if(confirms)
+    made=ramses_thermostat::makeConfirmation(
+      snap.thermostatId,snap.controllerId,snap.zone,frame,n);
+  else if(reports)
+    made=ramses_thermostat::makeTemperature(
+      snap.thermostatId,snap.controllerId,snap.zone,snap.tempCenti,frame,n);
+  ot_tx::Report d{};
+  const bool sent=made && sendThermostatFrame(frame,n,d,decoder);
+  if(!made)d.phase=ot_tx::TX_CONFIG_FAILED;
+  portENTER_CRITICAL(&thermostatMux);
+  thermostatTx=d;
+  if(offers){
+    thermostat.offered(sent,millis());
+    snprintf(thermostatTxAction,sizeof(thermostatTxAction),"offer");
+  } else if(confirms) {
+    thermostat.confirmationSent(sent);
+    snprintf(thermostatTxAction,sizeof(thermostatTxAction),"confirmation");
+  } else {
+    thermostat.reported(sent,millis());
+    snprintf(thermostatTxAction,sizeof(thermostatTxAction),"temperature");
+  }
+  portEXIT_CRITICAL(&thermostatMux);
+  char log[148];
+  snprintf(log,sizeof(log),
+    "Virtual 12 thermostat %s: TX=%s bytes=%u/%u (local only)",
+    offers?"offer":confirms?"confirmation":"temperature",
+    ot_tx::phaseName(d.phase),static_cast<unsigned>(d.written_bytes),
+    static_cast<unsigned>(d.expected_bytes));
+  radioLog(sent?GatewayDebug::INFO:GatewayDebug::WARN,log);
 }
 
 void radioTask(void*) {
@@ -530,6 +539,12 @@ void radioTask(void*) {
         rxDiagnostics.packet(message,configuration.current.otBridge,millis());
         portEXIT_CRITICAL(&rxDiagnosticsMux);
         otGateway.noteDevice(message);
+        portENTER_CRITICAL(&thermostatMux);
+        if((message.addrMask&1u) &&
+           ramses_thermostat::type(message.addresses[0])==12)
+          thermostatIds.note(ramses_thermostat::id(message.addresses[0]));
+        thermostat.observe(message,millis());
+        portEXIT_CRITICAL(&thermostatMux);
         const uint8_t strength = radio.rssiMagnitude();
         PacketEvent packet = {};
         if (ramses::format(message, strength, packet.hgi, sizeof(packet.hgi))) {
@@ -634,16 +649,8 @@ void radioTask(void*) {
       if(logRuntime)logSpiStage("runtime",audit);
       lastSpiAuditMs=now;
     }
-    // Perform the GPIO bench test before the OpenTherm scheduler.
-    bool startLoopback=false;
-    portENTER_CRITICAL(&loopbackMux);
-    if(loopbackReport.state==ramses_loopback::QUEUED) {
-      loopbackReport.state=ramses_loopback::RUNNING;
-      startLoopback=true;
-    }
-    portEXIT_CRITICAL(&loopbackMux);
-    if(startLoopback)runTxPinLoopback(rfUart,radio);
     otGateway.tick(radio,rfUart,decoder);
+    thermostatTick(decoder);
     if(rxDebugEnabled && now-lastRxDebugLogMs>=15000) {
       ramses_rx::Counters snapshot;
       portENTER_CRITICAL(&rxDiagnosticsMux);
@@ -674,90 +681,9 @@ void httpOtProfile(){
   otGateway.sendProfile(web);
 }
 // Local GPIO-only diagnostic. This endpoint never configures CC1101 TX.
-void httpTxLoopback() {
-  if(!authorized())return;
-  if(web.method()==HTTP_POST) {
-    if(!web.hasHeader("X-Gateway-Config") ||
-       web.header("X-Gateway-Config")!="tx-loopback" ||
-       web.arg("confirm")!="gpio26-gpio25-no-rf") {
-      web.send(403,"application/json",
-        "{\"error\":\"explicit_bench_loopback_confirmation_required\"}");
-      return;
-    }
-    if(!configuration.current.webUser[0] ||
-       strlen(configuration.current.webPassword)<12 ||
-       strcmp(configuration.current.webPassword,
-              "CHANGE_TO_A_STRONG_PRIVATE_PASSWORD")==0) {
-      web.send(403,"application/json","{\"error\":\"strong_web_auth_required\"}");
-      return;
-    }
-    if(!radioReady || !otGateway.loopbackAllowed()) {
-      web.send(409,"application/json",
-        "{\"error\":\"radio_not_ready_or_rf_tx_not_disabled_or_command_pending\"}");
-      return;
-    }
-    portENTER_CRITICAL(&loopbackMux);
-    const bool busy=loopbackReport.state==ramses_loopback::QUEUED ||
-       loopbackReport.state==ramses_loopback::RUNNING;
-    if(!busy) {
-      loopbackReport=ramses_loopback::Report{};
-      loopbackReport.state=ramses_loopback::QUEUED;
-    }
-    portEXIT_CRITICAL(&loopbackMux);
-    if(busy) {
-      web.send(409,"application/json","{\"error\":\"loopback_already_running\"}");
-      return;
-    }
-    recordLog(GatewayDebug::INFO,
-       "Single GPIO26->GPIO25 UART loopback queued; NO CC1101 RF transmit");
-    web.send(202,"application/json",
-       "{\"queued\":true,\"type\":\"gpio_uart_only\",\"no_rf_stx\":true}");
-    return;
-  }
-  ramses_loopback::Report d;
-  portENTER_CRITICAL(&loopbackMux);
-  d=loopbackReport;
-  portEXIT_CRITICAL(&loopbackMux);
-  char expected[2*ramses_loopback::MAX_WIRE+1]={};
-  char captured[2*ramses_loopback::MAX_WIRE+1]={};
-  ramses_loopback::hexBytes(d.expected,d.expected_len,expected,sizeof(expected));
-  ramses_loopback::hexBytes(d.captured,d.captured_len,captured,sizeof(captured));
-  char body[1150];
-  const int n=snprintf(body,sizeof(body),
-    "{\"status\":\"%s\",\"ready\":%s,\"tx_gpio\":%u,\"rx_gpio\":%u,"
-    "\"baud\":38400,\"framing\":\"8N1\",\"radio_stx_issued\":false,"
-    "\"fixture\":\"fixed_1FC9_offer_160001_to_48994\","
-    "\"expected_bytes\":%u,\"uart_written_bytes\":%u,\"captured_bytes\":%u,"
-    "\"first_mismatch_index\":%d,\"decoded_1fc9\":%s,"
-    "\"uart_elapsed_us\":%lu,\"capture_elapsed_us\":%lu,"
-    "\"radio_marc_before\":%u,\"radio_marc_after\":%u,"
-    "\"completed_uptime_ms\":%lu,"
-    "\"expected_hex\":\"%s\",\"captured_hex\":\"%s\","
-    "\"note\":\"Pin-to-pin UART verification only; does not test RF or R8810A reception\"}",
-    ramses_loopback::name(d.state),
-    radioReady && otGateway.loopbackAllowed() && !loopbackBusy()?"true":"false",
-    static_cast<unsigned>(ramses_loopback::TX_GPIO),
-    static_cast<unsigned>(ramses_loopback::RX_GPIO),
-    static_cast<unsigned>(d.expected_len),static_cast<unsigned>(d.uart_written),
-    static_cast<unsigned>(d.captured_len),static_cast<int>(d.first_difference),
-    d.decoded_1fc9?"true":"false",
-    static_cast<unsigned long>(d.uart_elapsed_us),
-    static_cast<unsigned long>(d.capture_elapsed_us),
-    static_cast<unsigned>(d.radio_marc_before),
-    static_cast<unsigned>(d.radio_marc_after),
-    static_cast<unsigned long>(d.completed_ms),expected,captured);
-  if(n<0 || static_cast<size_t>(n)>=sizeof(body)) {
-    web.send(500,"application/json","{\"error\":\"loopback_json_overflow\"}");
-    return;
-  }
-  web.sendHeader("Cache-Control","no-store");
-  web.send(200,"application/json",body);
-}
-
 void httpOtPairing(){
   if(!authorized())return;
   if(web.method()==HTTP_GET){otGateway.sendBindingStatus(web,radioReady);return;}
-  if(loopbackBusy()){web.send(409,"application/json","{\"error\":\"gpio_loopback_in_progress\"}");return;}
   if(!web.hasHeader("X-Gateway-Config") ||
      web.header("X-Gateway-Config")!="opentherm-pairing" ||
      web.arg("confirm")!="manual-1fc9-additional-controller"){
@@ -782,7 +708,10 @@ void httpOtPairing(){
       return;
     }
   const uint32_t id=static_cast<uint32_t>(virtualId.toInt());
-  if(!radioReady || !otGateway.requestBinding(id)){
+  portENTER_CRITICAL(&thermostatMux);
+  const bool thermostatBusy=thermostat.busy();
+  portEXIT_CRITICAL(&thermostatMux);
+  if(!radioReady || thermostatBusy || !otGateway.requestBinding(id)){
     web.send(409,"application/json",
       "{\"error\":\"pairing_not_ready_or_in_cooldown_or_address_conflict\"}");
     return;
@@ -795,7 +724,6 @@ void httpOtPairing(){
 void httpOtOneShot(){
   if(!authorized())return;
   if(web.method()==HTTP_GET){otGateway.sendOneShotStatus(web);return;}
-  if(loopbackBusy()){web.send(409,"application/json","{\"error\":\"gpio_loopback_in_progress\"}");return;}
   if(!web.hasHeader("X-Gateway-Config") ||
      web.header("X-Gateway-Config")!="one-shot" ||
      web.arg("confirm")!="experimental-single-read-25"){
@@ -834,7 +762,6 @@ void httpOtOneShot(){
 }
 void httpOtScan(){
   if(!authorized())return;
-  if(loopbackBusy()){web.send(409,"application/json","{\"error\":\"gpio_loopback_in_progress\"}");return;}
   if(!web.hasHeader("X-Gateway-Config") ||
      web.header("X-Gateway-Config")!="scan"){
     web.send(403,"application/json",
@@ -1733,8 +1660,6 @@ void setup() {
   web.on("/api/v1/radio/diagnostics", HTTP_GET, httpRadioDiagnostics);
   web.on("/api/v1/radio/diagnostics", HTTP_POST, httpRadioDiagnostics);
   web.on("/api/v1/opentherm/profile", HTTP_GET, httpOtProfile);
-  web.on("/api/v1/radio/tx-loopback", HTTP_GET, httpTxLoopback);
-  web.on("/api/v1/radio/tx-loopback", HTTP_POST, httpTxLoopback);
   web.on("/api/v1/opentherm/pairing", HTTP_GET, httpOtPairing);
   web.on("/api/v1/opentherm/pairing", HTTP_POST, httpOtPairing);
   web.on("/api/v1/opentherm/one-shot", HTTP_GET, httpOtOneShot);

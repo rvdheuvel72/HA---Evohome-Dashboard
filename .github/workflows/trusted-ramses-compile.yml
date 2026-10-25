@@ -24,8 +24,8 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository
     outputs:
       approved: ${{ steps.precheck.outputs.approved }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 33
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 5
     steps:
       - name: Trusted main review logic only; never execute PR source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -49,27 +49,23 @@ jobs:
           number=pr["number"]
           token=os.environ["GITHUB_TOKEN"]
           owner,name=repo.split("/",1)
-          expires=time.monotonic()+1800
-          while True:
-              current=request(token, f"/repos/{repo}/pulls/{number}")
-              if (current["head"]["sha"]!=sha or current["head"]["repo"]["full_name"]!=repo
-                      or current.get("state")!="open" or current.get("draft")):
-                  raise SystemExit("Blocked: stale, external, closed or draft PR")
-              pending=blockers(token,owner,name,number,sha)
-              if pending:
-                  print(f"::notice::Codex review blocked: {len(pending)} P1/P2 finding(s). Self-hosted CI not started; see review threads.")
-                  raise SystemExit(0)
-              reviews=pages(token,f"/repos/{repo}/pulls/{number}/reviews")
-              comments=pages(token,f"/repos/{repo}/issues/{number}/comments")
-              if review_disposition(reviews,comments,sha)=="reviewed":
-                  print("Exact-head Codex P1/P2 review GREEN; allow self-hosted build")
-                  with open(os.environ["GITHUB_OUTPUT"],"a",encoding="utf-8") as out:
-                      out.write("approved=true\n")
-                  break
-              if time.monotonic()+15>=expires:
-                  print("::notice::Codex review still pending; self-hosted CI not started")
-                  raise SystemExit(0)
-              time.sleep(15)
+          current=request(token, f"/repos/{repo}/pulls/{number}")
+          if (current["head"]["sha"]!=sha or current["head"]["repo"]["full_name"]!=repo
+                  or current.get("state")!="open" or current.get("draft")):
+              raise SystemExit("Blocked: stale, external, closed or draft PR")
+          pending=blockers(token,owner,name,number,sha)
+          if pending:
+              print(f"::notice::Codex has {len(pending)} P1/P2 finding(s); Arduino CI skipped")
+              raise SystemExit(0)
+          reviews=pages(token,f"/repos/{repo}/pulls/{number}/reviews")
+          comments=pages(token,f"/repos/{repo}/issues/{number}/comments")
+          if review_disposition(reviews,comments,sha)=="reviewed":
+              with open(os.environ["GITHUB_OUTPUT"],"a",encoding="utf-8") as out:
+                  out.write("approved=true\\n")
+              print("Exact-head review clean: Arduino compile enabled")
+          else:
+              print("Review pending; Arduino CI skipped without polling")
+
           PY
 
   verified-arduino:
@@ -117,6 +113,23 @@ jobs:
           arduino-cli core update-index
           arduino-cli core install esp32:esp32@3.3.12
           arduino-cli lib install "PubSubClient@2.8"
+      - name: Native radio, packet, and CC1101 regression suite (no physical ESP32)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 firmware/arduino-wroom32e/tests/test_web_delivery.py
+          python3 firmware/arduino-wroom32e/tests/test_rx_quiet_contract.py
+          for testcase in codec cc1101_startup rx_health debug capture discovery hostname opentherm pairing tx_local_verification tx_loopback peer_detection uart_probe spi_audit rx_bypass; do
+            g++ -std=c++17 -Wall -Wextra -Werror \
+              "firmware/arduino-wroom32e/tests/test_${testcase}.cpp" \
+              -o "$RUNNER_TEMP/test-ramses-${testcase}"
+            "$RUNNER_TEMP/test-ramses-${testcase}"
+          done
+          g++ -std=c++17 -Wall -Wextra -Werror \
+            -Ifirmware/arduino-wroom32e/tests/stubs \
+            firmware/arduino-wroom32e/tests/test_gateway_runtime_config.cpp \
+            -o "$RUNNER_TEMP/test-ramses-runtime"
+          "$RUNNER_TEMP/test-ramses-runtime"
       - name: Compile actual PR firmware for ESP32-WROOM-32E
         shell: bash
         run: |

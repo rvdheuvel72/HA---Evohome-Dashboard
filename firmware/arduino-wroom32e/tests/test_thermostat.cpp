@@ -84,6 +84,18 @@ int main(){
   assert(!s.reportDue(1041));
   assert(s.reportDue(301040));
   assert(!s.reportDue(901041)); // value stale after 15 min
+  s.tick(901041);
+  assert(!s.hasTemp);
+  // Simulate full millis() rollover: an expired sample must not revive.
+  assert(!s.reportDue(1040));
+  assert(!s.hasTemp);
+  // Wrapping across the initial, *fresh* sample time is still supported.
+  assert(s.setTemperature(2250,0xfffffff0u));
+  assert(s.temperatureFresh(1000u));
+  s.tick(1000u);
+  assert(s.hasTemp);
+  s.tick(static_cast<uint32_t>(0xfffffff0u+ramses_thermostat::TEMPERATURE_TTL_MS));
+  assert(!s.hasTemp && !s.reportDue(0xfffffff0u));
   assert(!s.setTemperature(9999,901100));
   assert(!s.reportDue(901100));
   assert(s.setTemperature(2050,901100));

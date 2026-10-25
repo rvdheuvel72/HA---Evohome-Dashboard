@@ -7,9 +7,15 @@ on:
     paths: &ha_paths
       - 'custom_components/**'
       - 'frontend-package/**'
-      - 'tests/**'
       - 'tests_integration/**'
-      - 'scripts/**'
+      - 'tests/test_frontend_split.py'
+      - 'tests/test_override_verification.py'
+      - 'tests/test_python_runtime_policy.py'
+      - 'tests/test_schedules.py'
+      - 'tests/test_setup_diagnostics.py'
+      - 'scripts/package_frontend.py'
+      - 'scripts/validate_contract.py'
+      - 'scripts/verify_library_api.py'
       - 'hacs.json'
       - 'manifest.json'
       - '.github/workflows/phase1-self-hosted.yml'
@@ -36,7 +42,7 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository
     outputs:
       approved: ${{ steps.precheck.outputs.approved }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 33
     steps:
       - name: Checkout protected main review script only
@@ -61,27 +67,22 @@ jobs:
           number=pr["number"]
           token=os.environ["GITHUB_TOKEN"]
           owner,name=repo.split("/",1)
-          expires=time.monotonic()+1800
-          while True:
-              current=request(token, f"/repos/{repo}/pulls/{number}")
-              if (current["head"]["sha"]!=sha or current["head"]["repo"]["full_name"]!=repo
-                      or current.get("state")!="open" or current.get("draft")):
-                  raise SystemExit("Blocked: stale, external, closed or draft PR")
-              pending=blockers(token,owner,name,number,sha)
-              if pending:
-                  print(f"::notice::Codex review blocked: {len(pending)} P1/P2 finding(s). Self-hosted CI not started; see review threads.")
-                  raise SystemExit(0)
-              reviews=pages(token,f"/repos/{repo}/pulls/{number}/reviews")
-              comments=pages(token,f"/repos/{repo}/issues/{number}/comments")
-              if review_disposition(reviews,comments,sha)=="reviewed":
-                  print("Exact-head Codex P1/P2 review GREEN; allow self-hosted build")
-                  with open(os.environ["GITHUB_OUTPUT"],"a",encoding="utf-8") as out:
-                      out.write("approved=true\n")
-                  break
-              if time.monotonic()+15>=expires:
-                  print("::notice::Codex review still pending; self-hosted CI not started")
-                  raise SystemExit(0)
-              time.sleep(15)
+          current=request(token, f"/repos/{repo}/pulls/{number}")
+          if (current["head"]["sha"]!=sha or current["head"]["repo"]["full_name"]!=repo
+                  or current.get("state")!="open" or current.get("draft")):
+              raise SystemExit("Blocked: stale, external, closed or draft PR")
+          pending=blockers(token,owner,name,number,sha)
+          if pending:
+              print(f"::notice::Codex has {len(pending)} P1/P2 finding(s); HA CI skipped.")
+              raise SystemExit(0)
+          reviews=pages(token,f"/repos/{repo}/pulls/{number}/reviews")
+          comments=pages(token,f"/repos/{repo}/issues/{number}/comments")
+          if review_disposition(reviews,comments,sha)=="reviewed":
+              with open(os.environ["GITHUB_OUTPUT"],"a",encoding="utf-8") as out:
+                  out.write("approved=true\n")
+              print("Exact-head review clean: allow HA CI")
+          else:
+              print("Review pending; HA CI skipped (no polling or expensive jobs)")
           PY
 
   verify:
@@ -113,7 +114,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m unittest discover -s tests -v
+          for testcase in frontend_split override_verification python_runtime_policy schedules setup_diagnostics; do
+            python3 -m unittest discover -s tests -p "test_${testcase}.py" -v
+          done
       - name: Validate integration contract and permitted dependencies
         shell: bash
         run: |

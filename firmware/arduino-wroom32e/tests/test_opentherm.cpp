@@ -99,8 +99,24 @@ int main(){
       868300,868,false,true,0,true));
   assert(!radio_frequency::manualReadOneShotWithIdentity(
       868300,868,false,false,0,false));
-  assert(!radio_frequency::manualReadOneShotWithIdentity(
+  // Unpaired 18: ID25 is permitted on a real 868 MHz module only when
+  // the caller has also met the manual one-shot, bridge and TX-off guards.
+  assert(radio_frequency::manualReadOneShotWithIdentity(
       868300,868,false,false,62142,false));
+  assert(radio_frequency::manualReadOneShotWithIdentity(
+      868300,868,true,false,62142,false));
+  assert(!radio_frequency::manualReadOneShotWithIdentity(
+      868300,868,false,false,62142,true)); // observed address collision
+  assert(!radio_frequency::manualReadOneShotWithIdentity(
+      868300,868,false,false,730,false)); // reserved source
+  assert(!radio_frequency::manualReadOneShotWithIdentity(
+      868300,868,false,false,262143,false)); // out of range
+  assert(!radio_frequency::manualReadOneShotWithIdentity(
+      868350,868,false,false,62142,false)); // wrong frequency
+  assert(!radio_frequency::manualReadOneShotWithIdentity(
+      868300,915,false,false,62142,false)); // wrong hardware
+  assert(!radio_frequency::manualReadOneShotWithIdentity(
+      868300,433,false,false,62142,false)); // cross-band opt-in missing
   assert(!radio_frequency::manualReadOneShotWithIdentity(
       868300,433,true,false,0,false));
   assert(!radio_frequency::manualReadOneShotWithIdentity(

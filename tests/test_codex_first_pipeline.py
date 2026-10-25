@@ -65,6 +65,7 @@ class CodexFirstTests(unittest.TestCase):
                        "GITHUB_REPOSITORY":self.REPO,
                        "CODEX_EXPECTED_BLOCK_POLICY":"cancel"}
             with patch.dict(gate.os.environ,environ), \
+                 patch.object(sys,"argv",["check_codex_review.py","--review-only"]), \
                  patch.object(gate,"check_review_only",
                               return_value=("codex_blocked","found P2")), \
                  patch.object(gate,"cancel_expected_blocker",
@@ -86,6 +87,7 @@ class CodexFirstTests(unittest.TestCase):
                        "GITHUB_REPOSITORY":self.REPO,
                        "CODEX_EXPECTED_BLOCK_POLICY":"cancel"}
             with patch.dict(gate.os.environ,environ), \
+                 patch.object(sys,"argv",["check_codex_review.py","--review-only"]), \
                  patch.object(gate,"check_review_only",
                               return_value=("blocked","Draft PR")), \
                  patch.object(gate,"cancel_expected_blocker") as cancel:

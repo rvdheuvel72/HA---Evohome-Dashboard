@@ -6,6 +6,7 @@ Protected-base, GitHub-hosted only. No unreviewed code executes.
 import json
 import os
 import sys
+import time
 from urllib.request import Request, urlopen
 from check_codex_review import check_review_only, request
 
@@ -36,26 +37,37 @@ def resume(token, repo, number, sha):
     if state != "passed":
         print("No CI restart: " + reason)
         return
+    deadline = time.monotonic() + 210  # below the protected job's 5min limit
     for filename, event in WORKFLOWS:
         base = f"/repos/{repo}/actions/workflows/{filename}/runs"
-        response = request(token, base + f"?event={event}&per_page=100")
-        runs = response.get("workflow_runs", [])
-        matching = [
-            x for x in runs
-            if x.get("status") == "completed"
-            and int(x.get("run_attempt", 1)) == 1
-            and any(p.get("number") == number and
-                    (p.get("head") or {}).get("sha") == sha
-                    for p in x.get("pull_requests", []))
-            # pull_request_target reports the protected BASE SHA at
-            # run.head_sha, not the PR's head. The PR association and
-            # rerun's own current-head guard protect against stale runs.
-            and (event == "pull_request_target" or x.get("head_sha") == sha)
-        ]
-        if not matching:
-            print("No skipped exact-head PR workflow to restart:", filename)
+        latest = None
+        while True:
+            response = request(token, base + f"?event={event}&per_page=100")
+            runs = response.get("workflow_runs", [])
+            matching = [
+                x for x in runs
+                if int(x.get("run_attempt", 1)) == 1
+                and any(p.get("number") == number and
+                        (p.get("head") or {}).get("sha") == sha
+                        for p in x.get("pull_requests", []))
+                # Protected-base runs have BASE as run.head_sha.
+                and (event == "pull_request_target" or x.get("head_sha") == sha)
+            ]
+            if not matching:
+                print("No exact-head PR workflow to restart:", filename)
+                break
+            latest = max(matching, key=lambda x: x.get("id", 0))
+            if latest.get("status") == "completed":
+                break
+            # A genuinely pending preflight may exit cleanly without
+            # approval just AFTER this Codex completion event. Never decide
+            # the run is unnecessary until its final jobs have settled.
+            if time.monotonic() + 5 >= deadline:
+                raise RuntimeError("Review-completion recovery preflight has not settled: "
+                                   + filename)
+            time.sleep(5)
+        if latest is None:
             continue
-        latest = max(matching, key=lambda x: x.get("id", 0))
         jobs_response = request(
             token, f"/repos/{repo}/actions/runs/{latest['id']}/jobs?per_page=100"
         )

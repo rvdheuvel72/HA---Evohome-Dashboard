@@ -59,9 +59,7 @@ jobs:
         github.event.issue.pull_request != null &&
         (github.event.comment.user.login == 'chatgpt-codex-connector[bot]' ||
          github.event.comment.user.login == 'chatgpt-codex-connector') &&
-        contains(github.event.comment.body, '"status":"completed"') &&
-        contains(github.event.comment.body, '"has_any_findings":false') &&
-        contains(github.event.comment.body, '"has_unresolved_findings":false')))
+        contains(github.event.comment.body, '"status":"completed"')))
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 5
     permissions:
@@ -234,9 +232,7 @@ jobs:
         github.event.issue.pull_request != null &&
         (github.event.comment.user.login == 'chatgpt-codex-connector[bot]' ||
          github.event.comment.user.login == 'chatgpt-codex-connector') &&
-        contains(github.event.comment.body, '"status":"completed"') &&
-        contains(github.event.comment.body, '"has_any_findings":false') &&
-        contains(github.event.comment.body, '"has_unresolved_findings":false')))
+        contains(github.event.comment.body, '"status":"completed"')))
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 5
     steps:

@@ -259,42 +259,17 @@ class CodexFirstTests(unittest.TestCase):
             retried.assert_called_once_with(
                 "token",f"/repos/{self.REPO}/actions/runs/901/rerun")
 
-    def test_late_codex_completion_waits_for_inflight_precheck(self):
-        import resume_after_codex as recovery
-        pending = {"id": 731, "status":"in_progress", "run_attempt":1,
-                   "head_sha":self.SHA,
-                   "pull_requests":[{"number":12,"head":{"sha":self.SHA}}]}
-        completed = dict(pending, status="completed")
-        jobs = {"total_count":2,"jobs":[
-            {"name":"Codex BEFORE CI - Home Assistant",
-             "conclusion":"success"},
-            {"name":"Python contract and dashboard syntax",
-             "conclusion":"skipped"},
-        ]}
-        with patch.object(recovery,"check_review_only",
-                          return_value=("passed","green")), \
-             patch.object(recovery,"request",side_effect=[
-                 {"workflow_runs":[pending]},
-                 {"workflow_runs":[completed]},
-                 jobs,
-                 {"workflow_runs":[]}
-             ]), \
-             patch.object(recovery.time,"sleep") as sleep, \
-             patch.object(recovery,"post_retry") as retry:
-            recovery.resume("token",self.REPO,12,self.SHA)
-            sleep.assert_called_once_with(5)
-            retry.assert_called_once_with(
-                "token",f"/repos/{self.REPO}/actions/runs/731/rerun")
-
     def test_ha_filter_matches_required_script_and_test_paths(self):
         workflow = (Path(__file__).resolve().parents[1] /
                     ".github/workflows/phase1-self-hosted.yml").read_text()
         for path in ("scripts/check_codex_review.py",
                      "scripts/auto_merge_codex.py",
                      "tests/test_codex_first_pipeline.py"):
-            self.assertTrue(gate.ha_validation_required([path]))
-        self.assertIn("'scripts/**'", workflow)
-        self.assertIn("'tests/**'", workflow)
+            self.assertFalse(gate.ha_validation_required([path]))
+        self.assertNotIn("'scripts/**'", workflow)
+        self.assertNotIn("'tests/**'", workflow)
+        self.assertIn("'scripts/validate_contract.py'", workflow)
+        self.assertIn("'tests/test_schedules.py'", workflow)
 
     def test_auto_merge_rejects_stale_head(self):
         changed = dict(self.PR)

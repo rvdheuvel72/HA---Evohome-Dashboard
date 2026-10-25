@@ -27,6 +27,8 @@ inline const char* stateName(State s) {
 constexpr uint32_t ACCEPT_TIMEOUT_MS=15000;
 constexpr uint32_t COOLDOWN_MS=60000;
 constexpr uint32_t REPORT_INTERVAL_MS=300000;
+// Changed sensor values may be reported sooner, but never flood RF.
+constexpr uint32_t CHANGED_REPORT_INTERVAL_MS=15000;
 constexpr uint32_t TEMPERATURE_TTL_MS=900000;
 inline uint8_t type(const uint8_t* a){return a[0]>>2;}
 inline uint32_t id(const uint8_t* a) {
@@ -154,10 +156,10 @@ struct Session {
   State state=IDLE;
   uint32_t thermostatId=0,controllerId=0,lastAttempt=0,deadline=0;
   uint32_t lastTempAt=0,lastReportAt=0;
-  int32_t tempCenti=0;
+  int32_t tempCenti=0,lastReportCenti=0;
   uint8_t zone=0xff;
   bool attempted=false,accepted=false,confirmed=false,collision=false;
-  bool hasTemp=false,hasReported=false;
+  bool hasTemp=false,hasReported=false,lastReportLocalComplete=false;
   // Local stop/forget only: does NOT send a RAMSES unbind packet and
   // cannot erase an association stored by the physical Evohome device.
   // Preserve the existing cooldown to prevent instant RF re-pair spam.
@@ -182,7 +184,8 @@ struct Session {
     thermostatId=deviceId;controllerId=controller;
     lastAttempt=now;attempted=true;
     zone=0xff;accepted=false;confirmed=false;collision=false;
-    hasReported=false;hasTemp=false;state=OFFER_QUEUED;
+    hasReported=false;hasTemp=false;lastReportLocalComplete=false;
+    lastReportCenti=0;state=OFFER_QUEUED;
     return true;
   }
   void offered(bool sent,uint32_t now){
@@ -223,15 +226,30 @@ struct Session {
   bool temperatureFresh(uint32_t now) const {
     return hasTemp && static_cast<uint32_t>(now-lastTempAt)<TEMPERATURE_TTL_MS;
   }
+  // "Pending" means the newest value has NOT yet completed a local RF TX.
+  // Once sent, routine refresh uses the original five-minute cadence.
+  bool reportPending(uint32_t now) const {
+    return state==PAIRED && confirmed && !collision &&
+      temperatureFresh(now) && (!hasReported || !lastReportLocalComplete ||
+      tempCenti!=lastReportCenti);
+  }
+  uint32_t nextReportInMs(uint32_t now) const {
+    if(!hasReported)return 0;
+    const uint32_t spacing=reportPending(now) ?
+      CHANGED_REPORT_INTERVAL_MS:REPORT_INTERVAL_MS;
+    const uint32_t elapsed=static_cast<uint32_t>(now-lastReportAt);
+    return elapsed>=spacing ? 0u : spacing-elapsed;
+  }
   bool reportDue(uint32_t now) const {
     return state==PAIRED && confirmed && !collision &&
-      temperatureFresh(now) &&
-      (!hasReported || static_cast<uint32_t>(now-lastReportAt)>=REPORT_INTERVAL_MS);
+      temperatureFresh(now) && nextReportInMs(now)==0;
   }
-  void reported(bool sent,uint32_t now) {
-    if(sent){hasReported=true;lastReportAt=now;}
-    // Never spin on hardware TX faults.
-    else {hasReported=true;lastReportAt=now;}
+  // Mark which snapshot was actually transmitted, not the latest sample:
+  // HTTP/MQTT can update tempCenti while the radio task is transmitting.
+  void reported(bool sent,uint32_t now,int32_t sentCenti) {
+    hasReported=true;lastReportAt=now;
+    lastReportLocalComplete=sent;lastReportCenti=sentCenti;
+    // Even failed RF attempts respect the same bounded retry interval.
   }
 };
 } // namespace ramses_thermostat

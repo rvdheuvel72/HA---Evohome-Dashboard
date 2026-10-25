@@ -23,13 +23,31 @@ int main(){
   ramses::Message confirmation{};
   assert(ramses::decode(frame,n,confirmation));
   assert(confirmation.addrMask==3&&confirmation.opcode==0x1FC9);
-  assert(confirmation.payload[0]==8&&confirmation.payload[1]==0x23&&confirmation.payload[2]==0x09);
+  // Golden type-12 capture in ramses_rf code_1fc9.log: W assigns
+  // zone 08, but type-12 confirmation explicitly uses index 00.
+  assert(confirmation.payload[0]==0 && confirmation.payload[1]==0x23&&confirmation.payload[2]==0x09);
   assert(type(confirmation.addresses[0])==12);
   assert(type(confirmation.addresses[1])==1);
+  assert(confirmation.addresses[0][0]==0x30 &&
+         confirmation.addresses[0][1]==0x29 &&
+         confirmation.addresses[0][2]==0xF4);
+  // Independent, real 12:010740 30C9 packet in code_30c9.log:
+  // I --- 12:010740 --:------ 12:010740 30C9 003 000785.
+  assert(makeTemperature(10740,145038,8,1925,frame,n)&&n==14);
+  ramses::Message golden{};
+  assert(ramses::decode(frame,n,golden));
+  assert(golden.messageType==1 && golden.addrMask==5);
+  assert(type(golden.addresses[0])==12 &&
+         type(golden.addresses[2])==12);
+  assert(id(golden.addresses[0])==10740 &&
+         id(golden.addresses[2])==10740);
+  assert(golden.payload[0]==0 &&
+         golden.payload[1]==0x07 && golden.payload[2]==0x85);
   assert(makeTemperature(10740,145038,8,2154,frame,n)&&n==14);
   ramses::Message temp{};
   assert(ramses::decode(frame,n,temp)&&temp.opcode==0x30C9);
-  assert(temp.length==3&&temp.payload[0]==8&&temp.payload[1]==0x08&&temp.payload[2]==0x6A);
+  assert(temp.messageType==1 && temp.addrMask==5);
+  assert(temp.length==3&&temp.payload[0]==0&&temp.payload[1]==0x08&&temp.payload[2]==0x6A);
   assert(!makeTemperature(10740,145038,8,9000,frame,n));
   assert(!makeTemperature(10740,145038,12,2100,frame,n));
   assert(makeTemperature(10740,145038,8,-500,frame,n));

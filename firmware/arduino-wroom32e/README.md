@@ -1,3 +1,31 @@
+## Beta.32: prompt, rate-limited virtual thermostat temperature changes
+
+**Release:** [RAMSES Arduino Gateway v0.4.0-beta.32](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.32).
+
+On 2026-10-25 the physically paired virtual thermostat `12:160002`
+successfully updated the Evohome TEST zone from an initial unavailable
+temperature to 18.50°C and later to 19.00°C. The original five-minute
+throttle made subsequent manual updates appear broken, despite the API
+accepting and saving them.
+
+Beta.32 now sends a **changed** sensor value when at least **15 seconds**
+have elapsed since the preceding RF report attempt. Faster successive
+changes coalesce into the latest fresh value; unchanged readings still
+refresh no more than every five minutes. Invalid/stale readings are never
+transmitted. On failure, RF attempts also obey the 15-second retry limit.
+
+The web status now explicitly separates saved sensor temperature,
+pending changed-value transmission, earliest eligible RF delay, last
+attempted RF sample, and local RF TX success. Each local 30C9 TX log
+includes the actual value sent (not a later value from a concurrent web
+or MQTT update). The REST POST response reports whether RF is pending
+and the earliest eligible delay. This is still **local TX**, not
+independent over-air receipt verification.
+
+All beta.31 working DTS92 `1FC9` and `30C9` encodings, both distinct
+virtual `01:` and `12:` device functions, local-only Stop/Forget,
+security checks, MQTT anti-replay and sensor TTL rules are retained.
+
 ## Beta.31: reproduce observed DTS92-style 12: thermostat protocol
 
 **Release:** [RAMSES Arduino Gateway v0.4.0-beta.31](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.31).

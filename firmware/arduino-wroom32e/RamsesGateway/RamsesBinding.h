@@ -102,6 +102,16 @@ struct Session {
   bool verifiedReadAck=false,virtualIdCollision=false;
   ot_readonly::Result verificationResult=ot_readonly::NOT_TESTED;
   uint16_t lastRaw=0;
+  // Local stop/forget only: does NOT send a RAMSES unbind packet and
+  // cannot erase an association stored by the physical Evohome device.
+  // Preserve the existing cooldown to prevent instant RF re-pair spam.
+  void forget() {
+    const bool wasAttempted=attempted;
+    const uint32_t attemptedAt=lastAttempt;
+    *this=Session{};
+    attempted=wasAttempted;
+    lastAttempt=attemptedAt;
+  }
   bool busy() const {
     return state==OFFER_QUEUED||state==WAIT_RESPONSE||
       state==CONFIRM_QUEUED||state==VERIFY_QUEUED||state==WAIT_VERIFY;

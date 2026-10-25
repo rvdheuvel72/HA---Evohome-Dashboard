@@ -100,6 +100,22 @@ int main(){
   assert(!s.reportDue(901100));
   assert(s.setTemperature(2050,901100));
   assert(s.reportDue(901100));
+  // Stopping a paired 12: device invalidates temperature and all future
+  // reports, while retaining the RF retry cooldown.
+  const uint32_t beforeForget=s.cooldown(901101);
+  s.forget();
+  assert(s.state==IDLE && s.thermostatId==0 && s.controllerId==0);
+  assert(!s.reportDue(901102) && !s.hasTemp && !s.accepted);
+  assert(!s.observe(acceptance,901102));
+  assert(s.cooldown(901101)==beforeForget);
+  assert(s.request(901102,10740,145038)); // first session cooldown elapsed
+  s.forget();
+  assert(!s.request(901103,10740,145038)); // new cooldown preserved
+  assert(s.request(1000000,10740,145038));
+  s.offered(true,1000001);
+  s.forget();
+  assert(s.state==IDLE);
+  assert(!s.observe(acceptance,1000002));
   Session late;
   assert(late.request(200000,10740,145038));
   late.offered(true,200001);

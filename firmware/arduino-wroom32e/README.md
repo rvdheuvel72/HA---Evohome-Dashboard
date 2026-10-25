@@ -1,3 +1,32 @@
+## Beta.30: stop and forget either virtual device locally
+
+**Release:** [RAMSES Arduino Gateway v0.4.0-beta.30](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.30).
+
+**Arduino ZIP:** `RAMSES-Arduino-Gateway-v0.4.0-beta.30-ESP32-WROOM-32E.zip`.
+
+The `01:` virtual additional controller and `12:` virtual thermostat
+both have **separate, explicitly confirmed local Stop & Forget controls**
+in the authenticated web UI. This halts the virtual device's queued
+handshake and subsequent RF TX, clears its in-RAM identity and verification
+or temperature data, preserves rate-limiting cooldowns and never sends a
+radio unbind command. Requests are processed on the **radio task**, so
+any frame already in flight may finish before the local stop is applied.
+
+Authenticated POST endpoints:
+- `/api/v1/opentherm/pairing/forget` (virtual controller `01:`);
+- `/api/v1/thermostat/forget` (virtual room sensor `12:`).
+
+**These do not unbind the physical R8810A or remove an external sensor
+assignment stored by the Evohome controller.** Remove or reassign a remote
+device through the real controller's appropriate installation settings,
+not by clearing the R8810A's existing boiler binding. Original Evohome
+boiler control remains unchanged. Active virtual binding state was always
+RAM-only; it is still not persisted across reboots.
+
+All beta.29 controller, 12: thermostat, packet capture, passive RF and
+OpenTherm features are retained. The only previously removed feature
+remains the obsolete GPIO26→GPIO25 UART-only bench loopback.
+
 ## Beta.29: parallel virtual controller (01:) and wireless room thermostat (12:)
 
 **Release:** [RAMSES Arduino Gateway v0.4.0-beta.29](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.29).

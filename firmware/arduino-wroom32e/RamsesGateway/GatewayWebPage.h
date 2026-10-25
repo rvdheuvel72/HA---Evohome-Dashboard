@@ -72,6 +72,8 @@ a{color:#a9d5ff}
 <a href="/api/v1/opentherm/pairing" target="_blank">Pairing JSON</a></div>
 <label class="setting-check"><input id="pairing-confirm" type="checkbox"> I verified the R8810A and its existing Evohome controller ID, chose an unused 01: identity, put R8810A in 5-second bind mode without clearing existing bindings, and authorize one experimental 1FC9 bind transaction plus one read-only ID25 verification.</label>
 <div class="controls"><button type="button" id="pairing-start" disabled>Send one pairing offer</button></div>
+<label class="setting-check"><input type="checkbox" id="controller-forget-confirm"> I authorize stopping and forgetting ONLY the virtual 01: controller locally. This does NOT remove the R8810A binding or alter the existing Evohome controller.</label>
+<div class="controls"><button type="button" id="controller-forget" disabled>Stop and forget virtual 01: locally</button></div>
 <pre id="pairing-result" aria-live="polite">No pairing attempted. Confirmation sent is NOT proof of binding; only a directed 3220 reply validates data communication.</pre>
 </details>
 <details class="panel" id="thermostat-panel">
@@ -84,6 +86,8 @@ a{color:#a9d5ff}
 <a href="/api/v1/thermostat" target="_blank">Thermostat JSON</a></div>
 <label class="setting-check"><input id="thermostat-confirm" type="checkbox"> I have selected a temperature-sensor binding slot for the intended Evohome zone, and authorize one 12: sensor 1FC9 offer and one confirmation only if accepted.</label>
 <div class="controls"><button type="button" id="thermostat-pair" disabled>Send thermostat pairing offer</button></div>
+<label class="setting-check"><input type="checkbox" id="thermostat-forget-confirm"> I authorize stopping and forgetting ONLY the virtual 12: thermostat locally. This stops its RF temperature reports. It does NOT remove the sensor assignment stored on Evohome.</label>
+<div class="controls"><button type="button" id="thermostat-forget" disabled>Stop and forget virtual 12: locally</button></div>
 <div class="controls"><label class="field">External room temperature (°C; sent after acceptance)
 <input id="thermostat-temp" type="number" min="-40" max="85" step="0.01" value="20.00"></label>
 <button type="button" id="thermostat-set-temp" disabled>Update sensor reading</button></div>

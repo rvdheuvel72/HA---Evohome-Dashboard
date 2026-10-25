@@ -26,7 +26,7 @@ assert html.count('<script defer src="/gateway.js"></script>')==1
 assert '<script>' not in html, "No inline JS should remain in HTML"
 assert html.count('</script>')==1, "Only the one external JS closing tag is allowed"
 assert len(html)<21000, "HTML response must be less than half old monolithic 41KB page"
-assert len(script)<26000
+assert len(script)<30000  # two authenticated local stop/forget panels
 assert 'web.on("/gateway.js", HTTP_GET, httpGatewayJs);' in ino
 assert 'web.sendContent_P(data+pos,n)' in ino
 assert 'constexpr size_t BLOCK=1024' in ino
@@ -43,6 +43,20 @@ assert "loopback" not in script.lower()
 assert "if(rawTemperature==='')" in script
 assert "Number(rawTemperature)" in script
 assert 'web.on("/api/v1/thermostat", HTTP_GET, httpThermostatStatus);' in ino
+for url, method in (
+    ('/api/v1/thermostat/forget', 'httpThermostatForget'),
+    ('/api/v1/opentherm/pairing/forget', 'httpVirtualControllerForget'),
+):
+    assert f'web.on("{url}", HTTP_POST, {method});' in ino
+assert 'thermostatForgetRequested=true;' in ino
+assert 'bindingForgetRequested_=true;' in (SKETCH/'OpenThermGateway.h').read_text()
+for control in ('thermostat-forget', 'controller-forget',
+                'thermostat-forget-confirm', 'controller-forget-confirm'):
+    assert f'id="{control}"' in html, control
+assert 'stop-and-forget-local-01' in script
+assert 'stop-and-forget-local-12' in script
+assert 'remote_r8810a_binding_removed' in ino
+assert 'remote_evohome_binding_removed' in ino
 assert 'web.on("/api/v1/opentherm/pairing", HTTP_POST, httpOtPairing);' in ino
 assert "setInterval(updatePairing" not in script
 assert "setInterval(updateOneShot" not in script

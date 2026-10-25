@@ -42,6 +42,23 @@ int main(){
   ramses_read::putAddress(acceptance.addresses[1],12,10740);
   acceptance.payload[0]=8;acceptance.payload[1]=0x23;acceptance.payload[2]=0x09;
   ramses_read::putAddress(acceptance.payload+3,1,145038);
+  // PubSubClient does not expose MQTT RETAIN to its callback. Timestamped
+  // measurements retain their ORIGINAL age across reconnect replays.
+  int32_t mqttTemp=0;uint32_t mqttAge=0;
+  constexpr uint32_t epoch=1792929000u;
+  assert(mqttStampedTemperature("1792928940:2150",15,epoch,mqttTemp,mqttAge));
+  assert(mqttTemp==2150 && mqttAge==60000u);
+  assert(mqttStampedTemperature("1792928940:-500",15,epoch,mqttTemp,mqttAge));
+  assert(mqttTemp==-500 && mqttAge==60000u);
+  assert(!mqttStampedTemperature("2150",4,epoch,mqttTemp,mqttAge)); // no timestamp
+  assert(!mqttStampedTemperature("1792928099:2150",15,epoch,mqttTemp,mqttAge)); // 901s old
+  assert(!mqttStampedTemperature("1792929031:2150",15,epoch,mqttTemp,mqttAge)); // future
+  assert(!mqttStampedTemperature("1792928940:9999",15,epoch,mqttTemp,mqttAge));
+  assert(!mqttStampedTemperature("1792928940:21x0",15,epoch,mqttTemp,mqttAge));
+  // A broker reconnect at +850 seconds must not reset the original sample
+  // lifetime: the same retained value then expires at +900 seconds.
+  assert(mqttStampedTemperature("1792928940:2150",15,epoch+840u,mqttTemp,mqttAge));
+  assert(mqttAge==900000u);
   Session s;
   assert(s.request(1000,10740,145038));
   assert(!s.request(1001,10740,145038));

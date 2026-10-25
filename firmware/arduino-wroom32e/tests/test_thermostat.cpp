@@ -57,8 +57,9 @@ int main(){
   assert(!mqttStampedTemperature("1792928940:21x0",15,epoch,mqttTemp,mqttAge));
   // A broker reconnect at +850 seconds must not reset the original sample
   // lifetime: the same retained value then expires at +900 seconds.
-  assert(mqttStampedTemperature("1792928940:2150",15,epoch+840u,mqttTemp,mqttAge));
-  assert(mqttAge==900000u);
+  assert(mqttStampedTemperature("1792928940:2150",15,epoch+839u,mqttTemp,mqttAge));
+  assert(mqttAge==899000u);
+  assert(!mqttStampedTemperature("1792928940:2150",15,epoch+840u,mqttTemp,mqttAge));
   Session s;
   assert(s.request(1000,10740,145038));
   assert(!s.request(1001,10740,145038));

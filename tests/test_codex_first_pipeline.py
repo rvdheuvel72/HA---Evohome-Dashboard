@@ -102,6 +102,7 @@ class CodexFirstTests(unittest.TestCase):
         import json
         import codex_commit_status as status
         response = MagicMock()
+        response.__enter__.return_value.status = 201
         response.__enter__.return_value.read.return_value = b'{}'
         with patch.object(status, "urlopen", return_value=response) as api:
             status.post_status("token", self.REPO, self.SHA, "pending", 12)

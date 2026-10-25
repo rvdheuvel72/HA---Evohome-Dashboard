@@ -33,12 +33,17 @@ assert 'constexpr size_t BLOCK=1024' in ino
 assert 'web.setContentLength(length)' in ino
 assert 'MAX_SCAN=20' in ino and 'web.send(200,"application/json",json)' in ino
 assert 'web.sendContent(item)' not in ino
-for token in ('tx-loopback-panel', 'pairing-panel', 'one-shot-panel',
+for token in ('thermostat-panel', 'pairing-panel', 'one-shot-panel',
               'rx-health-panel', 'packet-capture-panel'):
     assert token in html, token
 assert "scheduled('status',poll)" in script
 assert "setInterval(()=>scheduled('status',poll),5000)" in script
-assert "setInterval(updateLoopback" not in script
+assert "loopback" not in script.lower()
+# A blank room-temperature input must not silently turn into a 0C RF reading.
+assert "if(rawTemperature==='')" in script
+assert "Number(rawTemperature)" in script
+assert 'web.on("/api/v1/thermostat", HTTP_GET, httpThermostatStatus);' in ino
+assert 'web.on("/api/v1/opentherm/pairing", HTTP_POST, httpOtPairing);' in ino
 assert "setInterval(updatePairing" not in script
 assert "setInterval(updateOneShot" not in script
 assert "setInterval(updatePacketCapture" not in script

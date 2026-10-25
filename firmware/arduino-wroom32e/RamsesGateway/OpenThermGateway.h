@@ -104,19 +104,33 @@ class OpenThermGateway {
     if(cooling)return "pairing_cooldown";
     return nullptr;
   }
-  // Bench UART loopback must never overlap ANY pending RF command, scan,
-  // pairing transaction, verification wait, or enabled automatic TX mode.
-  // Recheck on radioTask even when the HTTP preflight already passed.
-  bool loopbackAllowed() const {
-    if(!config_ || config_->otTxEnabled || config_->otAutoPoll ||
-       config_->otScanAll)return false;
+  // Both modes can be enabled: the single radio task serializes TX.
+  // Prevent thermostat packets from interrupting controller reply windows,
+  // but do NOT require automatic controller polling to be switched off.
+  bool manualRfIdle() const {
+    if(!config_)return false;
+    const uint32_t now=millis();
     portENTER_CRITICAL(&mutex_);
     const bool idle=!requested_ && !work_.active && !binding_.busy() &&
        singleProbe_.state!=ot_single::QUEUED &&
-       singleProbe_.state!=ot_single::WAITING;
+       singleProbe_.state!=ot_single::WAITING &&
+       (!lastControllerTxMs_ ||
+          static_cast<uint32_t>(now-lastControllerTxMs_)>=2500u);
     portEXIT_CRITICAL(&mutex_);
     return idle;
   }
+  void noteControllerTx() {
+    portENTER_CRITICAL(&mutex_);
+    lastControllerTxMs_=millis();
+    portEXIT_CRITICAL(&mutex_);
+  }
+  uint32_t observedControllerId() const {
+    portENTER_CRITICAL(&mutex_);
+    const uint32_t id=controllerEvidence_.ambiguous?0:observedController_;
+    portEXIT_CRITICAL(&mutex_);
+    return id;
+  }
+  bool bridgeObserved() const { return bridgeSeen_; }
   bool requestBinding(uint32_t virtualControllerId){
     if(bindingBlockReason()!=nullptr || !bindingReady())return false;
     portENTER_CRITICAL(&mutex_);
@@ -579,6 +593,7 @@ class OpenThermGateway {
   ot_tx::Report lastReports_[2];
   ot_tx::Comparison comparisons_[2];
   ramses_bind::Session binding_;
+  uint32_t lastControllerTxMs_=0; // guarded by mutex_, TX quiet period
   ot_tx::Report bindingTx_;
   uint8_t bindingTxStep_=0;
   volatile uint32_t observedController_=0;
@@ -631,6 +646,7 @@ class OpenThermGateway {
       (38400ULL*10ULL));
     const uint32_t begun=micros();
     if(!radio.beginReadRequestTx(true,&diag))return false;
+    noteControllerTx();
     const uint32_t uartStart=micros();
     const size_t written=port.write(wire,wireLen);
     port.flush();
@@ -685,6 +701,7 @@ class OpenThermGateway {
       if(!experimental) {
         diag.phase=ot_tx::FREQUENCY_REJECTED;return false;
       }
+      noteControllerTx();
       const bool ok=radio.sendOneShotFifo(wire,wireLen,true,diag);
       while(port.available())port.read();
       decoder.reset();
@@ -693,6 +710,7 @@ class OpenThermGateway {
     diag.expected_bytes=static_cast<uint16_t>(wireLen);
     const uint32_t begun=micros();
     if(!radio.beginReadRequestTx(experimental,&diag))return false;
+    noteControllerTx();
     const size_t written=port.write(wire,wireLen);
     port.flush();
     delayMicroseconds(300);

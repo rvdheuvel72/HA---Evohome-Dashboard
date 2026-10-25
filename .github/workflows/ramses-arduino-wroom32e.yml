@@ -138,12 +138,13 @@ jobs:
             firmware/arduino-wroom32e/tests/test_tx_local_verification.cpp \
             -o /tmp/test-tx-local-verification
           /tmp/test-tx-local-verification
-      - name: Test GPIO UART loopback fixture and byte comparison
+      - name: Test independent 12 thermostat binding and temperature reports
+        shell: bash
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror \
-            firmware/arduino-wroom32e/tests/test_tx_loopback.cpp \
-            -o /tmp/test-tx-loopback
-          /tmp/test-tx-loopback
+            firmware/arduino-wroom32e/tests/test_thermostat.cpp \
+            -o /tmp/test-ramses-thermostat
+          /tmp/test-ramses-thermostat
       - name: Test R8810A bridge-reply discovery of existing Evohome controller
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer \

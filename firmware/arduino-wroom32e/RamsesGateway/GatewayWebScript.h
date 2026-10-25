@@ -205,51 +205,6 @@ const pairingBlockMessages={
   radio_not_ready:'The CC1101 radio is not initialized. Check the radio diagnostic panel.'
 };
 let pairingPostError='';
-let loopbackPostError='';
-async function updateLoopback(){
- try {
-  const r=await fetch('/api/v1/radio/tx-loopback',{cache:'no-store'});
-  if(!r.ok)throw new Error('HTTP '+r.status);
-  const d=await r.json();
-  el('loopback-start').disabled=!d.ready||!el('loopback-confirm').checked;
-  set('loopback-result',
-    'Status: '+d.status+(loopbackPostError?' · '+loopbackPostError:'')+
-    '\nLocal UART: '+d.uart_written_bytes+'/'+d.expected_bytes+' sent · '+d.captured_bytes+' captured'+
-    (d.first_mismatch_index>=0?' · first byte mismatch at '+d.first_mismatch_index:'')+
-    '\n1FC9 decoded: '+d.decoded_1fc9+' · UART '+d.uart_elapsed_us+' µs · total '+d.capture_elapsed_us+' µs'+
-    '\nCC1101 MARCSTATE before/after: '+d.radio_marc_before+'/'+d.radio_marc_after+
-    '\nExpected hex: '+(d.expected_hex||'—')+
-    '\nCaptured hex: '+(d.captured_hex||'—')+
-    '\nOnly verifies electrical pin-to-pin UART; NOT an RF or R8810A acknowledgment.');
- }catch(e){
-  el('loopback-start').disabled=true;
-  set('loopback-result','GPIO loopback status unavailable: '+e.message);
- }
-}
-el('loopback-confirm').addEventListener('change',updateLoopback);
-el('loopback-start').addEventListener('click',async()=>{
- el('loopback-start').disabled=true;
- try{
-  const r=await fetch('/api/v1/radio/tx-loopback',{
-   method:'POST',
-   headers:{'X-Gateway-Config':'tx-loopback','Content-Type':'application/x-www-form-urlencoded'},
-   body:new URLSearchParams({confirm:'gpio26-gpio25-no-rf'}).toString()
-  });
-  const d=await r.json();
-  if(!r.ok)throw new Error(d.error||'HTTP '+r.status);
-  el('loopback-confirm').checked=false;
-  loopbackPostError='';
-  set('loopback-result','GPIO loopback queued. Reading GPIO25; NO RF transmission...');
- }catch(e){
-  el('loopback-confirm').checked=false;
-  loopbackPostError='Test rejected: '+e.message;
- }
- finally{updateLoopback()}
-});
-function refreshLoopback(){if(el('tx-loopback-panel').open)scheduled('loopback',updateLoopback)}
-el('tx-loopback-panel').addEventListener('toggle',refreshLoopback);
-setInterval(refreshLoopback,10000);
-
 async function updatePairing(){
  try{
   const r=await fetch('/api/v1/opentherm/pairing',{cache:'no-store'});
@@ -334,6 +289,79 @@ el('pairing-start').addEventListener('click',async()=>{
 function refreshPairing(){if(el('pairing-panel').open)scheduled('pairing',updatePairing)}
 el('pairing-panel').addEventListener('toggle',refreshPairing);
 setInterval(refreshPairing,10000);
+
+let thermostatPostError='';
+async function updateThermostat(){
+ try{
+  const response=await fetch('/api/v1/thermostat',{cache:'no-store'});
+  if(!response.ok)throw new Error('HTTP '+response.status);
+  const p=await response.json();
+  const candidate=Number(el('thermostat-id').value.trim());
+  const idValid=Number.isInteger(candidate)&&candidate>0&&candidate<262143;
+  const canPair=Boolean(p.ready)&&idValid&&el('thermostat-confirm').checked;
+  el('thermostat-pair').disabled=!canPair;
+  el('thermostat-set-temp').disabled=p.state!=='controller_accepted_confirmation_sent';
+  set('thermostat-status',
+    'Virtual sensor: '+p.state+' · 12:'+String(p.thermostat_id).padStart(6,'0')+
+    '\nExisting Evohome: 01:'+String(p.controller_id).padStart(6,'0')+
+    ' · accepted: '+p.offer_accepted+' · confirmed locally: '+p.confirmation_sent+
+    '\nAssigned zone: '+p.zone+' · cooldown '+Math.ceil(p.cooldown_ms/1000)+'s'+
+    ' · observed 12: IDs: '+p.ids_seen+
+    '\nTemperature: '+(p.temperature_fresh?(p.temp_centi/100).toFixed(2)+'°C':'missing or stale')+
+    ' · report due: '+p.report_due+
+    '\nLast TX '+p.last_tx_action+': '+p.tx_phase+' ('+p.tx_bytes+'/'+p.tx_expected_bytes+' bytes)'+
+    '\nMQTT set topic: '+p.mqtt_temperature_topic+
+    '\n'+(thermostatPostError||p.note));
+ }catch(e){
+  el('thermostat-pair').disabled=true;
+  el('thermostat-set-temp').disabled=true;
+  set('thermostat-status','Thermostat status unavailable: '+e.message);
+ }
+}
+el('thermostat-confirm').addEventListener('change',updateThermostat);
+el('thermostat-id').addEventListener('input',updateThermostat);
+el('thermostat-pair').addEventListener('click',async()=>{
+ el('thermostat-pair').disabled=true;
+ try{
+  const response=await fetch('/api/v1/thermostat/pairing',{
+   method:'POST',
+   headers:{'X-Gateway-Config':'thermostat-pairing','Content-Type':'application/x-www-form-urlencoded'},
+   body:new URLSearchParams({
+    thermostat_id:el('thermostat-id').value,
+    confirm:'manual-12-thermostat-bind'
+   }).toString()
+  });
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.error||'HTTP '+response.status);
+  thermostatPostError='12: thermostat offer queued; watching for controller acceptance.';
+ }catch(e){thermostatPostError='Pairing rejected: '+e.message}
+ el('thermostat-confirm').checked=false;
+ await updateThermostat();
+});
+el('thermostat-set-temp').addEventListener('click',async()=>{
+ el('thermostat-set-temp').disabled=true;
+ try{
+  const rawTemperature=el('thermostat-temp').value.trim();
+  if(rawTemperature==='')throw new Error('room temperature is required');
+  const degrees=Number(rawTemperature);
+  if(!Number.isFinite(degrees)||degrees<-40||degrees>85)throw new Error('temperature outside -40..85°C');
+  const response=await fetch('/api/v1/thermostat/temperature',{
+   method:'POST',
+   headers:{'X-Gateway-Config':'thermostat-temperature','Content-Type':'application/x-www-form-urlencoded'},
+   body:new URLSearchParams({
+    temp_centi:String(Math.round(degrees*100)),
+    confirm:'set-sensor-temperature'
+   }).toString()
+  });
+  const result=await response.json();
+  if(!response.ok)throw new Error(result.error||'HTTP '+response.status);
+  thermostatPostError='External room temperature accepted.';
+ }catch(e){thermostatPostError='Temperature rejected: '+e.message}
+ await updateThermostat();
+});
+function refreshThermostat(){if(el('thermostat-panel').open)scheduled('thermostat',updateThermostat)}
+el('thermostat-panel').addEventListener('toggle',refreshThermostat);
+setInterval(refreshThermostat,10000);
 
 async function updateOneShot(){
  try{

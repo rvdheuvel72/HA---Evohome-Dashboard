@@ -346,7 +346,7 @@ def final_review_requested_at(token, full_repo, number, comments, sha):
                 continue
             raise
         if (workflow.get("path") != ".github/workflows/codex-p1-p2-review.yml"
-                or workflow.get("event") not in ("pull_request_target", "issue_comment")
+                or workflow.get("event") not in ("pull_request_target", "issue_comment", "workflow_run")
                 or (workflow.get("repository") or {}).get("full_name") != full_repo):
             continue
         if workflow["event"] == "pull_request_target":
@@ -360,17 +360,20 @@ def final_review_requested_at(token, full_repo, number, comments, sha):
                     (p.get("head") or {}).get("sha") == sha
                     for p in related):
                 continue
-        else:
-            # Only Codex-authored comments may resume the protected pipeline.
+        elif workflow["event"] == "issue_comment":
             if ((workflow.get("actor") or {}).get("login", "").lower()
                     not in TRUSTED_CODEX_LOGINS):
                 continue
+        # workflow_run is bound by the actual protected job log containing
+        # the exact PR, SHA, and GitHub-created comment ID below.
         payload = request(token, prefix + f"/actions/runs/{run_id}/jobs?per_page=100")
         jobs = payload.get("jobs") if isinstance(payload, dict) else None
         if not isinstance(jobs, list) or payload.get("total_count", 0) > len(jobs):
             continue
         for job in jobs:
-            if (job.get("name") != "Request second Codex review AFTER CI"
+            if (job.get("name") not in (
+                        "Request second Codex review AFTER CI",
+                        "Recover skipped CI and request final review")
                     or job.get("conclusion") != "success"
                     or not isinstance(job.get("id"), int)):
                 continue

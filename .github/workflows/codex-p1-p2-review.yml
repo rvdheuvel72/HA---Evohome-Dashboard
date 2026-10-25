@@ -8,6 +8,9 @@ on:
     branches: [main]
   issue_comment:
     types: [created, edited]
+  workflow_run:
+    workflows: ['Evohome Phase 1 self-hosted validation', 'Trusted RAMSES Arduino compile']
+    types: [completed]
 
 permissions:
   contents: read
@@ -23,6 +26,27 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
 
 jobs:
+  recover-completed-build:
+    name: Recover skipped CI and request final review
+    if: github.event_name == 'workflow_run'
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: write
+      checks: read
+      actions: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Resume exact-head reviewed builds and continue final review
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/resume_after_codex.py
+
   request-first-review:
     name: Request exact-head Codex pre-CI review
     outputs:
@@ -127,31 +151,34 @@ jobs:
         run: python3 scripts/resume_after_codex.py
 
   await-validation:
-    name: Await required build and test checks
+    name: Check CI once (no polling)
     needs: [first-review, resume-approved-ci]
+    outputs:
+      approved: ${{ steps.check-ci.outputs.approved }}
     if: >-
       always() &&
       needs.first-review.result == 'success' &&
       (github.event_name != 'issue_comment' ||
        needs.resume-approved-ci.result == 'success')
     runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 33
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: main
           persist-credentials: false
-      - name: Await exact-head required CI after green first review
+      - name: Inspect CI once and defer to workflow completion trigger
+        id: check-ci
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: python3 scripts/check_codex_review.py --ci-only
+        run: python3 scripts/check_ci_once.py
 
   request-final-review:
     name: Request second Codex review AFTER CI
     outputs:
       approved: ${{ steps.final-ready.outputs.approved }}
     needs: [await-validation]
-    if: needs.await-validation.result == 'success'
+    if: needs.await-validation.outputs.approved == 'true'
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 5
     permissions:

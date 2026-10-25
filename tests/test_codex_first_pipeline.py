@@ -319,6 +319,20 @@ class CodexFirstTests(unittest.TestCase):
             self.assertIsNone(gate.final_review_requested_at(
                 "token", self.REPO, 12, [invalid], self.SHA))
 
+    def test_recovery_ignores_unfinished_preflight_without_waiting(self):
+        import resume_after_codex as recovery
+        response = {"workflow_runs": [{
+            "id": 123, "run_attempt": 1, "status": "in_progress",
+            "head_sha": self.SHA,
+            "pull_requests": [{"number": 12, "head": {"sha": self.SHA}}],
+        }]}
+        with patch.object(recovery, "check_review_only",
+                          return_value=("passed", "Reviewed")), \\
+             patch.object(recovery, "request", return_value=response), \\
+             patch.object(recovery, "post_retry") as retry:
+            recovery.resume("token", self.REPO, 12, self.SHA)
+            retry.assert_not_called()
+
     def test_recovery_skips_unsafe_ref(self):
         import resume_after_codex as recovery
         with patch.object(recovery, "check_review_only",

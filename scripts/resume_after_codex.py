@@ -6,7 +6,6 @@ Protected-base, GitHub-hosted only. No unreviewed code executes.
 import json
 import os
 import sys
-import time
 from urllib.request import Request, urlopen
 from check_codex_review import check_review_only, request
 
@@ -37,35 +36,27 @@ def resume(token, repo, number, sha):
     if state != "passed":
         print("No CI restart: " + reason)
         return
-    deadline = time.monotonic() + 210  # below the protected job's 5min limit
     for filename, event in WORKFLOWS:
         base = f"/repos/{repo}/actions/workflows/{filename}/runs"
-        latest = None
-        while True:
-            response = request(token, base + f"?event={event}&per_page=100")
-            runs = response.get("workflow_runs", [])
-            matching = [
-                x for x in runs
-                if int(x.get("run_attempt", 1)) == 1
-                and any(p.get("number") == number and
-                        (p.get("head") or {}).get("sha") == sha
-                        for p in x.get("pull_requests", []))
-                # Protected-base runs have BASE as run.head_sha.
-                and (event == "pull_request_target" or x.get("head_sha") == sha)
-            ]
-            if not matching:
-                print("No exact-head PR workflow to restart:", filename)
-                break
-            latest = max(matching, key=lambda x: x.get("id", 0))
-            if latest.get("status") == "completed":
-                break
-            # A genuinely pending preflight may exit cleanly without
-            # approval just AFTER this Codex completion event. Never decide
-            # the run is unnecessary until its final jobs have settled.
-            if time.monotonic() + 5 >= deadline:
-                raise RuntimeError("Review-completion recovery preflight has not settled: "
-                                   + filename)
-            time.sleep(5)
+        response = request(token, base + f"?event={event}&per_page=100")
+        runs = response.get("workflow_runs", [])
+        matching = [
+            x for x in runs
+            if int(x.get("run_attempt", 1)) == 1
+            and any(p.get("number") == number and
+                    (p.get("head") or {}).get("sha") == sha
+                    for p in x.get("pull_requests", []))
+            and (event == "pull_request_target" or x.get("head_sha") == sha)
+        ]
+        if not matching:
+            print("No matching exact-head CI run:", filename)
+            continue
+        latest = max(matching, key=lambda x: x.get("id", 0))
+        if latest.get("status") != "completed":
+            # When it completes, workflow_run causes another recovery check;
+            # never block a runner waiting for the preflight.
+            print("CI preflight still running; completion event will retry:", filename)
+            continue
         if latest is None:
             continue
         jobs_response = request(
@@ -92,21 +83,48 @@ def resume(token, repo, number, sha):
 def main():
     with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as stream:
         event = json.load(stream)
-    author = ((event.get("comment") or {}).get("user") or {}).get("login", "").lower()
-    if author not in ("chatgpt-codex-connector", "chatgpt-codex-connector[bot]"):
-        raise RuntimeError("Only authenticated Codex comments may resume CI")
-    issue = event.get("issue") or {}
-    if not issue.get("pull_request"):
-        raise RuntimeError("Not a pull-request comment")
     repo = os.environ["GITHUB_REPOSITORY"]
     token = os.environ["GITHUB_TOKEN"]
-    number = issue["number"]
+    completed = event.get("workflow_run")
+    if completed is not None:
+        if (completed.get("name") not in (
+                "Evohome Phase 1 self-hosted validation",
+                "Trusted RAMSES Arduino compile") or
+                (completed.get("repository") or {}).get("full_name") != repo or
+                completed.get("status") != "completed"):
+            return
+        related = completed.get("pull_requests") or []
+        if len(related) != 1 or not isinstance(related[0].get("number"), int):
+            return
+        number = related[0]["number"]
+    else:
+        author = ((event.get("comment") or {}).get("user") or {}).get("login", "").lower()
+        if author not in ("chatgpt-codex-connector", "chatgpt-codex-connector[bot]"):
+            raise RuntimeError("Only authenticated Codex comments may resume CI")
+        issue = event.get("issue") or {}
+        if not issue.get("pull_request"):
+            raise RuntimeError("Not a pull-request comment")
+        number = issue["number"]
     pr = request(token, f"/repos/{repo}/pulls/{number}")
     if (pr["head"]["repo"]["full_name"] != repo or
-            pr["base"]["ref"] != "main" or pr.get("state") != "open"):
-        print("Ignore stale, external or closed pull request")
+            pr["base"]["ref"] != "main" or pr.get("state") != "open" or
+            pr.get("draft")):
+        print("Ignore stale, external or draft/closed pull request")
         return
-    resume(token, repo, number, pr["head"]["sha"])
+    sha = pr["head"]["sha"]
+    state, reason = check_review_only(token, repo, number, sha)
+    if state != "passed":
+        print("Do not resume before exact-head Codex approval:", reason)
+        return
+    resume(token, repo, number, sha)
+    if completed is not None:
+        from check_codex_review import check_ci
+        state, reason = check_ci(token, repo, number, sha)
+        if state == "passed":
+            from manage_codex_request import ensure_request
+            ensure_request(token, repo, number, sha, "final")
+        else:
+            print("CI incomplete; no final review requested:", reason)
 
 
 if __name__ == "__main__":

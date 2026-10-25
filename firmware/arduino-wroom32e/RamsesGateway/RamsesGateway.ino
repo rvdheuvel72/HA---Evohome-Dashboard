@@ -139,6 +139,7 @@ portMUX_TYPE uartProbeMux = portMUX_INITIALIZER_UNLOCKED;
 ramses_uart_probe::Snapshot uartProbe;
 portMUX_TYPE thermostatMux = portMUX_INITIALIZER_UNLOCKED;
 ramses_thermostat::Session thermostat;
+bool thermostatForgetRequested=false; // guarded by thermostatMux; radioTask consumes
 ramses_ids::SeenControllers thermostatIds;
 ot_tx::Report thermostatTx;
 char thermostatTxAction[24]="not_started";
@@ -390,6 +391,12 @@ void thermostatTick(ramses::FrameDecoder& decoder) {
   const uint32_t now=millis();
   ramses_thermostat::Session snap;
   portENTER_CRITICAL(&thermostatMux);
+  if(thermostatForgetRequested) {
+    thermostat.forget();
+    thermostatTx=ot_tx::Report{};
+    snprintf(thermostatTxAction,sizeof(thermostatTxAction),"locally_stopped");
+    thermostatForgetRequested=false;
+  }
   thermostat.tick(now);
   snap=thermostat;
   portEXIT_CRITICAL(&thermostatMux);
@@ -779,7 +786,7 @@ void httpThermostatPairing(){
   }
   bool accepted=false;
   portENTER_CRITICAL(&thermostatMux);
-  if(thermostatIds.eligible(id) && !thermostat.busy())
+  if(!thermostatForgetRequested && thermostatIds.eligible(id) && !thermostat.busy())
     accepted=thermostat.request(millis(),id,controller);
   portEXIT_CRITICAL(&thermostatMux);
   if(!accepted) {
@@ -789,6 +796,68 @@ void httpThermostatPairing(){
   recordLog(GatewayDebug::WARN,"Manual type-12 thermostat 1FC9 offer queued to observed Evohome controller");
   web.send(202,"application/json","{\"queued\":true,\"device_type\":12,\"automatic_rf\":false}");
 }
+void httpThermostatForget(){
+  if(!strongThermostatAuth())return;
+  if(!web.hasHeader("X-Gateway-Config") ||
+     web.header("X-Gateway-Config")!="thermostat-forget" ||
+     web.arg("confirm")!="stop-and-forget-local-12"){
+    web.send(403,"application/json","{\"error\":\"explicit_local_stop_confirmation_required\"}");
+    return;
+  }
+  const String idArg=web.arg("thermostat_id");
+  if(idArg.isEmpty() || idArg.length()>6) {
+    web.send(400,"application/json","{\"error\":\"thermostat_id_required\"}");
+    return;
+  }
+  for(size_t i=0;i<idArg.length();i++)if(idArg[i]<'0'||idArg[i]>'9'){
+    web.send(400,"application/json","{\"error\":\"invalid_thermostat_id\"}");return;
+  }
+  const uint32_t expectedId=static_cast<uint32_t>(idArg.toInt());
+  bool queued=false;
+  portENTER_CRITICAL(&thermostatMux);
+  if(expectedId>0 && thermostat.thermostatId==expectedId &&
+     thermostat.state!=ramses_thermostat::IDLE &&
+     !thermostatForgetRequested) {
+    // Remove pending measurements immediately; the radio task consumes
+    // the local stop request before starting another thermostat frame.
+    thermostat.hasTemp=false;
+    thermostatForgetRequested=true;
+    queued=true;
+  }
+  portEXIT_CRITICAL(&thermostatMux);
+  if(!queued) {
+    web.send(409,"application/json","{\"error\":\"virtual_thermostat_not_active_or_id_mismatch\"}");
+    return;
+  }
+  recordLog(GatewayDebug::WARN,"Virtual 12 thermostat local stop queued (no RF unbind)");
+  web.send(202,"application/json",
+    "{\"queued\":true,\"scope\":\"local_only\",\"remote_evohome_binding_removed\":false}");
+}
+void httpVirtualControllerForget(){
+  if(!strongThermostatAuth())return;
+  if(!web.hasHeader("X-Gateway-Config") ||
+     web.header("X-Gateway-Config")!="virtual-controller-forget" ||
+     web.arg("confirm")!="stop-and-forget-local-01"){
+    web.send(403,"application/json","{\"error\":\"explicit_local_stop_confirmation_required\"}");
+    return;
+  }
+  const String idArg=web.arg("virtual_controller_id");
+  if(idArg.isEmpty() || idArg.length()>6){
+    web.send(400,"application/json","{\"error\":\"virtual_controller_id_required\"}");return;
+  }
+  for(size_t i=0;i<idArg.length();i++)if(idArg[i]<'0'||idArg[i]>'9'){
+    web.send(400,"application/json","{\"error\":\"invalid_virtual_controller_id\"}");return;
+  }
+  if(!otGateway.requestForgetBinding(static_cast<uint32_t>(idArg.toInt()))){
+    web.send(409,"application/json",
+      "{\"error\":\"virtual_controller_not_active_or_id_mismatch\"}");
+    return;
+  }
+  recordLog(GatewayDebug::WARN,"Virtual 01 controller local stop queued (R8810A binding unchanged)");
+  web.send(202,"application/json",
+    "{\"queued\":true,\"scope\":\"local_only\",\"remote_r8810a_binding_removed\":false}");
+}
+
 void httpThermostatTemperature(){
   if(!strongThermostatAuth())return;
   if(!web.hasHeader("X-Gateway-Config") ||
@@ -1813,6 +1882,8 @@ void setup() {
   web.on("/api/v1/opentherm/profile", HTTP_GET, httpOtProfile);
   web.on("/api/v1/thermostat", HTTP_GET, httpThermostatStatus);
   web.on("/api/v1/thermostat/pairing", HTTP_POST, httpThermostatPairing);
+  web.on("/api/v1/thermostat/forget", HTTP_POST, httpThermostatForget);
+  web.on("/api/v1/opentherm/pairing/forget", HTTP_POST, httpVirtualControllerForget);
   web.on("/api/v1/thermostat/temperature", HTTP_POST, httpThermostatTemperature);
   web.on("/api/v1/opentherm/pairing", HTTP_GET, httpOtPairing);
   web.on("/api/v1/opentherm/pairing", HTTP_POST, httpOtPairing);

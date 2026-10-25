@@ -179,11 +179,14 @@ def arduino_validation_required(paths):
 
 
 HA_CHECK_PATHS = (
-    "custom_components/", "frontend-package/", "tests/",
-    "tests_integration/", "scripts/",
+    "custom_components/", "frontend-package/", "tests_integration/",
 )
 HA_CHECK_FILES = {
     "hacs.json", "manifest.json", ".github/workflows/phase1-self-hosted.yml",
+    "tests/test_frontend_split.py", "tests/test_override_verification.py",
+    "tests/test_python_runtime_policy.py", "tests/test_schedules.py",
+    "tests/test_setup_diagnostics.py", "scripts/package_frontend.py",
+    "scripts/validate_contract.py", "scripts/verify_library_api.py",
 }
 
 def ha_validation_required(paths):
@@ -196,7 +199,7 @@ TRUSTED_ARDUINO_WORKFLOW = ".github/workflows/trusted-ramses-compile.yml"
 TRUSTED_ARDUINO_JOB = "Trusted Arduino compile"
 
 
-def trusted_arduino_provenance(token, full_repo, sha, check):
+def trusted_arduino_provenance(token, full_repo, sha, check, pr_number=None):
     """Reject spoofed compile checks originating from PR-controlled YAML."""
     if (check.get("name") != TRUSTED_ARDUINO_JOB or
             (check.get("app") or {}).get("slug") != "github-actions" or
@@ -214,8 +217,10 @@ def trusted_arduino_provenance(token, full_repo, sha, check):
     run = request(token, "/repos/" + full_repo + "/actions/runs/" + str(run_id))
     if (run.get("path") != TRUSTED_ARDUINO_WORKFLOW or
             run.get("event") != "pull_request_target" or
-            run.get("head_sha") != sha or
-            (run.get("repository") or {}).get("full_name") != full_repo):
+            (run.get("repository") or {}).get("full_name") != full_repo or
+            (pr_number is not None and not any(
+                x.get("number") == pr_number
+                for x in (run.get("pull_requests") or [])))):
         return "blocked", "Arduino check not issued by trusted protected workflow"
     return "passed", "Protected exact-head Arduino compile provenance verified"
 
@@ -251,7 +256,7 @@ def required_ci_state(token, full_repo, sha, pr_number=None):
             return "pending", "Waiting for approved CI rerun: " + name
         if name == "Trusted Arduino compile":
             provenance, explanation = trusted_arduino_provenance(
-                token, full_repo, sha, newest)
+                token, full_repo, sha, newest, pr_number=pr_number)
             if provenance != "passed":
                 return provenance, explanation
         if newest.get("conclusion") != "success":

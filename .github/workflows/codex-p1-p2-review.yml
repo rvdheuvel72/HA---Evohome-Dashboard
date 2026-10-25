@@ -25,6 +25,8 @@ concurrency:
 jobs:
   request-first-review:
     name: Request exact-head Codex pre-CI review
+    outputs:
+      approved: ${{ steps.preflight.outputs.approved }}
     if: >-
       ((github.event_name == 'pull_request_target' &&
         github.event.pull_request.draft == false &&
@@ -36,7 +38,7 @@ jobs:
         contains(github.event.comment.body, '"status":"completed"') &&
         contains(github.event.comment.body, '"has_any_findings":false') &&
         contains(github.event.comment.body, '"has_unresolved_findings":false')))
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 5
     permissions:
       contents: read
@@ -52,13 +54,38 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 scripts/manage_codex_request.py pre
+      - name: Non-blocking exact-head preflight (no review polling)
+        id: preflight
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          sys.path.insert(0, "scripts")
+          from check_codex_review import check_review_only
+          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as f:
+              event = json.load(f)
+          pr = event.get("pull_request")
+          if not pr:
+              from check_codex_review import request
+              number = event["issue"]["number"]
+              pr = request(os.environ["GITHUB_TOKEN"],
+                           f"/repos/{os.environ['GITHUB_REPOSITORY']}/pulls/{number}")
+          status, reason = check_review_only(
+              os.environ["GITHUB_TOKEN"], os.environ["GITHUB_REPOSITORY"],
+              pr["number"], pr["head"]["sha"])
+          print("Pre-CI Codex review:", status, reason)
+          if status == "passed":
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+                  out.write("approved=true\n")
+          PY
 
   first-review:
     name: Codex BEFORE CI - no P1/P2
     needs: [request-first-review]
-    if: needs.request-first-review.result == 'success'
-    runs-on: ubuntu-latest
-    timeout-minutes: 33
+    if: needs.request-first-review.outputs.approved == 'true'
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 5
     permissions:
       contents: read
       pull-requests: read
@@ -82,7 +109,7 @@ jobs:
     if: >-
       needs.first-review.result == 'success' &&
       github.event_name == 'issue_comment'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 5
     permissions:
       contents: read
@@ -107,7 +134,7 @@ jobs:
       needs.first-review.result == 'success' &&
       (github.event_name != 'issue_comment' ||
        needs.resume-approved-ci.result == 'success')
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 33
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -121,9 +148,11 @@ jobs:
 
   request-final-review:
     name: Request second Codex review AFTER CI
+    outputs:
+      approved: ${{ steps.final-ready.outputs.approved }}
     needs: [await-validation]
     if: needs.await-validation.result == 'success'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 5
     permissions:
       contents: read
@@ -140,13 +169,38 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 scripts/manage_codex_request.py final
+      - name: Non-blocking second-review check
+        id: final-ready
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          sys.path.insert(0, "scripts")
+          from check_codex_review import check_final_review, request
+          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as f:
+              event = json.load(f)
+          pr = event.get("pull_request")
+          if not pr:
+              number = event["issue"]["number"]
+              pr = request(os.environ["GITHUB_TOKEN"],
+                           f"/repos/{os.environ['GITHUB_REPOSITORY']}/pulls/{number}")
+          status, reason = check_final_review(
+              os.environ["GITHUB_TOKEN"], os.environ["GITHUB_REPOSITORY"],
+              pr["number"], pr["head"]["sha"])
+          print("Final Codex review:", status, reason)
+          if status == "passed":
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+                  out.write("approved=true\n")
+          PY
 
   codex-review:
     name: Codex P1/P2 review gate
     needs: [request-final-review]
-    # The branch-protection check must never be green after a skipped stage.
+    # No failure mail for a pending external review. Only the final green
+    # exact-SHA review may execute the protected merge gate.
     if: >-
-      !cancelled() &&
+      needs.request-final-review.outputs.approved == 'true' &&
       ((github.event_name == 'pull_request_target' &&
         github.event.pull_request.draft == false) ||
        (github.event_name == 'issue_comment' &&
@@ -156,8 +210,8 @@ jobs:
         contains(github.event.comment.body, '"status":"completed"') &&
         contains(github.event.comment.body, '"has_any_findings":false') &&
         contains(github.event.comment.body, '"has_unresolved_findings":false')))
-    runs-on: ubuntu-latest
-    timeout-minutes: 33
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 5
     steps:
       - name: Require all previous gates succeeded
         env:
@@ -176,7 +230,7 @@ jobs:
     name: Auto merge after clean CI and final Codex
     needs: [codex-review]
     if: needs.codex-review.result == 'success'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 5
     permissions:
       contents: write

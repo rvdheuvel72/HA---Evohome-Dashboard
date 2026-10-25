@@ -98,6 +98,18 @@ class CodexFirstTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "workflow-run ID"):
             gate.cancel_expected_blocker("token", self.REPO, "P1 found", "bad")
 
+    def test_ha_ci_does_not_run_for_codex_or_firmware_changes(self):
+        self.assertFalse(gate.ha_validation_required([
+            "scripts/check_codex_review.py",
+            "tests/test_codex_first_pipeline.py",
+            ".github/workflows/trusted-ramses-compile.yml",
+            "firmware/arduino-wroom32e/test.cpp",
+        ]))
+        self.assertTrue(gate.ha_validation_required([
+            "custom_components/evohome_dashboard/climate.py",
+        ]))
+        self.assertTrue(gate.ha_validation_required(["tests/test_schedules.py"]))
+
     def test_review_first_prevents_build_when_pending(self):
         with patch.object(gate, "request", return_value=self.PR), \
              patch.object(gate, "blockers", return_value=[]), \

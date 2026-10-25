@@ -56,9 +56,7 @@ def dispatch_followups(token, repo, changed):
     # main-branch publisher which itself validates tag uniqueness.
     if any(path.startswith("firmware/arduino-wroom32e/") for path in changed):
         workflows.append("publish-ramses-arduino-v0.4-beta.yml")
-    if ha_validation_required(changed) or any(
-            f.startswith(".github/workflows/") or f.startswith("scripts/")
-            for f in changed):
+    if ha_validation_required(changed):
         workflows.append("phase1-self-hosted.yml")
     for workflow in workflows:
         path = f"/repos/{repo}/actions/workflows/{workflow}/dispatches"

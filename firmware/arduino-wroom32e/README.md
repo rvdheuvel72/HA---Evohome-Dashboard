@@ -2,6 +2,8 @@
 
 **Release:** [RAMSES Arduino Gateway v0.4.0-beta.32](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.32).
 
+**Arduino IDE ZIP:** `RAMSES-Arduino-Gateway-v0.4.0-beta.32-ESP32-WROOM-32E.zip`.
+
 On 2026-10-25 the physically paired virtual thermostat `12:160002`
 successfully updated the Evohome TEST zone from an initial unavailable
 temperature to 18.50°C and later to 19.00°C. The original five-minute

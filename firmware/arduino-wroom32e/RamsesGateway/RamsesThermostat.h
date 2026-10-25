@@ -153,6 +153,16 @@ struct Session {
   uint8_t zone=0xff;
   bool attempted=false,accepted=false,confirmed=false,collision=false;
   bool hasTemp=false,hasReported=false;
+  // Local stop/forget only: does NOT send a RAMSES unbind packet and
+  // cannot erase an association stored by the physical Evohome device.
+  // Preserve the existing cooldown to prevent instant RF re-pair spam.
+  void forget() {
+    const bool wasAttempted=attempted;
+    const uint32_t attemptedAt=lastAttempt;
+    *this=Session{};
+    attempted=wasAttempted;
+    lastAttempt=attemptedAt;
+  }
   bool busy() const {
     return state==OFFER_QUEUED||state==WAIT_ACCEPT||state==CONFIRM_QUEUED;
   }

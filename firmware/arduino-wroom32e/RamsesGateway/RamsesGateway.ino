@@ -91,7 +91,7 @@ constexpr uint32_t HEARTBEAT_MS = 15000;
 constexpr uint32_t RADIO_RECOVERY_RETRY_MS = 5000;
 constexpr uint32_t RX_HEALTH_SAMPLE_MS = 5000;
 constexpr uint8_t DEBUG_QUEUE_SIZE = 32;
-constexpr char FW_VERSION[] = "0.4.0-beta.28";
+constexpr char FW_VERSION[] = "0.4.0-beta.29";
 constexpr uint32_t MDNS_RETRY_MS = 15000;
 constexpr uint32_t MQTT_STATE_INTERVAL_MS = 15000;
 
@@ -1737,8 +1737,8 @@ void handlePacket(const PacketEvent& event) {
 void setup() {
   Serial.begin(115200);
   delay(250);
-  Serial.println("\n# RAMSES II Arduino v0.4.0-beta.28 (read-only OpenTherm discovery)");
-  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-beta.28");
+  Serial.println("\n# RAMSES II Arduino v0.4.0-beta.29 (read-only OpenTherm discovery)");
+  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-beta.29");
   char bootInfo[96];
   snprintf(bootInfo, sizeof(bootInfo), "Reset reason: %s", resetReason());
   recordLog(GatewayDebug::INFO, bootInfo);

@@ -13,11 +13,66 @@ on:
 
 permissions:
   contents: read
+  issues: read
+  pull-requests: read
 
 jobs:
+  review-before-ci:
+    name: Codex BEFORE CI - protected Arduino
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    outputs:
+      approved: ${{ steps.precheck.outputs.approved }}
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Trusted main review logic only; never execute PR source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Require exact-head Codex complete with zero P1/P2
+        id: precheck
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys, time
+          sys.path.insert(0, "scripts")
+          from check_codex_review import blockers, pages, request, review_disposition
+          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as f:
+              event=json.load(f)
+          pr=event["pull_request"]
+          repo=os.environ["GITHUB_REPOSITORY"]
+          sha=pr["head"]["sha"]
+          number=pr["number"]
+          token=os.environ["GITHUB_TOKEN"]
+          owner,name=repo.split("/",1)
+          current=request(token, f"/repos/{repo}/pulls/{number}")
+          if (current["head"]["sha"]!=sha or current["head"]["repo"]["full_name"]!=repo
+                  or current.get("state")!="open" or current.get("draft")):
+              raise SystemExit("Blocked: stale, external, closed or draft PR")
+          pending=blockers(token,owner,name,number,sha)
+          if pending:
+              print(f"::notice::Codex has {len(pending)} P1/P2 finding(s); Arduino CI skipped")
+              raise SystemExit(0)
+          reviews=pages(token,f"/repos/{repo}/pulls/{number}/reviews")
+          comments=pages(token,f"/repos/{repo}/issues/{number}/comments")
+          if review_disposition(reviews,comments,sha)=="reviewed":
+              with open(os.environ["GITHUB_OUTPUT"],"a",encoding="utf-8") as out:
+                  out.write("approved=true\n")
+              print("Exact-head review clean: Arduino compile enabled")
+          else:
+              print("Review pending; Arduino CI skipped without polling")
+
+          PY
+
   verified-arduino:
     name: Trusted Arduino compile
-    if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository
+    needs: [review-before-ci]
+    if: needs.review-before-ci.result == 'success' &&
+       needs.review-before-ci.outputs.approved == 'true'
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 30
     # No secrets, writes or persistent credentials. Only trusted project branches should run on self-hosted hardware.
@@ -58,6 +113,23 @@ jobs:
           arduino-cli core update-index
           arduino-cli core install esp32:esp32@3.3.12
           arduino-cli lib install "PubSubClient@2.8"
+      - name: Native radio, packet, and CC1101 regression suite (no physical ESP32)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 firmware/arduino-wroom32e/tests/test_web_delivery.py
+          python3 firmware/arduino-wroom32e/tests/test_rx_quiet_contract.py
+          for testcase in codec cc1101_startup rx_health debug capture discovery hostname opentherm pairing tx_local_verification tx_loopback peer_detection uart_probe spi_audit rx_bypass; do
+            g++ -std=c++17 -Wall -Wextra -Werror \
+              "firmware/arduino-wroom32e/tests/test_${testcase}.cpp" \
+              -o "$RUNNER_TEMP/test-ramses-${testcase}"
+            "$RUNNER_TEMP/test-ramses-${testcase}"
+          done
+          g++ -std=c++17 -Wall -Wextra -Werror \
+            -Ifirmware/arduino-wroom32e/tests/stubs \
+            firmware/arduino-wroom32e/tests/test_gateway_runtime_config.cpp \
+            -o "$RUNNER_TEMP/test-ramses-runtime"
+          "$RUNNER_TEMP/test-ramses-runtime"
       - name: Compile actual PR firmware for ESP32-WROOM-32E
         shell: bash
         run: |

@@ -1,12 +1,7 @@
 name: Build RAMSES Arduino WROOM-32E
 on:
   push:
-    paths:
-      - "firmware/arduino-wroom32e/**"
-      - ".github/workflows/publish-ramses-arduino-v0.4-beta.yml"
-      - ".github/workflows/ramses-arduino-wroom32e.yml"
-      - ".github/workflows/ramses-local-hardware.yml"
-  pull_request:
+    branches: [main]
     paths:
       - "firmware/arduino-wroom32e/**"
       - ".github/workflows/publish-ramses-arduino-v0.4-beta.yml"
@@ -14,14 +9,16 @@ on:
       - ".github/workflows/ramses-local-hardware.yml"
   workflow_dispatch:
 
-# Superseded firmware PR builds should not occupy the self-hosted runner.
-# Main-branch builds remain non-cancellable.
+# PR firmware validation runs ONCE in trusted-ramses-compile.yml.
+# This separate workflow validates merged main and manual firmware builds.
 concurrency:
   group: ramses-firmware-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
+  pull-requests: read
+  issues: read
 
 jobs:
   compile:

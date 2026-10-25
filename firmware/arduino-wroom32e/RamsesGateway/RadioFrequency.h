@@ -45,7 +45,9 @@ inline bool manualReadOneShotAllowed(uint32_t khz,uint16_t band,
 }
 // Binding verification authorizes the distinct 01: identity; it must not
 // depend on a configured 18: ID or an 18: address conflict. An unpaired
-// source still needs a valid unique 18: identity and the restricted one-shot.
+// source must have a valid, unobserved 18: identity. The standard 868 MHz
+// hardware or the legacy explicitly enabled 433 MHz cross-band exception
+// may perform only the manually authorized one-shot ID25 read.
 inline bool manualReadOneShotWithIdentity(uint32_t khz,uint16_t band,
                                          bool crossBandRx,bool verifiedBinding,
                                          uint32_t unpairedSource18,
@@ -54,6 +56,7 @@ inline bool manualReadOneShotWithIdentity(uint32_t khz,uint16_t band,
     return manualReadOneShotAllowed(khz,band,crossBandRx,true);
   return unpairedSource18>0 && unpairedSource18<262143 &&
          unpairedSource18!=730 && !unpairedSourceConflict &&
-         experimentalOneShotFrequency(khz,band,crossBandRx);
+         (evohomeTxFrequency(khz,band) ||
+          experimentalOneShotFrequency(khz,band,crossBandRx));
 }
 } // namespace radio_frequency

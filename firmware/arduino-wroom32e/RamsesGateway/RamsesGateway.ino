@@ -681,6 +681,148 @@ void httpOtProfile(){
   otGateway.sendProfile(web);
 }
 // Local GPIO-only diagnostic. This endpoint never configures CC1101 TX.
+// A room thermostat is a separate type-12 device, paired with the REAL
+// Evohome 01: controller, not with the R8810A OpenTherm bridge.
+bool strongThermostatAuth() {
+  if(!configuration.current.webUser[0] ||
+     strlen(configuration.current.webPassword)<12 ||
+     strcmp(configuration.current.webPassword,
+            "CHANGE_TO_A_STRONG_PRIVATE_PASSWORD")==0) {
+    web.send(403,"application/json","{\"error\":\"strong_web_auth_required\"}");
+    return false;
+  }
+  return authorized();
+}
+bool thermostatTempValue(const String& text,int32_t& result){
+  if(text.length()<1 || text.length()>5)return false;
+  size_t i=text[0]=='-'?1:0;
+  if(i==text.length())return false;
+  for(;i<text.length();i++)if(text[i]<'0'||text[i]>'9')return false;
+  const long parsed=text.toInt();
+  if(parsed<-4000 || parsed>8500)return false;
+  result=static_cast<int32_t>(parsed);
+  return true;
+}
+void httpThermostatStatus(){
+  if(!authorized())return;
+  ramses_thermostat::Session snap;ot_tx::Report tx;char txAction[24];
+  bool eligible=false;unsigned seen=0;
+  portENTER_CRITICAL(&thermostatMux);
+  snap=thermostat;tx=thermostatTx;
+  snprintf(txAction,sizeof(txAction),"%s",thermostatTxAction);
+  eligible=!thermostatIds.saturated();seen=thermostatIds.count;
+  portEXIT_CRITICAL(&thermostatMux);
+  const uint32_t controller=otGateway.observedControllerId();
+  const bool safe=radioReady && controller>0 && otGateway.bridgeObserved() &&
+    otGateway.manualRfIdle() && eligible &&
+    radio_frequency::evohomeTxFrequency(configuration.current.rfFrequencyKhz,
+                                        configuration.current.rfModuleBand);
+  const uint32_t now=millis();
+  char data[760];
+  const int len=snprintf(data,sizeof(data),
+    "{\"role\":\"12_virtual_room_thermostat\",\"state\":\"%s\","
+    "\"ready\":%s,\"controller_id\":%lu,\"thermostat_id\":%lu,"
+    "\"zone\":%d,\"offer_accepted\":%s,\"confirmation_sent\":%s,"
+    "\"cooldown_ms\":%lu,\"id_conflict\":%s,\"ids_seen\":%u,"
+    "\"temp_centi\":%ld,\"temperature_fresh\":%s,\"report_due\":%s,"
+    "\"last_tx_action\":\"%s\",\"tx_phase\":\"%s\","
+    "\"tx_local_verified\":%s,\"tx_bytes\":%u,\"tx_expected_bytes\":%u,"
+    "\"mqtt_temperature_topic\":\"%s\","
+    "\"note\":\"Controller acceptance observed on RX; confirmation and 30C9 TX are local only\"}",
+    ramses_thermostat::stateName(snap.state),
+    (safe&&!snap.busy()&&snap.cooldown(now)==0)?"true":"false",
+    static_cast<unsigned long>(controller),
+    static_cast<unsigned long>(snap.thermostatId),
+    snap.zone==0xff?-1:static_cast<int>(snap.zone),
+    snap.accepted?"true":"false",snap.confirmed?"true":"false",
+    static_cast<unsigned long>(snap.cooldown(now)),
+    snap.collision?"true":"false",seen,
+    static_cast<long>(snap.tempCenti),
+    snap.temperatureFresh(now)?"true":"false",
+    snap.reportDue(now)?"true":"false",
+    txAction,ot_tx::phaseName(tx.phase),
+    ot_tx::localVerified(tx)?"true":"false",
+    static_cast<unsigned>(tx.written_bytes),
+    static_cast<unsigned>(tx.expected_bytes),
+    thermostatTopic);
+  if(len<0 || static_cast<size_t>(len)>=sizeof(data)){
+    web.send(500,"application/json","{\"error\":\"thermostat_status_overflow\"}");
+    return;
+  }
+  web.sendHeader("Cache-Control","no-store");
+  web.send(200,"application/json",data);
+}
+void httpThermostatPairing(){
+  if(!strongThermostatAuth())return;
+  if(!web.hasHeader("X-Gateway-Config") ||
+     web.header("X-Gateway-Config")!="thermostat-pairing" ||
+     web.arg("confirm")!="manual-12-thermostat-bind"){
+    web.send(403,"application/json","{\"error\":\"manual_binding_confirmation_required\"}");
+    return;
+  }
+  const String text=web.arg("thermostat_id");
+  if(text.isEmpty() || text.length()>6){
+    web.send(400,"application/json","{\"error\":\"invalid_thermostat_id\"}");return;
+  }
+  for(size_t i=0;i<text.length();i++)
+    if(text[i]<'0'||text[i]>'9'){
+      web.send(400,"application/json","{\"error\":\"invalid_thermostat_id\"}");return;
+    }
+  const uint32_t id=static_cast<uint32_t>(text.toInt());
+  const uint32_t controller=otGateway.observedControllerId();
+  if(!radioReady || !controller || !otGateway.bridgeObserved() ||
+     !otGateway.manualRfIdle() ||
+     !radio_frequency::evohomeTxFrequency(configuration.current.rfFrequencyKhz,
+                                           configuration.current.rfModuleBand)){
+    web.send(409,"application/json","{\"error\":\"controller_or_radio_not_ready\"}");
+    return;
+  }
+  bool accepted=false;
+  portENTER_CRITICAL(&thermostatMux);
+  if(thermostatIds.eligible(id) && !thermostat.busy())
+    accepted=thermostat.request(millis(),id,controller);
+  portEXIT_CRITICAL(&thermostatMux);
+  if(!accepted) {
+    web.send(409,"application/json","{\"error\":\"invalid_id_collision_or_cooldown\"}");
+    return;
+  }
+  recordLog(GatewayDebug::WARN,"Manual type-12 thermostat 1FC9 offer queued to observed Evohome controller");
+  web.send(202,"application/json","{\"queued\":true,\"device_type\":12,\"automatic_rf\":false}");
+}
+void httpThermostatTemperature(){
+  if(!strongThermostatAuth())return;
+  if(!web.hasHeader("X-Gateway-Config") ||
+     web.header("X-Gateway-Config")!="thermostat-temperature" ||
+     web.arg("confirm")!="set-sensor-temperature"){
+    web.send(403,"application/json","{\"error\":\"temperature_confirmation_required\"}");return;
+  }
+  int32_t centi=0;
+  if(!thermostatTempValue(web.arg("temp_centi"),centi)){
+    web.send(400,"application/json","{\"error\":\"invalid_centi_celsius_range\"}");return;
+  }
+  bool accepted=false;
+  portENTER_CRITICAL(&thermostatMux);
+  if(thermostat.state==ramses_thermostat::PAIRED)
+    accepted=thermostat.setTemperature(centi,millis());
+  portEXIT_CRITICAL(&thermostatMux);
+  if(!accepted){
+    web.send(409,"application/json","{\"error\":\"thermostat_not_controller_accepted\"}");return;
+  }
+  web.send(200,"application/json","{\"accepted\":true,\"unit\":\"centi_celsius\"}");
+}
+void onMqttMessage(char* topic,uint8_t* payload,unsigned length){
+  if(!topic || strcmp(topic,thermostatTopic)!=0 ||
+     length<1 || length>5 || !payload)return;
+  char temp[6]={};
+  memcpy(temp,payload,length);
+  int32_t centi=0;
+  if(!thermostatTempValue(String(temp),centi))return;
+  portENTER_CRITICAL(&thermostatMux);
+  if(thermostat.state==ramses_thermostat::PAIRED)
+    thermostat.setTemperature(centi,millis());
+  portEXIT_CRITICAL(&thermostatMux);
+}
+
 void httpOtPairing(){
   if(!authorized())return;
   if(web.method()==HTTP_GET){otGateway.sendBindingStatus(web,radioReady);return;}
@@ -1532,6 +1674,7 @@ void mqttConnect() {
     if (!stateOk) recordLog(GatewayDebug::WARN, "Initial MQTT state publish failed");
     if (!discoveryOk) recordLog(GatewayDebug::WARN, "MQTT Discovery incomplete");
     mqtt.publish(availabilityTopic, "online", true);
+    if(!mqtt.subscribe(thermostatTopic))recordLog(GatewayDebug::WARN,"MQTT thermostat temperature subscription failed");
     lastMqttStateMs = millis();
     recordLog(GatewayDebug::INFO, "MQTT connected");
     Serial.printf("# MQTT RX topic: %s\n", rxTopic);
@@ -1623,6 +1766,7 @@ void setup() {
   snprintf(rxTopic, sizeof(rxTopic), "%s/rx", baseTopic);
   snprintf(availabilityTopic, sizeof(availabilityTopic), "%s", baseTopic);
   snprintf(stateTopic, sizeof(stateTopic), "%s/status", baseTopic);
+  snprintf(thermostatTopic, sizeof(thermostatTopic), "%s/thermostat/temperature/set", baseTopic);
 
   if (strlen(configuration.current.recoveryPassword) >= 8) {
     WiFi.mode(WIFI_AP_STA);
@@ -1643,6 +1787,7 @@ void setup() {
     recordLog(GatewayDebug::WARN, "Could not set DHCP Wi-Fi hostname");
   WiFi.setSleep(false);
   mqtt.setServer(configuration.current.mqttHost, configuration.current.mqttPort);
+  mqtt.setCallback(onMqttMessage);
   mqtt.setBufferSize(1536); // Home Assistant Discovery configurations are larger than 512 bytes
   mqtt.setSocketTimeout(1); // bound socket read stalls; HTTP runs on same loop()
   web.on("/", HTTP_GET, httpIndex);
@@ -1660,6 +1805,9 @@ void setup() {
   web.on("/api/v1/radio/diagnostics", HTTP_GET, httpRadioDiagnostics);
   web.on("/api/v1/radio/diagnostics", HTTP_POST, httpRadioDiagnostics);
   web.on("/api/v1/opentherm/profile", HTTP_GET, httpOtProfile);
+  web.on("/api/v1/thermostat", HTTP_GET, httpThermostatStatus);
+  web.on("/api/v1/thermostat/pairing", HTTP_POST, httpThermostatPairing);
+  web.on("/api/v1/thermostat/temperature", HTTP_POST, httpThermostatTemperature);
   web.on("/api/v1/opentherm/pairing", HTTP_GET, httpOtPairing);
   web.on("/api/v1/opentherm/pairing", HTTP_POST, httpOtPairing);
   web.on("/api/v1/opentherm/one-shot", HTTP_GET, httpOtOneShot);

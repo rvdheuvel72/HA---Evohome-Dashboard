@@ -112,6 +112,31 @@ int main() {
   if(ot_readonly::parity(bits))rp.payload[1]|=0x80;
   assert(s.observe(rp,1500) && s.state==ramses_bind::VERIFIED);
   assert(s.verifiedReadAck && s.lastRaw==0x2580);
+  assert(s.verificationResult==ot_readonly::READ_ACK);
+
+  // Correlated but negative ID25 replies must not authorize a 01: controller.
+  for(const uint8_t rejectedType : {static_cast<uint8_t>(6),
+                                    static_cast<uint8_t>(7)}) {
+    ramses_bind::Session candidate;
+    assert(candidate.start(800000u,62142,48994,245914));
+    assert(candidate.verificationResult==ot_readonly::NOT_TESTED);
+    candidate.offered(true,800001u);
+    assert(candidate.observe(w,800002u));
+    candidate.confirmed(true);
+    candidate.verifiedRequestSent(true,800003u);
+    ramses::Message rejectedReply=rp;
+    rejectedReply.payload[1]=static_cast<uint8_t>(rejectedType<<4);
+    uint32_t bits=(static_cast<uint32_t>(rejectedReply.payload[1])<<24)|
+      (static_cast<uint32_t>(rejectedReply.payload[2])<<16)|
+      (static_cast<uint32_t>(rejectedReply.payload[3])<<8)|
+      rejectedReply.payload[4];
+    if(ot_readonly::parity(bits))rejectedReply.payload[1]|=0x80;
+    assert(candidate.observe(rejectedReply,800004u));
+    assert(candidate.state==ramses_bind::UNVERIFIED);
+    assert(!candidate.verifiedReadAck);
+    assert(candidate.verificationResult==
+      (rejectedType==6?ot_readonly::DATA_INVALID:ot_readonly::UNKNOWN_ID));
+  }
   assert(s.cooldown(1600)>0 && !s.start(1600,63111,48994,245914));
   assert(s.start(61000,63111,48994,245914));
   s.offered(true,61001);

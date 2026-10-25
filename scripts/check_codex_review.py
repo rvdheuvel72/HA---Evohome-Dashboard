@@ -5,7 +5,7 @@ import os
 import re
 import sys
 import time
-from urllib.request import Request, urlopen
+from urllib.request import Request, urlopen, build_opener, HTTPRedirectHandler
 from urllib.error import HTTPError
 
 TRUSTED_CODEX_LOGINS = {"chatgpt-codex-connector", "chatgpt-codex-connector[bot]"}
@@ -283,12 +283,42 @@ def check_review_only(token, full_repo, number, sha):
     return "pending", "Waiting for pre-CI Codex review of " + sha
 
 
-def final_review_requested_at(token, full_repo, comments, sha):
-    """Authenticate a final review marker through the actual protected job.
+class _NoTokenRedirect(HTTPRedirectHandler):
+    """Never forward the GitHub bearer token to the presigned logs host."""
 
-    The github-actions[bot] author alone is NOT proof. A PR-owned workflow
-    may post with the same identity. Verify the referenced workflow run,
-    job name, source workflow and the comment's timestamp within that job.
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if redirected:
+            redirected.remove_header("Authorization")
+        return redirected
+
+
+def protected_job_log(token, full_repo, job_id):
+    """Read protected GitHub Actions job text with a bounded response size."""
+    url = ("https://api.github.com/repos/" + full_repo +
+           "/actions/jobs/" + str(job_id) + "/logs")
+    req = Request(url, headers={
+        "Authorization": "Bearer " + token,
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "evohome-final-review-provenance",
+    })
+    with build_opener(_NoTokenRedirect()).open(req, timeout=20) as response:
+        raw = response.read(2_000_001)
+        if len(raw) > 2_000_000:
+            raise RuntimeError("Protected final-review job log too large")
+        return raw.decode("utf-8", errors="replace")
+
+
+def final_review_requested_at(token, full_repo, number, comments, sha):
+    """Only accept a real final request created by the protected job.
+
+    GitHub Actions shares one 'github-actions[bot]' identity across workflows.
+    Consequently the author, workflow path and timing alone cannot establish
+    that a posted marker belongs to this PR. The exact PR/commit/COMMENT ID
+    must also appear in the protected job's own action logs, inaccessible to
+    PR-owned code. This works for both pull_request_target and Codex-triggered
+    issue_comment workflows, whose API runs do not include pull_requests[].
     """
     prefix = "/repos/" + full_repo
     pattern = re.compile(r"<!-- codex-final-review:" + re.escape(sha) +
@@ -300,14 +330,13 @@ def final_review_requested_at(token, full_repo, comments, sha):
             continue
         match = pattern.search(comment.get("body", ""))
         created = parse_utc(comment.get("created_at"))
-        if not match or not created:
+        comment_id = comment.get("id")
+        if not match or not created or not isinstance(comment_id, int):
             continue
         run_id = int(match.group(1))
         try:
             workflow = request(token, prefix + f"/actions/runs/{run_id}")
         except HTTPError as error:
-            # A forged marker may point to a nonexistent run. Ignore it,
-            # but fail closed on permission errors, rate limits or outages.
             if error.code == 404:
                 continue
             raise
@@ -315,20 +344,36 @@ def final_review_requested_at(token, full_repo, comments, sha):
                 or workflow.get("event") not in ("pull_request_target", "issue_comment")
                 or (workflow.get("repository") or {}).get("full_name") != full_repo):
             continue
+        if workflow["event"] == "pull_request_target":
+            related = workflow.get("pull_requests") or []
+            if workflow.get("head_sha") != sha or not any(
+                    p.get("number") == number and
+                    (p.get("head") or {}).get("sha") == sha
+                    for p in related):
+                continue
+        else:
+            # Only Codex-authored comments may resume the protected pipeline.
+            if (workflow.get("actor") or {}).get("login", "").lower() not in
+                    TRUSTED_CODEX_LOGINS:
+                continue
         payload = request(token, prefix + f"/actions/runs/{run_id}/jobs?per_page=100")
         jobs = payload.get("jobs") if isinstance(payload, dict) else None
         if not isinstance(jobs, list) or payload.get("total_count", 0) > len(jobs):
-            continue  # no partial or unauthenticated job evidence
+            continue
         for job in jobs:
             if (job.get("name") != "Request second Codex review AFTER CI"
-                    or job.get("conclusion") != "success"):
+                    or job.get("conclusion") != "success"
+                    or not isinstance(job.get("id"), int)):
                 continue
             began = parse_utc(job.get("started_at"))
             ended = parse_utc(job.get("completed_at"))
-            # Accept only an actual comment created during that exact
-            # privileged job (allow 2s for GitHub timestamp rounding).
-            if began and ended and (
-                    began - timedelta(seconds=2) <= created <= ended + timedelta(seconds=2)):
+            if not (began and ended and
+                    began - timedelta(seconds=2) <= created <=
+                    ended + timedelta(seconds=2)):
+                continue
+            attestation = (
+                f"CODEX_FINAL_REQUEST pr={number} sha={sha} comment_id={comment_id}")
+            if attestation in protected_job_log(token, full_repo, job["id"]):
                 matches.append(created)
     return max(matches, default=None)
 
@@ -344,7 +389,7 @@ def check_final_review(token, full_repo, number, sha):
         return state, message
     prefix = "/repos/" + full_repo
     comments = pages(token, prefix + f"/issues/{number}/comments")
-    requested = final_review_requested_at(token, full_repo, comments, sha)
+    requested = final_review_requested_at(token, full_repo, number, comments, sha)
     if not requested:
         return "pending", "Waiting for an exact-head post-CI Codex review request"
     summaries = [

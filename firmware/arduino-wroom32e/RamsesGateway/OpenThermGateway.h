@@ -131,12 +131,23 @@ class OpenThermGateway {
     return id;
   }
   bool bridgeObserved() const { return bridgeSeen_; }
+  // Queue a local-only virtual 01: stop for the radio task. Never clear
+  // or modify the existing physical Evohome <-> R8810A binding.
+  bool requestForgetBinding(uint32_t expectedVirtualId) {
+    portENTER_CRITICAL(&mutex_);
+    const bool ok=expectedVirtualId>0 &&
+      binding_.virtualId==expectedVirtualId &&
+      binding_.state!=ramses_bind::IDLE && !bindingForgetRequested_;
+    if(ok)bindingForgetRequested_=true;
+    portEXIT_CRITICAL(&mutex_);
+    return ok;
+  }
   bool requestBinding(uint32_t virtualControllerId){
     if(bindingBlockReason()!=nullptr || !bindingReady())return false;
     portENTER_CRITICAL(&mutex_);
     const bool blocked=singleProbe_.state==ot_single::QUEUED ||
        singleProbe_.state==ot_single::WAITING;
-    const bool ok=!blocked && !binding_.busy() &&
+    const bool ok=!bindingForgetRequested_ && !blocked && !binding_.busy() &&
        seenControllers_.eligible(virtualControllerId) &&
        virtualControllerId!=observedController_ &&
        binding_.start(millis(),virtualControllerId,config_->otBridge,
@@ -404,6 +415,13 @@ class OpenThermGateway {
   void tick(Cc1101Radio& radio,HardwareSerial& port,ramses::FrameDecoder& decoder) {
     bool start=false;
     portENTER_CRITICAL(&mutex_);
+    // Applied by radioTask before any new 01: pairing or verification TX.
+    if(bindingForgetRequested_) {
+      binding_.forget();
+      bindingTx_=ot_tx::Report{};
+      bindingTxStep_=0;
+      bindingForgetRequested_=false;
+    }
     if(requested_){start=true;requested_=false;}
     portEXIT_CRITICAL(&mutex_);
     const uint32_t now=millis();
@@ -593,6 +611,7 @@ class OpenThermGateway {
   ot_tx::Report lastReports_[2];
   ot_tx::Comparison comparisons_[2];
   ramses_bind::Session binding_;
+  bool bindingForgetRequested_=false; // guarded by mutex_, consumed on radio task
   uint32_t lastControllerTxMs_=0; // guarded by mutex_, TX quiet period
   ot_tx::Report bindingTx_;
   uint8_t bindingTxStep_=0;

@@ -4,7 +4,7 @@ import unittest
 from datetime import datetime, timezone
 from urllib.error import HTTPError
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import check_codex_review as gate
@@ -28,6 +28,33 @@ class CodexFirstTests(unittest.TestCase):
                      "✅ **Completed** `aaaaaaa`"),
             "updated_at": updated,
         }
+
+    def test_expected_codex_blocker_requests_non_green_cancellation(self):
+        """Never exit-success or continue to self-hosted builds for P1/P2."""
+        response = MagicMock()
+        response.__enter__.return_value.status = 202
+        with patch.object(gate, "urlopen", return_value=response) as api, \
+             patch.object(gate.time, "sleep", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                gate.cancel_expected_blocker(
+                    "token", self.REPO, "P1/P2 must be fixed before CI", "12345")
+        sent = api.call_args.args[0]
+        self.assertEqual(sent.full_url,
+                         "https://api.github.com/repos/example/evohome/actions/runs/12345/cancel")
+        self.assertEqual(sent.get_method(), "POST")
+
+    def test_cancellation_never_succeeds_without_accepted_api_result(self):
+        response = MagicMock()
+        response.__enter__.return_value.status = 403
+        with patch.object(gate, "urlopen", return_value=response), \
+             patch.object(gate.time, "sleep") as sleep:
+            with self.assertRaisesRegex(RuntimeError, "did not accept"):
+                gate.cancel_expected_blocker("token", self.REPO, "P2 found", "12345")
+            sleep.assert_not_called()
+
+    def test_cancellation_without_valid_run_id_fails_closed(self):
+        with self.assertRaisesRegex(RuntimeError, "workflow-run ID"):
+            gate.cancel_expected_blocker("token", self.REPO, "P1 found", "bad")
 
     def test_review_first_prevents_build_when_pending(self):
         with patch.object(gate, "request", return_value=self.PR), \

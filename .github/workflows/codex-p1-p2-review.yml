@@ -58,6 +58,12 @@ jobs:
     if: needs.request-first-review.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 33
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      checks: read
+      actions: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -66,6 +72,7 @@ jobs:
       - name: Require completed exact-head Codex and zero P1/P2
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          CODEX_EXPECTED_BLOCK_POLICY: cancel
         run: python3 scripts/check_codex_review.py --review-only
 
   resume-approved-ci:
@@ -137,7 +144,7 @@ jobs:
     needs: [request-final-review]
     # The branch-protection check must never be green after a skipped stage.
     if: >-
-      always() &&
+      !cancelled() &&
       ((github.event_name == 'pull_request_target' &&
         github.event.pull_request.draft == false) ||
        (github.event_name == 'issue_comment' &&

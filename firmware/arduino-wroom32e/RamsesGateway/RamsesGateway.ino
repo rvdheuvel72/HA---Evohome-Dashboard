@@ -91,7 +91,7 @@ constexpr uint32_t HEARTBEAT_MS = 15000;
 constexpr uint32_t RADIO_RECOVERY_RETRY_MS = 5000;
 constexpr uint32_t RX_HEALTH_SAMPLE_MS = 5000;
 constexpr uint8_t DEBUG_QUEUE_SIZE = 32;
-constexpr char FW_VERSION[] = "0.4.0-beta.31";
+constexpr char FW_VERSION[] = "0.4.0-beta.32";
 constexpr uint32_t MDNS_RETRY_MS = 15000;
 constexpr uint32_t MQTT_STATE_INTERVAL_MS = 15000;
 
@@ -432,16 +432,24 @@ void thermostatTick(ramses::FrameDecoder& decoder) {
     thermostat.confirmationSent(sent);
     snprintf(thermostatTxAction,sizeof(thermostatTxAction),"confirmation");
   } else {
-    thermostat.reported(sent,millis());
+    thermostat.reported(sent,millis(),snap.tempCenti);
     snprintf(thermostatTxAction,sizeof(thermostatTxAction),"temperature");
   }
   portEXIT_CRITICAL(&thermostatMux);
   char log[148];
-  snprintf(log,sizeof(log),
-    "Virtual 12 thermostat %s: TX=%s bytes=%u/%u (local only)",
-    offers?"offer":confirms?"confirmation":"temperature",
-    ot_tx::phaseName(d.phase),static_cast<unsigned>(d.written_bytes),
-    static_cast<unsigned>(d.expected_bytes));
+  if(reports) {
+    snprintf(log,sizeof(log),
+      "Virtual 12 thermostat temperature %.2fC: TX=%s bytes=%u/%u (local only)",
+      static_cast<double>(snap.tempCenti)/100.0,
+      ot_tx::phaseName(d.phase),static_cast<unsigned>(d.written_bytes),
+      static_cast<unsigned>(d.expected_bytes));
+  } else {
+    snprintf(log,sizeof(log),
+      "Virtual 12 thermostat %s: TX=%s bytes=%u/%u (local only)",
+      offers?"offer":"confirmation",
+      ot_tx::phaseName(d.phase),static_cast<unsigned>(d.written_bytes),
+      static_cast<unsigned>(d.expected_bytes));
+  }
   radioLog(sent?GatewayDebug::INFO:GatewayDebug::WARN,log);
 }
 
@@ -725,13 +733,16 @@ void httpThermostatStatus(){
     radio_frequency::evohomeTxFrequency(configuration.current.rfFrequencyKhz,
                                         configuration.current.rfModuleBand);
   const uint32_t now=millis();
-  char data[760];
+  char data[1100];
   const int len=snprintf(data,sizeof(data),
     "{\"role\":\"12_virtual_room_thermostat\",\"state\":\"%s\","
     "\"ready\":%s,\"controller_id\":%lu,\"thermostat_id\":%lu,"
     "\"zone\":%d,\"offer_accepted\":%s,\"confirmation_sent\":%s,"
     "\"cooldown_ms\":%lu,\"id_conflict\":%s,\"ids_seen\":%u,"
     "\"temp_centi\":%ld,\"temperature_fresh\":%s,\"report_due\":%s,"
+    "\"report_pending\":%s,\"next_report_in_ms\":%lu,"
+    "\"last_report_attempted\":%s,\"last_report_centi\":%ld,"
+    "\"last_report_local_complete\":%s,"
     "\"last_tx_action\":\"%s\",\"tx_phase\":\"%s\","
     "\"tx_local_verified\":%s,\"tx_bytes\":%u,\"tx_expected_bytes\":%u,"
     "\"mqtt_temperature_topic\":\"%s\","
@@ -747,6 +758,11 @@ void httpThermostatStatus(){
     static_cast<long>(snap.tempCenti),
     snap.temperatureFresh(now)?"true":"false",
     snap.reportDue(now)?"true":"false",
+    snap.reportPending(now)?"true":"false",
+    static_cast<unsigned long>(snap.nextReportInMs(now)),
+    snap.hasReported?"true":"false",
+    static_cast<long>(snap.lastReportCenti),
+    snap.lastReportLocalComplete?"true":"false",
     txAction,ot_tx::phaseName(tx.phase),
     ot_tx::localVerified(tx)?"true":"false",
     static_cast<unsigned>(tx.written_bytes),
@@ -869,15 +885,25 @@ void httpThermostatTemperature(){
   if(!thermostatTempValue(web.arg("temp_centi"),centi)){
     web.send(400,"application/json","{\"error\":\"invalid_centi_celsius_range\"}");return;
   }
-  bool accepted=false;
+  bool accepted=false,pending=false;
+  uint32_t nextMs=0;
   portENTER_CRITICAL(&thermostatMux);
-  if(thermostat.state==ramses_thermostat::PAIRED)
-    accepted=thermostat.setTemperature(centi,millis());
+  if(thermostat.state==ramses_thermostat::PAIRED) {
+    const uint32_t now=millis();
+    accepted=thermostat.setTemperature(centi,now);
+    pending=thermostat.reportPending(now);
+    nextMs=thermostat.nextReportInMs(now);
+  }
   portEXIT_CRITICAL(&thermostatMux);
   if(!accepted){
     web.send(409,"application/json","{\"error\":\"thermostat_not_controller_accepted\"}");return;
   }
-  web.send(200,"application/json","{\"accepted\":true,\"unit\":\"centi_celsius\"}");
+  char result[158];
+  snprintf(result,sizeof(result),
+    "{\"accepted\":true,\"unit\":\"centi_celsius\",\"report_pending\":%s,"
+    "\"next_report_in_ms\":%lu}",
+    pending?"true":"false",static_cast<unsigned long>(nextMs));
+  web.send(200,"application/json",result);
 }
 void onMqttMessage(char* topic,uint8_t* payload,unsigned length){
   if(!topic || strcmp(topic,thermostatTopic)!=0 ||
@@ -1812,8 +1838,8 @@ void handlePacket(const PacketEvent& event) {
 void setup() {
   Serial.begin(115200);
   delay(250);
-  Serial.println("\n# RAMSES II Arduino v0.4.0-beta.31 (read-only OpenTherm discovery)");
-  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-beta.31");
+  Serial.println("\n# RAMSES II Arduino v0.4.0-beta.32 (read-only OpenTherm discovery)");
+  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-beta.32");
   char bootInfo[96];
   snprintf(bootInfo, sizeof(bootInfo), "Reset reason: %s", resetReason());
   recordLog(GatewayDebug::INFO, bootInfo);

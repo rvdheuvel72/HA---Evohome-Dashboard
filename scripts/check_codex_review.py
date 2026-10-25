@@ -271,7 +271,9 @@ def check_review_only(token, full_repo, number, sha):
     owner, name = full_repo.split("/", 1)
     findings = blockers(token, owner, name, number, sha)
     if findings:
-        return "blocked", f"Codex has {len(findings)} blocking P1/P2 finding(s); self-hosted CI is intentionally skipped. See PR review threads."
+        # Structured, unambiguous state. Never infer actionable review
+        # findings from a human-readable message or draft/stale status.
+        return "codex_blocked", f"Codex has {len(findings)} blocking P1/P2 finding(s); self-hosted CI is intentionally skipped. See PR review threads."
     prefix = "/repos/" + full_repo
     reviews = pages(token, prefix + f"/pulls/{number}/reviews")
     comments = pages(token, prefix + f"/issues/{number}/comments")
@@ -447,8 +449,7 @@ def main():
         print(message, flush=True)
         if result in ("passed", "skipped"):
             return 0
-        if result == "blocked" and mode == "--review-only" and (
-                message.startswith("P1/P2 must be fixed before CI:")) and (
+        if result == "codex_blocked" and mode == "--review-only" and (
                 os.environ.get("CODEX_EXPECTED_BLOCK_POLICY") == "cancel"):
             cancel_expected_blocker(token, full_repo, message)
         if result != "pending" or time.monotonic() + 15 >= expires:

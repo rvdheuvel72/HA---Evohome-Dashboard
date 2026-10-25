@@ -87,7 +87,7 @@ a{color:#a9d5ff}
 <div class="controls"><label class="field">External room temperature (°C; sent after acceptance)
 <input id="thermostat-temp" type="number" min="-40" max="85" step="0.01" value="20.00"></label>
 <button type="button" id="thermostat-set-temp" disabled>Update sensor reading</button></div>
-<p class="muted">MQTT temperature topic is shown below. Publish an integer centi-°C value, e.g. 2150 for 21.50°C, at least every 15 minutes to keep reports active.</p>
+<p class="muted">MQTT temperature topic is shown below. Publish &lt;Unix epoch seconds&gt;:&lt;integer centi-°C&gt;, for example &lt;current Unix timestamp&gt;:2150 for 21.50°C. Retained replay of an old measurement cannot refresh its 15-minute validity. Publish a new measurement with its actual sample timestamp at least every 15 minutes.</p>
 <pre id="thermostat-status" aria-live="polite">No virtual thermostat pairing has been requested.</pre>
 </details>
 <section class="panel" aria-label="Passive radio receive diagnostics">

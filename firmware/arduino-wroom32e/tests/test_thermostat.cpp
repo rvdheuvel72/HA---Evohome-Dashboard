@@ -98,7 +98,7 @@ int main(){
   assert(!s.reportDue(1040));
   assert(s.setTemperature(2154,1040));
   assert(s.reportDue(1040));
-  s.reported(true,1040);
+  s.reported(true,1040,2154);
   assert(!s.reportDue(1041));
   assert(s.reportDue(301040));
   assert(!s.reportDue(901041)); // value stale after 15 min
@@ -118,6 +118,54 @@ int main(){
   assert(!s.reportDue(901100));
   assert(s.setTemperature(2050,901100));
   assert(s.reportDue(901100));
+  // A changed sample is eligible after a bounded 15s RF interval instead
+  // of waiting for the regular five-minute periodic refresh.
+  Session quick;
+  assert(quick.request(1000,10740,145038));
+  quick.offered(true,1010);
+  assert(quick.observe(acceptance,1020));
+  quick.confirmationSent(true);
+  assert(quick.setTemperature(1850,1040));
+  assert(quick.reportDue(1040) && quick.reportPending(1040));
+  quick.reported(true,1040,1850);
+  assert(!quick.reportPending(1040));
+  assert(!quick.reportDue(1041));
+  assert(quick.setTemperature(1900,1041));
+  assert(quick.reportPending(1041));
+  assert(quick.nextReportInMs(1041)==14999u);
+  assert(!quick.reportDue(16039));
+  assert(quick.reportDue(16040));
+  quick.reported(true,16040,1900);
+  assert(!quick.reportPending(16041));
+  // Same value must not trigger any extra RF traffic.
+  assert(quick.setTemperature(1900,16042));
+  assert(!quick.reportDue(16042));
+  assert(quick.nextReportInMs(16042)==REPORT_INTERVAL_MS-2u);
+  assert(quick.reportDue(316040));
+  // A new value arriving while RF TX is in progress must remain pending.
+  assert(quick.setTemperature(2000,316040));
+  assert(quick.reportDue(316040));
+  assert(quick.setTemperature(2050,316041));
+  quick.reported(true,316042,2000);
+  assert(quick.reportPending(316042));
+  assert(!quick.reportDue(316043));
+  assert(quick.reportDue(331042));
+  quick.reported(true,331042,2050);
+  assert(!quick.reportPending(331043));
+  // Hardware faults still respect rate limiting; failed local RF TX
+  // must NOT be described as having delivered the pending temperature.
+  assert(quick.setTemperature(1950,331043));
+  assert(quick.reportDue(346042));
+  quick.reported(false,346042,1950);
+  assert(quick.reportPending(346043));
+  assert(!quick.reportDue(346043));
+  assert(quick.reportDue(361042));
+  quick.reported(true,361042,1950);
+  assert(!quick.reportPending(361043));
+  // A stale sensor cannot be rescheduled by a previously changed value.
+  quick.tick(361042+TEMPERATURE_TTL_MS+1u);
+  assert(!quick.reportPending(361042+TEMPERATURE_TTL_MS+1u));
+  assert(!quick.reportDue(361042+TEMPERATURE_TTL_MS+1u));
   // Stopping a paired 12: device invalidates temperature and all future
   // reports, while retaining the RF retry cooldown.
   const uint32_t beforeForget=s.cooldown(901101);

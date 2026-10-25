@@ -79,7 +79,7 @@ a{color:#a9d5ff}
 <details class="panel" id="thermostat-panel">
 <summary>Virtual wireless room thermostat (12:) — pair with existing Evohome (01:)</summary>
 <p class="muted">Independent of additional-controller (01:) pairing with the R8810A. Pair the virtual 12: room-temperature sensor to the existing Evohome controller, in its room/zone temperature-sensor binding mode. Existing R8810A control and controller pairing remain unchanged. A received 1FC9 controller acceptance is required before a confirmation or any 30C9 temperature report. The controller must already be observed on RF.</p>
-<p class="muted">No automatic binding, setpoint changes or boiler commands. Temperature reports are at most once every 5 minutes and stop when the externally supplied measurement is older than 15 minutes. RF delivery is not proven by a local TX completion. Controller acceptance alone does not prove the Evohome has assigned the correct zone sensor.</p>
+<p class="muted">No automatic binding, setpoint changes or boiler commands. Changed temperatures are sent after a minimum 15-second RF spacing; unchanged readings are refreshed every 5 minutes. Old external measurements expire after 15 minutes. Saving a value is separate from RF transmission. RF delivery is not proven by a local TX completion. Controller acceptance alone does not prove the Evohome has assigned the correct zone sensor.</p>
 <div class="controls">
 <label class="field">Unused virtual thermostat ID (12:NNNNNN)
 <input id="thermostat-id" type="number" min="1" max="262142" step="1" placeholder="e.g. 160002" autocomplete="off"></label>

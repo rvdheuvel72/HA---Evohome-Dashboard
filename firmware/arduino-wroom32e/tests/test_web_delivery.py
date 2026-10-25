@@ -26,7 +26,12 @@ assert html.count('<script defer src="/gateway.js"></script>')==1
 assert '<script>' not in html, "No inline JS should remain in HTML"
 assert html.count('</script>')==1, "Only the one external JS closing tag is allowed"
 assert len(html)<21000, "HTML response must be less than half old monolithic 41KB page"
-assert len(script)<30000  # two authenticated local stop/forget panels
+assert len(script)<31000  # virtual thermostat pending/sent status
+assert '"report_pending":%s' in ino or '\\"report_pending\\":%s' in ino
+assert 'next_report_in_ms' in ino and 'last_report_centi' in ino
+assert 'reportPending(now)' in ino and 'nextReportInMs(now)' in ino
+assert 'result.report_pending' in script and 'Last RF sample' in script
+assert 'lastReportCenti=sentCenti' in (SKETCH/"RamsesThermostat.h").read_text()
 assert 'web.on("/gateway.js", HTTP_GET, httpGatewayJs);' in ino
 assert 'web.sendContent_P(data+pos,n)' in ino
 assert 'constexpr size_t BLOCK=1024' in ino

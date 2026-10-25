@@ -337,8 +337,13 @@ async function updateThermostat(){
     ' · accepted: '+p.offer_accepted+' · confirmed locally: '+p.confirmation_sent+
     '\nAssigned zone: '+p.zone+' · cooldown '+Math.ceil(p.cooldown_ms/1000)+'s'+
     ' · observed 12: IDs: '+p.ids_seen+
-    '\nTemperature: '+(p.temperature_fresh?(p.temp_centi/100).toFixed(2)+'°C':'missing or stale')+
-    ' · report due: '+p.report_due+
+    '\nSaved temperature: '+(p.temperature_fresh?(p.temp_centi/100).toFixed(2)+'°C':'missing or stale')+
+    '\nRF update: '+(p.report_pending?
+      'pending ('+Math.ceil(p.next_report_in_ms/1000)+'s minimum delay remaining)':
+      p.last_report_attempted?(p.last_report_local_complete?'locally transmitted':'local TX failed'):
+      'no temperature report yet')+
+    ' · scheduled refresh: '+(p.temperature_fresh?Math.ceil(p.next_report_in_ms/1000)+'s':'off')+
+    '\nLast RF sample: '+(p.last_report_attempted?(p.last_report_centi/100).toFixed(2)+'°C':'none')+
     '\nLast TX '+p.last_tx_action+': '+p.tx_phase+' ('+p.tx_bytes+'/'+p.tx_expected_bytes+' bytes)'+
     '\nMQTT set topic: '+p.mqtt_temperature_topic+
     '\n'+(thermostatPostError||p.note));
@@ -407,7 +412,9 @@ el('thermostat-set-temp').addEventListener('click',async()=>{
   });
   const result=await response.json();
   if(!response.ok)throw new Error(result.error||'HTTP '+response.status);
-  thermostatPostError='External room temperature accepted.';
+  thermostatPostError=result.report_pending?
+   'Saved '+degrees.toFixed(2)+'°C; awaiting RF report (earliest '+Math.ceil(result.next_report_in_ms/1000)+'s).':
+   'Saved '+degrees.toFixed(2)+'°C; identical to last locally transmitted sample. No extra RF needed.';
  }catch(e){thermostatPostError='Temperature rejected: '+e.message}
  await updateThermostat();
 });

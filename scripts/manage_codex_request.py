@@ -34,7 +34,7 @@ def ensure_request(token, repo, number, sha, phase):
         # A same-repo PR can forge a github-actions[bot] issue comment.
         # Only an authenticated successful protected final-request job can
         # suppress another genuine post-CI review request.
-        if final_review_requested_at(token, repo, comments, sha):
+        if final_review_requested_at(token, repo, number, comments, sha):
             print("Verified protected post-CI review request already exists")
             return
     else:

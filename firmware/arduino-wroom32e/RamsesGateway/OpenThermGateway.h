@@ -104,10 +104,10 @@ class OpenThermGateway {
     if(cooling)return "pairing_cooldown";
     return nullptr;
   }
-  // Bench UART loopback must never overlap ANY pending RF command, scan,
-  // pairing transaction, verification wait, or enabled automatic TX mode.
-  // Recheck on radioTask even when the HTTP preflight already passed.
-  bool loopbackAllowed() const {
+  // Manual thermostat RF transactions share the single CC1101 and must not
+  // overlap controller binding, OpenTherm scan, or one-shot operations.
+  // Recheck on the dedicated radio task, never trust only HTTP preflight.
+  bool manualRfIdle() const {
     if(!config_ || config_->otTxEnabled || config_->otAutoPoll ||
        config_->otScanAll)return false;
     portENTER_CRITICAL(&mutex_);
@@ -117,6 +117,13 @@ class OpenThermGateway {
     portEXIT_CRITICAL(&mutex_);
     return idle;
   }
+  uint32_t observedControllerId() const {
+    portENTER_CRITICAL(&mutex_);
+    const uint32_t id=controllerEvidence_.ambiguous?0:observedController_;
+    portEXIT_CRITICAL(&mutex_);
+    return id;
+  }
+  bool bridgeObserved() const { return bridgeSeen_; }
   bool requestBinding(uint32_t virtualControllerId){
     if(bindingBlockReason()!=nullptr || !bindingReady())return false;
     portENTER_CRITICAL(&mutex_);

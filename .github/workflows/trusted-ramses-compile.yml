@@ -61,7 +61,7 @@ jobs:
           comments=pages(token,f"/repos/{repo}/issues/{number}/comments")
           if review_disposition(reviews,comments,sha)=="reviewed":
               with open(os.environ["GITHUB_OUTPUT"],"a",encoding="utf-8") as out:
-                  out.write("approved=true\\n")
+                  out.write("approved=true\n")
               print("Exact-head review clean: Arduino compile enabled")
           else:
               print("Review pending; Arduino CI skipped without polling")

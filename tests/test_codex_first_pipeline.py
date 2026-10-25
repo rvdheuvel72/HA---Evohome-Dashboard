@@ -52,6 +52,46 @@ class CodexFirstTests(unittest.TestCase):
                 gate.cancel_expected_blocker("token", self.REPO, "P2 found", "12345")
             sleep.assert_not_called()
 
+    def test_main_routes_real_codex_blocked_state_to_cancellation(self):
+        """Integration regression: producer state MUST reach cancel path."""
+        import json
+        from tempfile import NamedTemporaryFile
+        with NamedTemporaryFile("w+", encoding="utf-8") as event:
+            json.dump({"pull_request":{"number":12,
+                      "head":{"sha":self.SHA}}},event)
+            event.flush()
+            environ = {"GITHUB_EVENT_PATH":event.name,
+                       "GITHUB_TOKEN":"token",
+                       "GITHUB_REPOSITORY":self.REPO,
+                       "CODEX_EXPECTED_BLOCK_POLICY":"cancel"}
+            with patch.dict(gate.os.environ,environ), \
+                 patch.object(gate,"check_review_only",
+                              return_value=("codex_blocked","found P2")), \
+                 patch.object(gate,"cancel_expected_blocker",
+                              side_effect=KeyboardInterrupt) as cancel:
+                with self.assertRaises(KeyboardInterrupt):
+                    gate.main()
+                cancel.assert_called_once_with("token",self.REPO,"found P2")
+
+    def test_draft_blocker_does_not_cancel(self):
+        """Only a verified Codex finding, never a draft, may cancel."""
+        import json
+        from tempfile import NamedTemporaryFile
+        with NamedTemporaryFile("w+", encoding="utf-8") as event:
+            json.dump({"pull_request":{"number":12,
+                      "head":{"sha":self.SHA}}},event)
+            event.flush()
+            environ = {"GITHUB_EVENT_PATH":event.name,
+                       "GITHUB_TOKEN":"token",
+                       "GITHUB_REPOSITORY":self.REPO,
+                       "CODEX_EXPECTED_BLOCK_POLICY":"cancel"}
+            with patch.dict(gate.os.environ,environ), \
+                 patch.object(gate,"check_review_only",
+                              return_value=("blocked","Draft PR")), \
+                 patch.object(gate,"cancel_expected_blocker") as cancel:
+                self.assertEqual(gate.main(),1)
+                cancel.assert_not_called()
+
     def test_cancellation_without_valid_run_id_fails_closed(self):
         with self.assertRaisesRegex(RuntimeError, "workflow-run ID"):
             gate.cancel_expected_blocker("token", self.REPO, "P1 found", "bad")
@@ -67,7 +107,7 @@ class CodexFirstTests(unittest.TestCase):
         with patch.object(gate, "request", return_value=self.PR), \
              patch.object(gate, "blockers", return_value=["P1: safety"]):
             state, _ = gate.check_review_only("token", self.REPO, 12, self.SHA)
-            self.assertEqual(state, "blocked")
+            self.assertEqual(state, "codex_blocked")
 
     def test_review_first_requires_real_completion_no_quota_bypass(self):
         with patch.object(gate, "request", return_value=self.PR), \

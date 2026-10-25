@@ -115,8 +115,8 @@ int main() {
   assert(s.verificationResult==ot_readonly::READ_ACK);
 
   // Correlated but negative ID25 replies must not authorize a 01: controller.
-  for(const uint8_t rejectedType : {static_cast<uint8_t>(6),
-                                    static_cast<uint8_t>(7)}) {
+  const uint8_t rejectedTypes[]={6,7};
+  for(const uint8_t rejectedType : rejectedTypes) {
     ramses_bind::Session candidate;
     assert(candidate.start(800000u,62142,48994,245914));
     assert(candidate.verificationResult==ot_readonly::NOT_TESTED);

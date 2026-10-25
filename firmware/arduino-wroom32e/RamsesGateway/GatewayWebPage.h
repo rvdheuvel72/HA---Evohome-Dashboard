@@ -30,7 +30,7 @@ a{color:#a9d5ff}
 .pin-map{width:100%;border-collapse:collapse;font-size:.9rem}
 .pin-map td,.pin-map th{padding:6px;text-align:left;border-bottom:1px solid #334354}
 </style></head><body>
-<header><div><h1>RAMSES II Gateway</h1><small>ESP32-WROOM-32E · CC1101 · OpenTherm read diagnostics · optional experimental pairing</small></div><span id="connection" class="muted">Connecting...</span></header>
+<header><div><h1>RAMSES II Gateway</h1><small>ESP32-WROOM-32E · CC1101 · Controller (01:) + virtual room thermostat (12:) · passive RF diagnostics</small></div><span id="connection" class="muted">Connecting...</span></header>
 <nav class="tabs" role="tablist" aria-label="Gateway pages"><button type="button" id="tab-diagnostics" role="tab" aria-selected="true" aria-controls="page-diagnostics">Diagnostics</button><button type="button" id="tab-settings" role="tab" aria-selected="false" aria-controls="page-settings">Settings</button></nav>
 <div id="page-diagnostics" role="tabpanel" aria-labelledby="tab-diagnostics">
 <section class="grid">
@@ -62,14 +62,6 @@ a{color:#a9d5ff}
 <pre id="one-shot-diag" aria-live="polite">TX diagnostic data appears after one request.</pre>
 <pre id="one-shot-compare">UART/FIFO A-B comparison will appear here.</pre>
 </details>
-<details class="panel" id="tx-loopback-panel">
-<summary>ESP32 UART TX loopback — GPIO26 → GPIO25 (NO RF transmit)</summary>
-<p class="muted">Bench wiring: connect ESP32 GPIO26 to ESP32 GPIO25. You may leave CC1101 GDO0 disconnected as in your current test. This diagnostic sends a fixed 82-byte encoded OpenTherm RAMSES 1FC9 test frame over the ESP32 UART TX pin only, reads the electrical bytes through UART2 RX on GPIO25, and compares and decodes them. It DOES NOT enter CC1101 transmit mode, transmit an RF packet, bind to R8810A, or affect stored settings.</p>
-<p class="muted">The CC1101 must be in receive mode with automatic polling, scanning and RF TX disabled, and no other RF transaction pending. Do not use the R8810A pairing button for this test. Restore GPIO26 → CC1101 GDO0 before testing actual RF later.</p>
-<label class="setting-check"><input type="checkbox" id="loopback-confirm"> GPIO26 is jumpered to GPIO25 and I authorize ONE GPIO-only UART transmission; no RF test or pairing.</label>
-<div class="controls"><button type="button" id="loopback-start" disabled>Test GPIO26 → GPIO25</button><a href="/api/v1/radio/tx-loopback" target="_blank">Loopback JSON</a></div>
-<pre id="loopback-result" aria-live="polite">No GPIO loopback attempted.</pre>
-</details>
 <details class="panel" id="pairing-panel">
 <summary>Experimental R8810A pairing — additional virtual controller (01:)</summary>
 <p class="muted">Experimental RAMSES 1FC9 binding. The <strong>Honeywell R8810A1018 device installation guide</strong>, page 2, says to press its button for <strong>5 seconds</strong> to enter binding mode: the red LED alternates 0.5 seconds ON / 0.5 seconds OFF. The manual does <strong>not</strong> require a preceding 15-second reset for this procedure. <strong>Do not clear existing bindings.</strong> Clicking the ESP32 button only queues an RF offer; it does not put the physical R8810A into binding mode. This manual documents a CM957 thermostat, not the safety or feasibility of adding a second virtual controller to an existing Evohome system. If the red LED does not flash after a deliberate 5-second press, stop the experiment and keep normal Evohome boiler control.</p>
@@ -81,6 +73,22 @@ a{color:#a9d5ff}
 <label class="setting-check"><input id="pairing-confirm" type="checkbox"> I verified the R8810A and its existing Evohome controller ID, chose an unused 01: identity, put R8810A in 5-second bind mode without clearing existing bindings, and authorize one experimental 1FC9 bind transaction plus one read-only ID25 verification.</label>
 <div class="controls"><button type="button" id="pairing-start" disabled>Send one pairing offer</button></div>
 <pre id="pairing-result" aria-live="polite">No pairing attempted. Confirmation sent is NOT proof of binding; only a directed 3220 reply validates data communication.</pre>
+</details>
+<details class="panel" id="thermostat-panel">
+<summary>Virtual wireless room thermostat (12:) — pair with existing Evohome (01:)</summary>
+<p class="muted">Independent of additional-controller (01:) pairing with the R8810A. Pair the virtual 12: room-temperature sensor to the existing Evohome controller, in its room/zone temperature-sensor binding mode. Existing R8810A control and controller pairing remain unchanged. A received 1FC9 controller acceptance is required before a confirmation or any 30C9 temperature report. The controller must already be observed on RF.</p>
+<p class="muted">No automatic binding, setpoint changes or boiler commands. Temperature reports are at most once every 5 minutes and stop when the externally supplied measurement is older than 15 minutes. RF delivery is not proven by a local TX completion. Controller acceptance alone does not prove the Evohome has assigned the correct zone sensor.</p>
+<div class="controls">
+<label class="field">Unused virtual thermostat ID (12:NNNNNN)
+<input id="thermostat-id" type="number" min="1" max="262142" step="1" placeholder="e.g. 160002" autocomplete="off"></label>
+<a href="/api/v1/thermostat" target="_blank">Thermostat JSON</a></div>
+<label class="setting-check"><input id="thermostat-confirm" type="checkbox"> I have selected a temperature-sensor binding slot for the intended Evohome zone, and authorize one 12: sensor 1FC9 offer and one confirmation only if accepted.</label>
+<div class="controls"><button type="button" id="thermostat-pair" disabled>Send thermostat pairing offer</button></div>
+<div class="controls"><label class="field">External room temperature (°C; sent after acceptance)
+<input id="thermostat-temp" type="number" min="-40" max="85" step="0.01" value="20.00"></label>
+<button type="button" id="thermostat-set-temp" disabled>Update sensor reading</button></div>
+<p class="muted">MQTT temperature topic is shown below. Publish an integer centi-°C value, e.g. 2150 for 21.50°C, at least every 15 minutes to keep reports active.</p>
+<pre id="thermostat-status" aria-live="polite">No virtual thermostat pairing has been requested.</pre>
 </details>
 <section class="panel" aria-label="Passive radio receive diagnostics">
 <h2>Passive radio receive diagnostics</h2>

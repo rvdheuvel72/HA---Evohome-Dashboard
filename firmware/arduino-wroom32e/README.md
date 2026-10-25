@@ -10,8 +10,10 @@ room thermostat offers to the already existing Evohome 01: controller,
 waits for a controller 1FC9 W/accept containing the assigned zone,
 and sends a confirmation. Once accepted, signed room-temperature reports
 via RAMSES 30C9 can be sourced from the web interface or MQTT topic
-`RAMSES/GATEWAY/<gateway-id>/thermostat/temperature/set` (e.g.
-`2150` for 21.50 °C). Fresh measurements are required; periodic
+`RAMSES/GATEWAY/<gateway-id>/thermostat/temperature/set` using
+`<Unix epoch seconds>:<signed centi-°C>`, e.g. `<sample timestamp>:2150`
+for 21.50 °C. Plain `2150` is rejected: retaining it across MQTT reconnects
+would otherwise refresh an expired measurement. Fresh measurements are required; periodic
 reporting stops 15 minutes after the last update, and never exceeds
 one report per 5 minutes. No pairing or heating commands run on boot.
 

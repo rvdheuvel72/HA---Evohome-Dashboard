@@ -1,3 +1,19 @@
+## Beta.28: require real OpenTherm Read-Ack for verified controller pairing
+
+**Release:** [RAMSES Arduino Gateway v0.4.0-beta.28](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.28).
+
+**Arduino IDE ZIP:** `RAMSES-Arduino-Gateway-v0.4.0-beta.28-ESP32-WROOM-32E.zip`.
+
+The R8810A additional-controller `1FC9` pairing state now becomes
+`verified_read_reply` **only** after a genuine, correlated OpenTherm ID25
+`Read-Ack` from the expected bridge to the virtual `01:` controller.
+`Data-Invalid` and `Unknown-DataId` replies are explicitly reported as
+`verification_result` and end in `confirmation_sent_unverified`, not
+VERIFIED. A rejected ID25 reply can never authorize subsequent `01:`
+transmission. No automatic pairing, heating commands, retries, or modifications
+to the RX path are introduced. The guarded manual `18:` test from beta.27
+remains supported.
+
 ## Beta.27: manual unpaired 18: OpenTherm ID25 read at 868.300 MHz
 
 **Release:** [RAMSES Arduino Gateway v0.4.0-beta.27](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.27).

@@ -12,7 +12,7 @@
 
 Temperature input can come from the authenticated web API or MQTT
 `RAMSES/GATEWAY/<gateway-id>/thermostat/temperature/set`; publish signed
-integer hundredths of °C, e.g. `2150` = 21.50 °C. No automatic RF
+`<Unix epoch seconds>:<signed integer centi-°C>` (e.g. `<sample timestamp>:2150` = 21.50 °C). Plain integers are rejected because PubSubClient cannot distinguish retained MQTT replays; an older-than-15-minute sample can never be revived by reconnecting. No automatic RF
 pairing; measurements must be fresh (under 15 minutes), reports are no
 faster than every 5 minutes. At boot no virtual thermostat pairing is
 replayed from storage; experimental session must be bound anew.

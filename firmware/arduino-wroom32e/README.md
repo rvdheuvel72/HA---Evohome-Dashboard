@@ -1,3 +1,26 @@
+## Beta.29: parallel virtual controller (01:) and wireless room thermostat (12:)
+
+**Release:** [RAMSES Arduino Gateway v0.4.0-beta.29](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.29).
+
+**Arduino IDE ZIP:** `RAMSES-Arduino-Gateway-v0.4.0-beta.29-ESP32-WROOM-32E.zip`.
+
+Both RF roles are included. The manual 01: additional-controller R8810A
+binding and read-only OpenTherm logic remain intact. The new 12: wireless
+room thermostat offers to the already existing Evohome 01: controller,
+waits for a controller 1FC9 W/accept containing the assigned zone,
+and sends a confirmation. Once accepted, signed room-temperature reports
+via RAMSES 30C9 can be sourced from the web interface or MQTT topic
+`RAMSES/GATEWAY/<gateway-id>/thermostat/temperature/set` (e.g.
+`2150` for 21.50 °C). Fresh measurements are required; periodic
+reporting stops 15 minutes after the last update, and never exceeds
+one report per 5 minutes. No pairing or heating commands run on boot.
+
+Obsolete GPIO26→GPIO25 UART-only loopback is removed; RX health,
+SPI monitoring, packet capture and real controller/bridge diagnostics
+remain. Thermostat binding is experimental and currently not persisted
+across ESP32 reboots. Radio transmission and coexistence need verification
+against the actual Evohome equipment.
+
 ## Beta.28: require real OpenTherm Read-Ack for verified controller pairing
 
 **Release:** [RAMSES Arduino Gateway v0.4.0-beta.28](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.28).

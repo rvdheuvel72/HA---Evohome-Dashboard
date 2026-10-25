@@ -202,6 +202,28 @@ int main() {
   wrapEarly.offered(true,0xfffffff8u);
   assert(wrapEarly.observe(w,14991u));
   assert(wrapEarly.state==ramses_bind::CONFIRM_QUEUED);
+  // A local-only 01: forget cancels a pending handshake without sending
+  // an unbind frame or resetting the real controller / bridge.
+  ramses_bind::Session stopped;
+  assert(stopped.start(500000,62142,48994,245914));
+  stopped.offered(true,500001);
+  const uint32_t remaining=stopped.cooldown(500002);
+  assert(remaining>0);
+  stopped.forget();
+  assert(stopped.state==ramses_bind::IDLE && stopped.virtualId==0);
+  assert(!stopped.busy() && !stopped.verifiedReadAck);
+  assert(!stopped.observe(w,500003));
+  assert(stopped.cooldown(500002)==remaining);
+  assert(!stopped.start(500003,62142,48994,245914));
+  assert(stopped.start(560001,62142,48994,245914));
+  stopped.forget();
+  assert(stopped.state==ramses_bind::IDLE);
+  // Also forget a verified 01: identity and reject subsequent directed 3220.
+  justInTime.forget();
+  assert(justInTime.state==ramses_bind::IDLE);
+  assert(!justInTime.verifiedReadAck && justInTime.virtualId==0);
+  assert(!justInTime.observe(rp,417600));
+
   // P2 regression: controller-ID tracking must fail closed when full.
   ramses_ids::SeenControllers seen;
   assert(seen.eligible(62142));

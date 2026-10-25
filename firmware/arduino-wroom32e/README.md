@@ -1,3 +1,17 @@
+## Beta.27: manual unpaired 18: OpenTherm ID25 read at 868.300 MHz
+
+**Release:** [RAMSES Arduino Gateway v0.4.0-beta.27](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.27).
+
+**Arduino IDE ZIP:** `RAMSES-Arduino-Gateway-v0.4.0-beta.27-ESP32-WROOM-32E.zip`.
+
+On a real 868 MHz CC1101, the authenticated **Manual OpenTherm ID25 read**
+now supports a unique, unobserved unpaired `18:` gateway source without
+needing an already verified additional `01:` controller binding.
+It still sends only one read-only `3220` ID25 request per manual confirmation
+with cooldown; normal TX, scans, polling and pairing remain disabled.
+The radio RX improvements from beta.26 are unchanged. A local TX completion
+does not prove that the bridge received it.
+
 ## Beta.26: RX startup software bypass and IDLE-versus-RX test
 
 **Release:** [RAMSES Arduino Gateway v0.4.0-beta.26](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.26).

@@ -73,6 +73,24 @@ request cannot reveal all firmware capabilities.
 Optional auto-poll is constrained to documented, reviewed data IDs
 acknowledged in the scan, with at most one RF request per minute.
 
+## Manual single ID25 read before binding
+
+The manually confirmed **OpenTherm ID25 one-shot** supports a native
+868 MHz CC1101 module tuned to 868300 kHz with a unique, unobserved
+`18:xxxxxx` gateway identity, without binding a second `01:` controller.
+The legacy experimental 433 MHz cross-band path remains opt-in.
+A previously verified `01:` binding may instead supply its own identity;
+the real Evohome controller identity must never be impersonated.
+
+This exception does **not** enable the automatic OpenTherm TX, full scan,
+or auto-poll flags. Those flags must all remain off. The configured bridge
+must already have been observed on RX, a strong web password is mandatory,
+and each explicit button press permits one read-only `RQ/3220` ID25 request
+with an enforced 60-second cooldown. No retries or pairing frames are sent.
+A local TX completion is not proof of RF delivery; only a correctly
+correlated response from the R8810A establishes successful over-the-air
+exchange.
+
 ## Important limits
 
 - This is not a general-purpose RAMSES II write/pairing or zone controller:

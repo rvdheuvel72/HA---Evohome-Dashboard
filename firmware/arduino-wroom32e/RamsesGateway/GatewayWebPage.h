@@ -49,7 +49,7 @@ a{color:#a9d5ff}
 <pre id="ot-results">No compatibility scan requested.</pre>
 <details class="panel" id="one-shot-panel">
 <summary>Manual OpenTherm ID25 read test (unpaired experimental 18: or verified bound 01:)</summary>
-<p class="muted">Send exactly ONE RAMSES 3220 Read-Data ID25 request (boiler flow temperature) at 868.300 MHz. A verified additional controller 01: identity can be used on standard 868 MHz hardware; the pre-existing 433M cross-band unpaired test remains separately guarded. No retries, polling, scan or heating writes. Minimum cooldown: 60 seconds.</p>
+<p class="muted">Send exactly ONE RAMSES 3220 Read-Data ID25 request (boiler flow temperature) at 868.300 MHz. A unique, unobserved 18: gateway identity can now request ID25 on standard 868 MHz hardware before pairing; verified bound 01: identities remain supported. The legacy 433 MHz cross-band path requires explicit experimental RX opt-in. No retries, polling, scan or heating writes. Minimum cooldown: 60 seconds.</p>
 <p id="one-shot-status" class="muted">Checking bridge identity...</p>
 <label class="setting-check"><input type="checkbox" id="one-shot-confirm"> I verified the R8810A RF ID and my unique gateway 18: identity, or confirmed the additional 01: controller binding. I authorize ONE manually triggered read-only RF transmission.</label>
 <div class="controls"><label class="field">Single-test transmit method

@@ -205,11 +205,15 @@ const pairingBlockMessages={
   radio_not_ready:'The CC1101 radio is not initialized. Check the radio diagnostic panel.'
 };
 let pairingPostError='';
+let controllerStopTarget=0;
 async function updatePairing(){
  try{
   const r=await fetch('/api/v1/opentherm/pairing',{cache:'no-store'});
   if(!r.ok)throw new Error('HTTP '+r.status);
   const x=await r.json();
+  controllerStopTarget=Number(x.virtual_controller_id)||0;
+  el('controller-forget').disabled=!(controllerStopTarget>0 &&
+     x.state!=='not_started' && el('controller-forget-confirm').checked);
   const entered=el('pairing-id').value.trim();
   const candidate=Number(entered);
   const valid=entered.length>0 && Number.isInteger(candidate)&&
@@ -255,6 +259,7 @@ async function updatePairing(){
     '\\nThis is local radio/UART verification only: not proof of RF delivery, physical GPIO wire or R8810A acceptance.');
  }catch(e){
   el('pairing-start').disabled=true;
+  el('controller-forget').disabled=true;
   set('pairing-status','Pairing status unavailable: '+e.message);
   set('pairing-blocker','Pairing blocked: cannot read /api/v1/opentherm/pairing. Check firmware version, gateway connectivity and web authentication.');
  }
@@ -289,13 +294,38 @@ el('pairing-start').addEventListener('click',async()=>{
 function refreshPairing(){if(el('pairing-panel').open)scheduled('pairing',updatePairing)}
 el('pairing-panel').addEventListener('toggle',refreshPairing);
 setInterval(refreshPairing,10000);
+el('controller-forget-confirm').addEventListener('change',updatePairing);
+el('controller-forget').addEventListener('click',async()=>{
+ el('controller-forget').disabled=true;
+ if(!el('controller-forget-confirm').checked || !(controllerStopTarget>0))return;
+ try{
+  const response=await fetch('/api/v1/opentherm/pairing/forget',{
+   method:'POST',
+   headers:{'X-Gateway-Config':'virtual-controller-forget',
+            'Content-Type':'application/x-www-form-urlencoded'},
+   body:new URLSearchParams({
+     virtual_controller_id:String(controllerStopTarget),
+     confirm:'stop-and-forget-local-01'
+   }).toString()
+  });
+  const d=await response.json();
+  if(!response.ok)throw new Error(d.error||'HTTP '+response.status);
+  pairingPostError='Virtual 01: local stop queued; physical R8810A binding is unchanged.';
+ }catch(e){pairingPostError='Local controller stop rejected: '+e.message}
+ el('controller-forget-confirm').checked=false;
+ await updatePairing();
+});
 
 let thermostatPostError='';
+let thermostatStopTarget=0;
 async function updateThermostat(){
  try{
   const response=await fetch('/api/v1/thermostat',{cache:'no-store'});
   if(!response.ok)throw new Error('HTTP '+response.status);
   const p=await response.json();
+  thermostatStopTarget=Number(p.thermostat_id)||0;
+  el('thermostat-forget').disabled=!(thermostatStopTarget>0 &&
+    p.state!=='not_started' && el('thermostat-forget-confirm').checked);
   const candidate=Number(el('thermostat-id').value.trim());
   const idValid=Number.isInteger(candidate)&&candidate>0&&candidate<262143;
   const canPair=Boolean(p.ready)&&idValid&&el('thermostat-confirm').checked;
@@ -315,9 +345,31 @@ async function updateThermostat(){
  }catch(e){
   el('thermostat-pair').disabled=true;
   el('thermostat-set-temp').disabled=true;
+  el('thermostat-forget').disabled=true;
   set('thermostat-status','Thermostat status unavailable: '+e.message);
  }
 }
+el('thermostat-forget-confirm').addEventListener('change',updateThermostat);
+el('thermostat-forget').addEventListener('click',async()=>{
+ el('thermostat-forget').disabled=true;
+ if(!el('thermostat-forget-confirm').checked || !(thermostatStopTarget>0))return;
+ try{
+  const response=await fetch('/api/v1/thermostat/forget',{
+   method:'POST',
+   headers:{'X-Gateway-Config':'thermostat-forget',
+            'Content-Type':'application/x-www-form-urlencoded'},
+   body:new URLSearchParams({
+     thermostat_id:String(thermostatStopTarget),
+     confirm:'stop-and-forget-local-12'
+   }).toString()
+  });
+  const d=await response.json();
+  if(!response.ok)throw new Error(d.error||'HTTP '+response.status);
+  thermostatPostError='Virtual 12: local stop queued; Evohome sensor assignment is unchanged.';
+ }catch(e){thermostatPostError='Local thermostat stop rejected: '+e.message}
+ el('thermostat-forget-confirm').checked=false;
+ await updateThermostat();
+});
 el('thermostat-confirm').addEventListener('change',updateThermostat);
 el('thermostat-id').addEventListener('input',updateThermostat);
 el('thermostat-pair').addEventListener('click',async()=>{

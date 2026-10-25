@@ -39,6 +39,9 @@ for token in ('thermostat-panel', 'pairing-panel', 'one-shot-panel',
 assert "scheduled('status',poll)" in script
 assert "setInterval(()=>scheduled('status',poll),5000)" in script
 assert "loopback" not in script.lower()
+# A blank room-temperature input must not silently turn into a 0C RF reading.
+assert "if(rawTemperature==='')" in script
+assert "Number(rawTemperature)" in script
 assert 'web.on("/api/v1/thermostat", HTTP_GET, httpThermostatStatus);' in ino
 assert 'web.on("/api/v1/opentherm/pairing", HTTP_POST, httpOtPairing);' in ino
 assert "setInterval(updatePairing" not in script

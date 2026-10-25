@@ -178,6 +178,10 @@ struct Session {
   void tick(uint32_t now){
     if(state==WAIT_ACCEPT && static_cast<int32_t>(now-deadline)>=0)
       state=NO_RESPONSE;
+    // A stale sample must NEVER revive after millis() rolls over (49.7d).
+    // Expiration is latched until a new explicit sensor update arrives.
+    if(hasTemp && static_cast<uint32_t>(now-lastTempAt)>=TEMPERATURE_TTL_MS)
+      hasTemp=false;
   }
   bool observe(const ramses::Message& m,uint32_t now) {
     tick(now);

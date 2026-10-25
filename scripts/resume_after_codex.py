@@ -10,7 +10,6 @@ from urllib.request import Request, urlopen
 from check_codex_review import check_review_only, request
 
 WORKFLOWS = (
-    ("ramses-arduino-wroom32e.yml", "pull_request"),
     ("phase1-self-hosted.yml", "pull_request"),
     # pull_request_target is recovered through an explicit approved-run
     # check by the final controller, never by untrusted PR-controlled YAML.
@@ -45,9 +44,13 @@ def resume(token, repo, number, sha):
             x for x in runs
             if x.get("status") == "completed"
             and int(x.get("run_attempt", 1)) == 1
-            and x.get("head_sha") == sha
-            and any(p.get("number") == number
+            and any(p.get("number") == number and
+                    (p.get("head") or {}).get("sha") == sha
                     for p in x.get("pull_requests", []))
+            # pull_request_target reports the protected BASE SHA at
+            # run.head_sha, not the PR's head. The PR association and
+            # rerun's own current-head guard protect against stale runs.
+            and (event == "pull_request_target" or x.get("head_sha") == sha)
         ]
         if not matching:
             print("No skipped exact-head PR workflow to restart:", filename)

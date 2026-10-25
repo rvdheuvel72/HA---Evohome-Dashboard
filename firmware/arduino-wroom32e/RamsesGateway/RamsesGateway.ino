@@ -812,14 +812,20 @@ void httpThermostatTemperature(){
 }
 void onMqttMessage(char* topic,uint8_t* payload,unsigned length){
   if(!topic || strcmp(topic,thermostatTopic)!=0 ||
-     length<1 || length>5 || !payload)return;
-  char temp[6]={};
-  memcpy(temp,payload,length);
-  int32_t centi=0;
-  if(!thermostatTempValue(String(temp),centi))return;
+     length<12 || length>18 || !payload)return;
+  // A broker replay on reconnect is indistinguishable from a live message
+  // in PubSubClient. Require a source timestamp and NEVER refresh its age
+  // to the time of receipt. Stale samples fail closed when NTP is unavailable.
+  const time_t epoch=time(nullptr);
+  if(epoch<1600000000)return;
+  int32_t centi=0;uint32_t ageMs=0;
+  if(!ramses_thermostat::mqttStampedTemperature(
+        reinterpret_cast<const char*>(payload),length,
+        static_cast<uint32_t>(epoch),centi,ageMs))return;
+  const uint32_t sampledAt=millis()-ageMs;
   portENTER_CRITICAL(&thermostatMux);
   if(thermostat.state==ramses_thermostat::PAIRED)
-    thermostat.setTemperature(centi,millis());
+    thermostat.setTemperature(centi,sampledAt);
   portEXIT_CRITICAL(&thermostatMux);
 }
 

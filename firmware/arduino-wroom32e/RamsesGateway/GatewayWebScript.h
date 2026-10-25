@@ -341,7 +341,9 @@ el('thermostat-pair').addEventListener('click',async()=>{
 el('thermostat-set-temp').addEventListener('click',async()=>{
  el('thermostat-set-temp').disabled=true;
  try{
-  const degrees=Number(el('thermostat-temp').value);
+  const rawTemperature=el('thermostat-temp').value.trim();
+  if(rawTemperature==='')throw new Error('room temperature is required');
+  const degrees=Number(rawTemperature);
   if(!Number.isFinite(degrees)||degrees<-40||degrees>85)throw new Error('temperature outside -40..85°C');
   const response=await fetch('/api/v1/thermostat/temperature',{
    method:'POST',

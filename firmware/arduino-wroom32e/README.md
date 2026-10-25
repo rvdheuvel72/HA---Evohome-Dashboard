@@ -1,3 +1,30 @@
+## Beta.31: reproduce observed DTS92-style 12: thermostat protocol
+
+**Release:** [RAMSES Arduino Gateway v0.4.0-beta.31](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.31).
+
+**Arduino IDE ZIP:** `RAMSES-Arduino-Gateway-v0.4.0-beta.31-ESP32-WROOM-32E.zip`.
+
+Physical beta.29 test at **2026-10-25 16:30:55 CET** successfully received
+Evohome `W --- 01:245914 12:160001 --:------ 1FC9 006 03230907C09A`,
+proof that Evohome heard the ESP32's 12: thermostat pairing offer and
+assigned **zone index 03**. The 46-byte confirmation was sent locally,
+but reception of the confirmation by Evohome was not independently proven.
+
+A comparison to independent *actual 12:* DTS92 frames in the upstream
+`ramses-rf/ramses_rf` `code_1fc9.log` and `code_30c9.log` uncovered
+two protocol differences. **Beta.31 now matches physical type-12 captures**:
+the 1FC9 confirmation uses binding index **00**, even when controller
+acceptance reports a different zone; and spontaneous `30C9` temperature
+reports use **self-addressed** `I --- 12:X --:------ 12:X`, payload
+`00<signed temperature centi-°C>`, rather than controller-directed
+zone-indexed frames. Tests assert exact captured frame fields and checksum.
+
+The separate virtual `01:` R8810A controller role, both local Stop &
+Forget controls, RX diagnostics and sensor TTL safeguards are retained.
+The assigned Evohome zone **03** is still displayed in the UI.
+Firmware restart resets RAM-only virtual sensor association; the physical
+Evohome's sensor assignment must be confirmed before relying on it.
+
 ## Beta.30: stop and forget either virtual device locally
 
 **Release:** [RAMSES Arduino Gateway v0.4.0-beta.30](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.30).

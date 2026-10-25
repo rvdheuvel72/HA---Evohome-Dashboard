@@ -80,8 +80,10 @@ inline bool controllerAccept(const ramses::Message& m,
      type(m.payload+3)!=1 || id(m.payload+3)!=controllerId)return false;
   zone=m.payload[0];return true;
 }
-// Captured thermostat confirmation:
-// I --- 12:010740 01:145038 --:------ 1FC9 006 0823093029F4
+// Actual DTS92-style type-12 thermostat trace from ramses_rf code_1fc9.log:
+// Controller W 1FC9 006 08230906368E (assigned zone 08), BUT the 12:
+// sensor confirms using index 00: I 1FC9 006 0023093029F4.
+// Unlike a 34: T87RF thermostat, a 12: DTS92 does not echo zone in confirm.
 inline bool makeConfirmation(uint32_t thermostatId,uint32_t controllerId,
                              uint8_t zone,uint8_t out[64],size_t& used) {
   used=0;
@@ -91,11 +93,14 @@ inline bool makeConfirmation(uint32_t thermostatId,uint32_t controllerId,
   ramses_read::putAddress(body+1,12,thermostatId);
   ramses_read::putAddress(body+4,1,controllerId);
   body[7]=0x1F;body[8]=0xC9;body[9]=6;
-  body[10]=zone;body[11]=0x23;body[12]=0x09;
+  body[10]=0x00;body[11]=0x23;body[12]=0x09;
   ramses_read::putAddress(body+13,12,thermostatId);
   return pack(body,sizeof(body),out,64,used);
 }
-// A real 12: sensor announces 30C9 003 <zone><temperature x100, signed>.
+// Real 12: DTS92 traffic (ramses_rf code_30c9.log) announces its
+// temperature using a self-addressed I with index 00, NOT a directed
+// zone-indexed I to the controller. Evohome internally maps this sensor's
+// identity to the assigned zone from the earlier 1FC9 acceptance.
 // Only a valid, fresh external temperature may be transmitted.
 inline bool makeTemperature(uint32_t thermostatId,uint32_t controllerId,
                             uint8_t zone,int32_t centiC,
@@ -104,10 +109,10 @@ inline bool makeTemperature(uint32_t thermostatId,uint32_t controllerId,
   if(!validIdentity(thermostatId,controllerId)||zone>11||
      centiC < -4000 || centiC > 8500 || !out)return false;
   uint8_t body[13]={};
-  body[0]=0x1C;
+  body[0]=0x18; // I --- 12:virtual --:------ 12:virtual
   ramses_read::putAddress(body+1,12,thermostatId);
-  ramses_read::putAddress(body+4,1,controllerId);
-  body[7]=0x30;body[8]=0xC9;body[9]=3;body[10]=zone;
+  ramses_read::putAddress(body+4,12,thermostatId);
+  body[7]=0x30;body[8]=0xC9;body[9]=3;body[10]=0x00;
   const uint16_t encoded=static_cast<uint16_t>(static_cast<int16_t>(centiC));
   body[11]=static_cast<uint8_t>(encoded>>8);body[12]=static_cast<uint8_t>(encoded);
   return pack(body,sizeof(body),out,64,used);

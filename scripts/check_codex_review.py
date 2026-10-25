@@ -353,8 +353,8 @@ def final_review_requested_at(token, full_repo, number, comments, sha):
                 continue
         else:
             # Only Codex-authored comments may resume the protected pipeline.
-            if (workflow.get("actor") or {}).get("login", "").lower() not in
-                    TRUSTED_CODEX_LOGINS:
+            if ((workflow.get("actor") or {}).get("login", "").lower()
+                    not in TRUSTED_CODEX_LOGINS):
                 continue
         payload = request(token, prefix + f"/actions/runs/{run_id}/jobs?per_page=100")
         jobs = payload.get("jobs") if isinstance(payload, dict) else None

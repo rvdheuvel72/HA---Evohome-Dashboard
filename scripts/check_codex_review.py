@@ -393,6 +393,36 @@ def check(token, full_repo, number, sha):
     return "pending", "Waiting for exact-head Codex review or verified current-head quota notice"
 
 
+def cancel_expected_blocker(token, full_repo, reason, run_id=None):
+    """Terminate an expected review-blocked run without a failure email.
+
+    GitHub marks a cancelled run non-green, so branch requirements and all
+    dependent jobs remain blocked. Unlike "continue-on-error", this never
+    turns a blocked P1/P2 into an acceptable success/neutral check.
+    Only run for explicit, authenticated current-HEAD Codex findings.
+    """
+    run_id = run_id or os.environ.get("GITHUB_RUN_ID", "")
+    if not str(run_id).isdigit() or int(run_id) <= 0:
+        raise RuntimeError("Cannot safely cancel without a workflow-run ID")
+    url = ("https://api.github.com/repos/" + full_repo +
+           "/actions/runs/" + str(run_id) + "/cancel")
+    req = Request(url, data=b"", method="POST", headers={
+        "Authorization": "Bearer " + token,
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "evohome-review-block-cancel",
+    })
+    with urlopen(req, timeout=20) as response:
+        if response.status != 202:
+            raise RuntimeError("GitHub did not accept workflow cancellation")
+    print("Expected P1/P2: cancelling non-green workflow rather than failing: "
+          + reason, flush=True)
+    # The cancellation signal interrupts this sleep. Fail closed if the
+    # GitHub cancellation engine does not actually stop the run.
+    time.sleep(40)
+    raise RuntimeError("Workflow cancellation was requested but not completed")
+
+
 def main():
     if len(sys.argv) > 2 or (len(sys.argv) == 2 and sys.argv[1] not in
                                 ("--ci-only", "--review-only", "--final")):
@@ -417,6 +447,10 @@ def main():
         print(message, flush=True)
         if result in ("passed", "skipped"):
             return 0
+        if result == "blocked" and mode == "--review-only" and (
+                message.startswith("P1/P2 must be fixed before CI:")) and (
+                os.environ.get("CODEX_EXPECTED_BLOCK_POLICY") == "cancel"):
+            cancel_expected_blocker(token, full_repo, message)
         if result != "pending" or time.monotonic() + 15 >= expires:
             return 1
         time.sleep(15)

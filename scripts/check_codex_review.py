@@ -346,7 +346,11 @@ def final_review_requested_at(token, full_repo, number, comments, sha):
             continue
         if workflow["event"] == "pull_request_target":
             related = workflow.get("pull_requests") or []
-            if workflow.get("head_sha") != sha or not any(
+            # pull_request_target HEAD is the protected BASE commit,
+            # never the proposed PR head. Bind the PR/head with the
+            # associated pull request and the protected job's exact
+            # PR/SHA/comment-ID attestation instead.
+            if not any(
                     p.get("number") == number and
                     (p.get("head") or {}).get("sha") == sha
                     for p in related):

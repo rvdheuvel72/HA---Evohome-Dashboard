@@ -286,6 +286,7 @@ async function updatePairing(){
     ' · confirmation sent: '+x.confirmation_sent+
     '\\nDirected OpenTherm reply verified: '+x.verified_reply+
     ' · Read-Ack: '+x.read_ack+
+    ' · ID25 result: '+(x.verification_result||'not_tested')+
     '\\nTX last step: '+x.tx_step+' · '+x.tx_phase+' · '+x.tx_bytes+'/'+x.tx_expected_bytes+' bytes'+
     '\\nLOCAL TX VERIFIED: '+(x.tx_local_verified?'YES':'NO')+' · '+x.tx_local_verification_reason+
     '\\nUART: '+x.tx_uart_elapsed_us+' µs (minimum '+x.tx_uart_min_expected_us+' µs) · total '+x.tx_elapsed_us+' µs'+

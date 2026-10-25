@@ -142,8 +142,8 @@ class OpenThermGateway {
     portEXIT_CRITICAL(&mutex_);
     const char* reason=radioReady?bindingBlockReason():"radio_not_ready";
     const bool mayStart=(reason==nullptr);
-    // Status is a snapshot: all diagnostics refer to the last locally
-    // attempted handshake step. "verified" here is LOCAL ONLY.
+    // TX measurements are local-only. VERIFIED requires a genuine
+    // directed ID25 Read-Ack from the observed bridge.
     const char* step=lastStep==1?"offer":lastStep==2?"confirmation":
        lastStep==3?"verification_read":"not_started";
     char body[1740];
@@ -152,7 +152,7 @@ class OpenThermGateway {
       "\"bridge_id\":%lu,\"existing_controller_id\":%lu,"
       "\"virtual_controller_id\":%lu,\"cooldown_ms\":%lu,"
       "\"offer_accepted\":%s,\"confirmation_sent\":%s,"
-      "\"verified_reply\":%s,\"read_ack\":%s,"
+      "\"verified_reply\":%s,\"read_ack\":%s,\"verification_result\":\"%s\","
       "\"id_conflict\":%s,\"raw\":%u,"
       "\"controller_ambiguous\":%s,\"controller_id_coverage_exhausted\":%s,\"controller_ids_seen\":%u,"
       "\"tx_step\":\"%s\",\"tx_phase\":\"%s\",\"tx_bytes\":%u,"
@@ -178,6 +178,7 @@ class OpenThermGateway {
       snap.confirmationSent?"true":"false",
       snap.state==ramses_bind::VERIFIED?"true":"false",
       snap.verifiedReadAck?"true":"false",
+      ot_readonly::state(snap.verificationResult),
       snap.virtualIdCollision?"true":"false",
       static_cast<unsigned>(snap.lastRaw),
       ambiguous?"true":"false",exhausted?"true":"false",tracked,

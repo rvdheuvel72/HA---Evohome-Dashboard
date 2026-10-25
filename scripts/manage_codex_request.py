@@ -54,7 +54,16 @@ def ensure_request(token, repo, number, sha, phase):
         f"review, and merging must await a new completed clean review.\n\n"
         + marker
     )
-    request(token, prefix + f"/issues/{number}/comments", {"body": body})
+    created = request(token, prefix + f"/issues/{number}/comments", {"body": body})
+    # Bind exact PR, SHA and actual created GitHub comment ID to the trusted
+    # protected job logs. A forged github-actions[bot] comment cannot make
+    # another PR's protected run attest its own comment ID.
+    if phase == "final":
+        comment_id = created.get("id")
+        if not isinstance(comment_id, int):
+            raise RuntimeError("Final review comment has no authenticated ID")
+        print(f"CODEX_FINAL_REQUEST pr={number} sha={sha} comment_id={comment_id}",
+              flush=True)
     print(f"Requested {phase} Codex review for {sha}")
 
 

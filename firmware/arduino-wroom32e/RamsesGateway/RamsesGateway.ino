@@ -91,7 +91,7 @@ constexpr uint32_t HEARTBEAT_MS = 15000;
 constexpr uint32_t RADIO_RECOVERY_RETRY_MS = 5000;
 constexpr uint32_t RX_HEALTH_SAMPLE_MS = 5000;
 constexpr uint8_t DEBUG_QUEUE_SIZE = 32;
-constexpr char FW_VERSION[] = "0.4.0-beta.25";
+constexpr char FW_VERSION[] = "0.4.0-beta.26";
 constexpr uint32_t MDNS_RETRY_MS = 15000;
 constexpr uint32_t MQTT_STATE_INTERVAL_MS = 15000;
 
@@ -226,6 +226,25 @@ void logSpiStage(const char* phase,const ramses_spi_audit::Snapshot& s) {
   }
   radioLog(s.uniform_data()?GatewayDebug::WARN:GatewayDebug::INFO,line);
 }
+void logSpiBurst(const char* phase,const ramses_rx_bypass::Burst& s,
+                 uint32_t expectedFreq) {
+  if(!s.sampled)return;
+  char line[GatewayDebug::LINE_BYTES]={};
+  const int n=snprintf(line,sizeof(line),
+    "SPI-%s t=%lu hdr=%02X io2=%02X pkt=%02X mdm=%02X freq=%02X%02X%02X ok=%u uni=%u",
+    phase,static_cast<unsigned long>(s.uptime_ms),
+    static_cast<unsigned>(s.chip_status),
+    static_cast<unsigned>(s.regs[0]),static_cast<unsigned>(s.regs[8]),
+    static_cast<unsigned>(s.regs[18]),
+    static_cast<unsigned>(s.regs[13]),
+    static_cast<unsigned>(s.regs[14]),
+    static_cast<unsigned>(s.regs[15]),
+    s.config_ok(expectedFreq)?1u:0u,s.uniform()?1u:0u);
+  if(n<=0 || static_cast<size_t>(n)>=sizeof(line)){
+    radioLog(GatewayDebug::ERROR,"SPI burst diagnostic log overflow");return;
+  }
+  radioLog(s.config_ok(expectedFreq)?GatewayDebug::INFO:GatewayDebug::WARN,line);
+}
 void logBootSpiTimeline() {
   logSpiStage("pre",radio.startupBeforeConfig());
   logSpiStage("cfg",radio.startupAfterConfig());
@@ -235,8 +254,26 @@ void logBootSpiTimeline() {
   logSpiStage("iocfg",radio.startupRxStep(1));
   logSpiStage("packet",radio.startupRxStep(2));
   logSpiStage("flush",radio.startupRxStep(3));
-  logSpiStage("srx-now",radio.startupRxStep(4));
+  logSpiStage("srx-quiet",radio.startupRxStep(4));
   logSpiStage("srx",radio.startupAfterRx());
+  // The radio driver also tried a quiet settle, an independent true
+  // configuration burst and one bounded IDLE-to-RX recovery, if necessary.
+  const auto& result=radio.rxBypassResult();
+  if(result.attempted) {
+    const uint32_t frequency=radio.startupAfterConfig().expected_freq_word;
+    logSpiBurst("rxburst",result.rx_burst,frequency);
+    logSpiStage("idle-check",result.idle_audit);
+    logSpiBurst("idle-burst",result.idle_burst,frequency);
+    logSpiStage("return",result.resumed_audit);
+    char bypassLine[GatewayDebug::LINE_BYTES]={};
+    snprintf(bypassLine,sizeof(bypassLine),
+      "SPI-bypass sidle=%u reentry=%u fallback_srx=%u idle_spi_ok=%u return_spi_ok=%u",
+      result.sidle_issued?1u:0u,result.reentry_issued?1u:0u,
+      result.fallback_srx_issued?1u:0u,
+      result.idle_audit.config_ok()?1u:0u,
+      result.restored_valid_spi?1u:0u);
+    radioLog(result.restored_valid_spi?GatewayDebug::INFO:GatewayDebug::WARN,bypassLine);
+  }
   if(radio.startupSlowAudit1().sampled) {
     logSpiStage("slow1",radio.startupSlowAudit1());
     logSpiStage("slow2",radio.startupSlowAudit2());
@@ -1630,8 +1667,8 @@ void handlePacket(const PacketEvent& event) {
 void setup() {
   Serial.begin(115200);
   delay(250);
-  Serial.println("\n# RAMSES II Arduino v0.4.0-beta.25 (read-only OpenTherm discovery)");
-  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-beta.25");
+  Serial.println("\n# RAMSES II Arduino v0.4.0-beta.26 (read-only OpenTherm discovery)");
+  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-beta.26");
   char bootInfo[96];
   snprintf(bootInfo, sizeof(bootInfo), "Reset reason: %s", resetReason());
   recordLog(GatewayDebug::INFO, bootInfo);

@@ -100,6 +100,7 @@ struct Session {
   uint32_t virtualId=0,bridgeId=0,lastAttempt=0,deadline=0;
   bool attempted=false,acceptedOffer=false,confirmationSent=false;
   bool verifiedReadAck=false,virtualIdCollision=false;
+  ot_readonly::Result verificationResult=ot_readonly::NOT_TESTED;
   uint16_t lastRaw=0;
   bool busy() const {
     return state==OFFER_QUEUED||state==WAIT_RESPONSE||
@@ -115,7 +116,8 @@ struct Session {
       return false;
     virtualId=candidateId;bridgeId=bridge;lastAttempt=now;
     attempted=true;acceptedOffer=false;confirmationSent=false;
-    verifiedReadAck=false;virtualIdCollision=false;lastRaw=0;
+    verifiedReadAck=false;virtualIdCollision=false;
+    verificationResult=ot_readonly::NOT_TESTED;lastRaw=0;
     state=OFFER_QUEUED;deadline=0;
     return true;
   }
@@ -153,8 +155,13 @@ struct Session {
       if(ot_readonly::response(m.payload,m.length,dataId,result,raw) &&
          dataId==25) {
         lastRaw=raw;
+        verificationResult=result;
         verifiedReadAck=result==ot_readonly::READ_ACK;
-        state=VERIFIED;
+        // Data-Invalid and Unknown-DataId prove an addressed response,
+        // NOT a successful OpenTherm ID25 read or verified 01: binding.
+        // Fail closed instead of allowing later 01: requests from a
+        // session whose verification did not receive a Read-Ack.
+        state=verifiedReadAck?VERIFIED:UNVERIFIED;
         return true;
       }
     }

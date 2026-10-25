@@ -174,7 +174,7 @@ class CodexFirstTests(unittest.TestCase):
                    "body": marker}
         trusted_run = {"path": ".github/workflows/codex-p1-p2-review.yml",
                        "event": "pull_request_target",
-                       "head_sha": self.SHA,
+                       "head_sha": "b"*40,  # protected base SHA, not PR head
                        "pull_requests":[{"number":12,"head":{"sha":self.SHA}}],
                        "repository": {"full_name": self.REPO}}
         trusted_jobs = {"total_count": 1,
@@ -223,6 +223,39 @@ class CodexFirstTests(unittest.TestCase):
              patch.object(gate,"protected_job_log",return_value=log):
             self.assertIsNone(gate.final_review_requested_at(
                 "token",self.REPO,12,[comment],self.SHA))
+
+    def test_recover_protected_firmware_run_with_base_sha(self):
+        import resume_after_codex as recovery
+        protected_run = {
+            "id":901, "status":"completed", "run_attempt":1,
+            "head_sha":"b"*40,  # pull_request_target => protected base
+            "pull_requests":[{"number":12,"head":{"sha":self.SHA}}],
+        }
+        jobs = {"total_count":2,"jobs":[
+            {"name":"Codex BEFORE CI - protected Arduino",
+             "conclusion":"success"},
+            {"name":"Trusted Arduino compile", "conclusion":"skipped"},
+        ]}
+        with patch.object(recovery,"check_review_only",
+                          return_value=("passed","Exact SHA green")), \
+             patch.object(recovery,"request",side_effect=[
+                  {"workflow_runs":[]},
+                  {"workflow_runs":[protected_run]},
+                  jobs]), \
+             patch.object(recovery,"post_retry") as retried:
+            recovery.resume("token",self.REPO,12,self.SHA)
+            retried.assert_called_once_with(
+                "token",f"/repos/{self.REPO}/actions/runs/901/rerun")
+
+    def test_ha_filter_matches_required_script_and_test_paths(self):
+        workflow = (Path(__file__).resolve().parents[1] /
+                    ".github/workflows/phase1-self-hosted.yml").read_text()
+        for path in ("scripts/check_codex_review.py",
+                     "scripts/auto_merge_codex.py",
+                     "tests/test_codex_first_pipeline.py"):
+            self.assertTrue(gate.ha_validation_required([path]))
+        self.assertIn("'scripts/**'", workflow)
+        self.assertIn("'tests/**'", workflow)
 
     def test_auto_merge_rejects_stale_head(self):
         changed = dict(self.PR)

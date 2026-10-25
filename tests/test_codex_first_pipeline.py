@@ -157,7 +157,7 @@ class CodexFirstTests(unittest.TestCase):
 
     def test_forged_final_marker_is_rejected(self):
         marker = "<!-- codex-final-review:" + self.SHA + ":run=1234 -->"
-        comment = {"user": {"login": "github-actions[bot]"},
+        comment = {"id": 321, "user": {"login": "github-actions[bot]"},
                    "created_at": "2026-10-24T10:30:00Z",
                    "body": marker}
         fake_run = {"path": ".github/workflows/pr-owned.yml",
@@ -165,27 +165,64 @@ class CodexFirstTests(unittest.TestCase):
                     "repository": {"full_name": self.REPO}}
         with patch.object(gate, "request", return_value=fake_run):
             self.assertIsNone(gate.final_review_requested_at(
-                "token", self.REPO, [comment], self.SHA))
+                "token", self.REPO, 12, [comment], self.SHA))
 
     def test_real_protected_final_job_is_authenticated(self):
         marker = "<!-- codex-final-review:" + self.SHA + ":run=1234 -->"
-        comment = {"user": {"login": "github-actions[bot]"},
+        comment = {"id": 321, "user": {"login": "github-actions[bot]"},
                    "created_at": "2026-10-24T10:30:00Z",
                    "body": marker}
         trusted_run = {"path": ".github/workflows/codex-p1-p2-review.yml",
                        "event": "pull_request_target",
+                       "head_sha": self.SHA,
+                       "pull_requests":[{"number":12,"head":{"sha":self.SHA}}],
                        "repository": {"full_name": self.REPO}}
         trusted_jobs = {"total_count": 1,
-            "jobs": [{"name": "Request second Codex review AFTER CI",
+            "jobs": [{"id":99,"name": "Request second Codex review AFTER CI",
                       "conclusion": "success",
                       "started_at": "2026-10-24T10:29:55Z",
                       "completed_at": "2026-10-24T10:30:01Z"}]}
+        log = f"CODEX_FINAL_REQUEST pr=12 sha={self.SHA} comment_id=321"
         with patch.object(gate, "request",
-                          side_effect=[trusted_run, trusted_jobs]):
+                          side_effect=[trusted_run, trusted_jobs]), \
+             patch.object(gate, "protected_job_log", return_value=log):
             self.assertEqual(
-                gate.final_review_requested_at("token", self.REPO,
+                gate.final_review_requested_at("token", self.REPO, 12,
                                                [comment], self.SHA),
                 datetime(2026, 10, 24, 10, 30, tzinfo=timezone.utc))
+
+    def test_other_pr_protected_final_job_cannot_authorize_merge(self):
+        marker = "<!-- codex-final-review:" + self.SHA + ":run=1234 -->"
+        comment = {"id": 321, "user": {"login": "github-actions[bot]"},
+                   "created_at": "2026-10-24T10:30:00Z", "body": marker}
+        run = {"path": ".github/workflows/codex-p1-p2-review.yml",
+               "event": "pull_request_target", "head_sha": self.SHA,
+               "pull_requests": [{"number":777,"head":{"sha":self.SHA}}],
+               "repository":{"full_name":self.REPO}}
+        with patch.object(gate,"request",return_value=run), \
+             patch.object(gate,"protected_job_log") as logs:
+            self.assertIsNone(gate.final_review_requested_at(
+                "token",self.REPO,12,[comment],self.SHA))
+            logs.assert_not_called()
+
+    def test_same_pr_forged_comment_cannot_reuse_protected_log(self):
+        marker = "<!-- codex-final-review:" + self.SHA + ":run=1234 -->"
+        comment = {"id": 998, "user": {"login": "github-actions[bot]"},
+                   "created_at": "2026-10-24T10:30:00Z", "body": marker}
+        run = {"path": ".github/workflows/codex-p1-p2-review.yml",
+               "event": "issue_comment",
+               "actor":{"login":"chatgpt-codex-connector[bot]"},
+               "repository":{"full_name":self.REPO}}
+        jobs = {"total_count":1,
+                "jobs":[{"id":99,"name":"Request second Codex review AFTER CI",
+                         "conclusion":"success",
+                         "started_at":"2026-10-24T10:29:55Z",
+                         "completed_at":"2026-10-24T10:30:01Z"}]}
+        log = f"CODEX_FINAL_REQUEST pr=12 sha={self.SHA} comment_id=321"
+        with patch.object(gate,"request",side_effect=[run,jobs]), \
+             patch.object(gate,"protected_job_log",return_value=log):
+            self.assertIsNone(gate.final_review_requested_at(
+                "token",self.REPO,12,[comment],self.SHA))
 
     def test_auto_merge_rejects_stale_head(self):
         changed = dict(self.PR)
@@ -203,12 +240,12 @@ class CodexFirstTests(unittest.TestCase):
 
     def test_nonexistent_run_marker_is_ignored_not_fatal(self):
         marker = "<!-- codex-final-review:" + self.SHA + ":run=0 -->"
-        invalid = {"user": {"login": "github-actions[bot]"},
+        invalid = {"id": 1, "user": {"login": "github-actions[bot]"},
                    "created_at": "2026-10-24T10:30:00Z", "body": marker}
         error = HTTPError("https://api.github.com", 404, "Not Found", {}, None)
         with patch.object(gate, "request", side_effect=error):
             self.assertIsNone(gate.final_review_requested_at(
-                "token", self.REPO, [invalid], self.SHA))
+                "token", self.REPO, 12, [invalid], self.SHA))
 
     def test_recovery_skips_unsafe_ref(self):
         import resume_after_codex as recovery

@@ -235,6 +235,128 @@ function refreshPairedBridgeRead(){
 el('bridge-read-panel').addEventListener('toggle',refreshPairedBridgeRead);
 setInterval(refreshPairedBridgeRead,10000);
 
+// A click starts a bounded, sequential set of already-authorized single R8810A
+// reads. No firmware auto-poll, scans, retransmissions or boiler writes.
+const cvCatalog=[
+ {id:17,name:'Burner modulation',unit:'%',digits:1},
+ {id:18,name:'CH water pressure',unit:'bar',digits:2},
+ {id:25,name:'Heating flow temperature',unit:'°C',digits:2},
+ {id:28,name:'Heating return (unverified)',unit:'°C',digits:2},
+ {id:5,name:'Fault / service flags',unit:'raw',digits:0},
+ {id:33,name:'Exhaust temperature',unit:'°C',digits:0},
+ {id:57,name:'Maximum CH setpoint',unit:'°C',digits:2},
+ {id:26,name:'Hot-water temperature',unit:'°C',digits:2}
+];
+const cvOutcomes=new Map();
+let cvScanRunning=false;
+const cvSleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+function cvRender(){
+ const tbody=el('cv-read-results');
+ tbody.replaceChildren();
+ for(const field of cvCatalog){
+  const result=cvOutcomes.get(field.id)||{value:'—',status:'Not read',received:'—'};
+  const tr=document.createElement('tr');
+  for(const cell of ['ID '+field.id+' · '+field.name,result.value,result.status,result.received]){
+   const td=document.createElement('td');
+   td.textContent=cell;
+   tr.appendChild(td);
+  }
+  tbody.appendChild(tr);
+ }
+}
+async function cvStatus(){
+ const response=await fetch('/api/v1/opentherm/paired-read',{cache:'no-store'});
+ if(!response.ok)throw Error('Status HTTP '+response.status);
+ return await response.json();
+}
+function cvValue(field,s){
+ if(s.state!=='read_ack')return '—';
+ if(field.id===5)return '0x'+Number(s.raw).toString(16).toUpperCase().padStart(4,'0')+' (flags / OEM code)';
+ if(!s.has_value || !Number.isFinite(Number(s.value)))return 'Raw '+s.raw;
+ return Number(s.value).toFixed(field.digits)+' '+field.unit;
+}
+async function cvReady(id){
+ const deadline=Date.now()+125000;
+ while(Date.now()<deadline){
+  const s=await cvStatus();
+  if(s.ready && s.cooldown_ms===0)return;
+  if(!s.bridge_seen||!s.direct_controller_observed)
+   throw Error('No observed R8810A / Evohome direct communication');
+  set('cv-read-status','ID '+id+': waiting for safe RF window (cooldown '+
+      Math.ceil((s.cooldown_ms||0)/1000)+'s)');
+  await cvSleep(2500);
+ }
+ throw Error('R8810A remained unavailable for 125 seconds');
+}
+async function cvResult(id){
+ const deadline=Date.now()+15000;
+ while(Date.now()<deadline){
+  const s=await cvStatus();
+  if(Number(s.data_id)!==id)
+   throw Error('Another read changed the R8810A request ID');
+  if(['read_ack','data_invalid','unknown_data_id','timeout','tx_failed'].includes(s.state))
+   return s;
+  await cvSleep(900);
+ }
+ throw Error('No terminal result returned for ID '+id);
+}
+async function cvStart(){
+ if(cvScanRunning || !el('cv-read-confirm').checked)return;
+ cvScanRunning=true;
+ el('cv-read-start').disabled=true;
+ cvOutcomes.clear();
+ cvRender();
+ let issued=0,confirmed=0;
+ try{
+  for(const field of cvCatalog){
+   cvOutcomes.set(field.id,{value:'—',status:'Awaiting RF window',received:'—'});
+   cvRender();
+   await cvReady(field.id);
+   const response=await fetch('/api/v1/opentherm/paired-read',{
+    method:'POST',
+    headers:{'X-Gateway-Config':'paired-bridge-read',
+             'Content-Type':'application/x-www-form-urlencoded'},
+    body:new URLSearchParams({
+     data_id:String(field.id),
+     confirm:'one-read-own-r8810a-as-observed-controller'
+    }).toString()
+   });
+   const answer=await response.json();
+   if(!response.ok)throw Error('ID '+field.id+': '+(answer.error||'HTTP '+response.status));
+   issued++;
+   cvOutcomes.set(field.id,{value:'—',status:'Request queued',received:'—'});
+   set('cv-read-status','Reading CV ID '+field.id+' ('+issued+'/'+cvCatalog.length+')');
+   cvRender();
+   const result=await cvResult(field.id);
+   const txComplete=result.tx_local_complete===true &&
+     result.tx_expected_bytes>0 && result.tx_bytes===result.tx_expected_bytes;
+   if(result.state==='read_ack')confirmed++;
+   cvOutcomes.set(field.id,{
+    value:cvValue(field,result),
+    status:result.state==='read_ack'?
+      (txComplete?'Read-Ack / local TX complete':'Read-Ack / TX unverified'):
+      result.state.replace(/_/g,' '),
+    received:new Date().toLocaleTimeString()
+   });
+   cvRender();
+  }
+  set('cv-read-status','Completed: '+issued+' requests, '+confirmed+
+    ' Read-Acks. Click again to take new readings.');
+ }catch(error){
+  set('cv-read-status','Stopped after '+issued+' requests: '+error.message+
+    '. No automatic retry.');
+ }finally{
+  cvScanRunning=false;
+  el('cv-read-confirm').checked=false;
+  el('cv-read-start').disabled=true;
+ }
+}
+el('cv-read-confirm').addEventListener('change',()=>{
+ el('cv-read-start').disabled=cvScanRunning||!el('cv-read-confirm').checked;
+});
+el('cv-read-start').addEventListener('click',cvStart);
+cvRender();
+
 const pairingBlockMessages={
   configuration_unavailable:'Gateway configuration has not loaded.',
   configure_bridge_id:'Settings: enter the numeric RF address of YOUR observed R8810A (10:xxxxxx, without the 10: prefix), not another installation\'s ID.',

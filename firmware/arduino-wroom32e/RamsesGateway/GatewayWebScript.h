@@ -185,6 +185,26 @@ async function otStatus(){
   set('ot-results',lines.length?lines.join('\n'):'No OpenTherm replies recorded.');
  }catch(e){set('ot-state','Profile unavailable: '+e.message)}
 }
+const readBlock={
+ configuration_unavailable:'Gateway settings not loaded.',
+ disable_automatic_opentherm_rf:'Turn off automatic OpenTherm TX, polling and scan in Settings.',
+ configure_r8810a_id:'Configure the RF ID of your R8810A in Settings.',
+ r8810a_not_observed:'Waiting to receive a valid RF frame from the configured R8810A.',
+ opentherm_scan_active:'An OpenTherm scan is already running.',
+ requires_868_mhz_module:'Requires an 868 MHz CC1101 board configured for 868300 kHz.',
+ controller_identity_ambiguous:'More than one controller identity was seen. Reads blocked to avoid a source collision.',
+ evohome_display_not_observed:'Waiting for an actual 01: Evohome Display RF transmission after boot.',
+ evohome_bridge_source_conflict:'Evohome Display identity conflicts with bridge-linked evidence. Reads blocked.',
+ controller_id_coverage_exhausted:'Controller-ID observation limit exceeded; reads blocked.',
+ pairing_active:'An RF pairing transaction is underway.',
+ another_read_active:'Another R8810A read is in progress.',
+ one_shot_active:'A legacy ID25 RF test is in progress.',
+ cv_batch_active:'A CV read session is already active.',
+ read_cooldown:'Previous read is cooling down (60 seconds).',
+ rf_quiet_window:'Waiting for RF quiet window (2.5 seconds).',
+ radio_not_ready:'The CC1101 is not ready.'
+};
+const whyReadBlocked=code=>readBlock[code]||('Read blocked: '+code);
 let bridgeReadNotice='';
 async function updatePairedBridgeRead(){
  try{
@@ -195,8 +215,10 @@ async function updatePairedBridgeRead(){
   set('bridge-read-result',
     'Target R8810A: 10:'+String(v.bridge_id).padStart(6,'0')+
     ' · source existing Evohome: 01:'+String(v.controller_id).padStart(6,'0')+
-    '\\nBridge heard: '+v.bridge_seen+' · verified direct controller RQ: '+v.direct_controller_observed+
-    '\\nReady: '+v.ready+' · cooldown: '+Math.ceil(v.cooldown_ms/1000)+'s'+
+    '\\nBridge heard: '+v.bridge_seen+' · direct controller request seen: '+v.direct_controller_observed+
+    '\\nDisplay source 01:'+String(v.controller_id).padStart(6,'0')+' · ready: '+v.ready+
+    ' · cooldown: '+Math.ceil(v.cooldown_ms/1000)+'s'+
+    (v.block_reason?'\\nWaiting: '+whyReadBlocked(v.block_reason):'\\nReady for an authorized read.')+
     '\\nLast read ID '+v.data_id+' '+v.data_name+' · state: '+v.state+
     (v.has_value?' · '+Number(v.value).toFixed(2)+' (native units)':' · no verified Read-Ack')+
     '\\nLocal TX: '+v.tx_phase+' ('+v.tx_bytes+'/'+v.tx_expected_bytes+' bytes)'+
@@ -286,12 +308,16 @@ async function cvStatus(){
   const finished=(s.results||[]).filter(x=>
    ['read_ack','data_invalid','unknown_data_id','timeout','tx_failed'].includes(x.state)).length;
   const acks=(s.results||[]).filter(x=>x.state==='read_ack').length;
-  set('cv-read-status',s.active?
+  const phase=s.active?
     'Reading '+finished+'/'+s.count+' completed · '+acks+
        ' Read-Acks · 60s minimum RF spacing':
     s.completed?(s.aborted?'Stopped (RF preflight unavailable)':'Completed')+
       ': '+finished+'/'+s.count+' requests · '+acks+' Read-Acks':
-    'Not read yet; one click starts eight paced RF requests.');
+    'Not read yet; one click starts eight paced RF requests.';
+  const source=s.source_controller_id?' · source 01:'+String(s.source_controller_id).padStart(6,'0'):'';
+  set('cv-read-status',phase+source+
+    (s.block_reason&&!s.active?' · '+whyReadBlocked(s.block_reason):
+      s.ready&&!el('cv-read-confirm').checked?' · Tick authorization to enable Read CV data.':''));
   el('cv-read-start').disabled=cvPosting||s.active||!s.ready||
     !el('cv-read-confirm').checked;
  }catch(error){

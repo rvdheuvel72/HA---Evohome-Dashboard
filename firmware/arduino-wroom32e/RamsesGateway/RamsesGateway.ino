@@ -1005,6 +1005,32 @@ void httpPairedBridgeRead() {
   web.send(202,"application/json",
     "{\"queued\":true,\"request_count\":1,\"read_only\":true,\"identity\":\"observed_existing_01\",\"cooldown_seconds\":60}");
 }
+// Manual CV snapshot: exactly eight sequential read-only OpenTherm requests.
+// Session and results live on ESP32, not in the browser or persistent settings.
+void httpCvReadBatch(){
+  if(web.method()==HTTP_GET){
+    if(!authorized())return;
+    otGateway.sendCvBatchStatus(web,radioReady);
+    return;
+  }
+  if(!strongThermostatAuth())return;
+  if(!web.hasHeader("X-Gateway-Config") ||
+     web.header("X-Gateway-Config")!="cv-read-batch" ||
+     web.arg("confirm")!="eight-read-only-requests-existing-evohome-identity"){
+    web.send(403,"application/json",
+      "{\"error\":\"explicit_cv_read_authorization_required\"}");
+    return;
+  }
+  if(!radioReady || !otGateway.requestCvBatch()){
+    web.send(409,"application/json",
+      "{\"error\":\"cv_read_busy_not_ready_or_in_cooldown\"}");
+    return;
+  }
+  recordLog(GatewayDebug::WARN,
+    "Manual R8810A CV diagnostics queued: 8 read-only IDs, >=60s spacing, observed Evohome identity");
+  web.send(202,"application/json",
+    "{\"queued\":true,\"read_only\":true,\"requests_max\":8,\"minimum_spacing_ms\":60000}");
+}
 void httpOtOneShot(){
   if(!authorized())return;
   if(web.method()==HTTP_GET){otGateway.sendOneShotStatus(web);return;}
@@ -1956,6 +1982,8 @@ void setup() {
   web.on("/api/v1/opentherm/pairing", HTTP_POST, httpOtPairing);
   web.on("/api/v1/opentherm/paired-read", HTTP_GET, httpPairedBridgeRead);
   web.on("/api/v1/opentherm/paired-read", HTTP_POST, httpPairedBridgeRead);
+  web.on("/api/v1/opentherm/cv-batch", HTTP_GET, httpCvReadBatch);
+  web.on("/api/v1/opentherm/cv-batch", HTTP_POST, httpCvReadBatch);
   web.on("/api/v1/opentherm/one-shot", HTTP_GET, httpOtOneShot);
   web.on("/api/v1/opentherm/one-shot", HTTP_POST, httpOtOneShot);
   web.on("/api/v1/opentherm/scan", HTTP_POST, httpOtScan);

@@ -11,7 +11,9 @@ constexpr uint32_t COOLDOWN_MS=15000u;
 constexpr uint32_t RESPONSE_TIMEOUT_MS=1800u;
 inline bool supportedId(uint8_t id) {
   switch(id) {
-    case 18:case 117:case 121:return true;
+    case 5:case 17:case 18:case 25:case 26:case 28:case 33:
+    case 34:case 35:case 36:case 57:case 115:case 116:
+    case 117:case 120:case 121:return true;
     default:return false;
   }
 }

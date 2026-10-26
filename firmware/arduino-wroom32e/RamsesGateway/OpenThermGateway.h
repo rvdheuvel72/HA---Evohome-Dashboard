@@ -464,17 +464,20 @@ class OpenThermGateway {
     snap=cvBatch_;
     const uint32_t cooldown=pairedBridgeRead_.cooldown(millis());
     portEXIT_CRITICAL(&mutex_);
-    const bool ready=radioReady && pairedBridgeReadReady() && cooldown==0;
+    const char* reason=radioReady?pairedBridgeReadBlockReason():"radio_not_ready";
+    const bool ready=reason==nullptr;
     server.sendHeader("Cache-Control","no-store");
     server.setContentLength(CONTENT_LENGTH_UNKNOWN);
     server.send(200,"application/json","");
-    char header[230];
+    char header[350];
     snprintf(header,sizeof(header),
       "{\"active\":%s,\"completed\":%s,\"aborted\":%s,\"ready\":%s,"
+      "\"block_reason\":\"%s\",\"source_controller_id\":%lu,"
       "\"count\":%u,\"next_index\":%u,\"cooldown_ms\":%lu,"
       "\"started_at_ms\":%lu,\"completed_at_ms\":%lu,\"results\":[",
       snap.active?"true":"false",snap.completed?"true":"false",
       snap.aborted?"true":"false",ready?"true":"false",
+      reason?reason:"",static_cast<unsigned long>(snap.controllerId),
       static_cast<unsigned>(cv_read_batch::COUNT),
       static_cast<unsigned>(snap.next),
       static_cast<unsigned long>(cooldown),

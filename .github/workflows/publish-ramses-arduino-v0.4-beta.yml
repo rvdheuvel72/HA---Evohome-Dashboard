@@ -1,4 +1,4 @@
-name: Release RAMSES Arduino v0.4.0 beta.34
+name: Release RAMSES Arduino v0.4.0 beta.35
 
 on:
   # A reviewed/merged push to main can publish the beta. The mandatory
@@ -140,12 +140,12 @@ jobs:
           if not binaries:
               raise SystemExit('No compiled ESP32 firmware binaries')
           docs = ['README.md', 'READ_ONLY_OPENTHERM.md',
-                  'RELEASE_NOTES_v0.4.0-beta.34.md']
+                  'RELEASE_NOTES_v0.4.0-beta.35.md']
           for name in docs:
               assert (root / name).is_file(), f'Missing {name}'
           out = Path('dist')
           out.mkdir(exist_ok=True)
-          name = 'RAMSES-Arduino-Gateway-v0.4.0-beta.34-ESP32-WROOM-32E.zip'
+          name = 'RAMSES-Arduino-Gateway-v0.4.0-beta.35-ESP32-WROOM-32E.zip'
           bundle = out / name
           with ZipFile(bundle, 'w', compression=ZIP_DEFLATED, compresslevel=9) as z:
               for p in sources:
@@ -168,37 +168,37 @@ jobs:
           print('SHA256:', checksum)
           PY
 
-      - name: Verify source provenance and CI; record explicit beta.34 Codex review waiver
+      - name: Require completed review, merged PR and exact-head CI
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
+          python3 scripts/check_release_readiness.py
           python3 - <<'PY'
           import os
-          import subprocess
           import sys
           sys.path.insert(0, "scripts")
-          from check_codex_review import blockers, request, required_ci_state
+          from check_codex_review import pages, review_disposition
+          from check_release_readiness import matching_merged_prs
 
-          repo = "rvdheuvel72/HA---Evohome-Dashboard"
-          original_merge = "bfb97a3e6a9820e87bb7ec6737886ac8e7e50c5c"
-          reviewed_head = "ac1eed581737cd2ce2a87e20a8eebc2e65c19cdd"
-          workflow = ".github/workflows/publish-ramses-arduino-v0.4-beta.yml"
-          assert os.environ["GITHUB_REPOSITORY"] == repo, "Unexpected repository"
-          assert subprocess.check_output(["git", "rev-parse", "HEAD^"], text=True).strip() == original_merge, "Release source ancestry differs from PR #70 merge"
-          changed = subprocess.check_output(["git", "diff", "--name-only", "HEAD^", "HEAD"], text=True).splitlines()
-          assert changed == [workflow], f"Unapproved post-merge source modifications: {changed}"
-          details = request(os.environ["GITHUB_TOKEN"], f"/repos/{repo}/pulls/70")
-          assert details.get("merged_at"), "PR #70 not merged"
-          assert details.get("merge_commit_sha") == original_merge, "PR #70 merge changed"
-          assert details["head"]["sha"] == reviewed_head, "PR #70 final head changed"
-          assert details["base"]["ref"] == "main", "PR #70 target changed"
-          assert not blockers(os.environ["GITHUB_TOKEN"], "rvdheuvel72", "HA---Evohome-Dashboard", 70, reviewed_head), "Unaddressed P1/P2 findings"
-          state, reason = required_ci_state(os.environ["GITHUB_TOKEN"], repo, reviewed_head, pr_number=70)
-          assert state == "passed", f"Required CI check failed: {reason}"
-          print("REVIEW DEBT: user expressly waived only the completed Codex review requirement for PR #70, beta.34, exact final head " + reviewed_head, flush=True)
-          print("All other gates passed; only the publication workflow differs from the verified merge.", flush=True)
+          token = os.environ["GITHUB_TOKEN"]
+          repo = os.environ["GITHUB_REPOSITORY"]
+          sha = os.environ["GITHUB_SHA"]
+          prs = matching_merged_prs(
+              pages(token, f"/repos/{repo}/commits/{sha}/pulls"), sha)
+          if not prs:
+              raise SystemExit("Release requires a merged PR for the exact commit")
+          for pr in prs:
+              number = pr["number"]
+              head = pr["head"]["sha"]
+              reviews = pages(token, f"/repos/{repo}/pulls/{number}/reviews")
+              comments = pages(token, f"/repos/{repo}/issues/{number}/comments")
+              if review_disposition(reviews, comments, head) != "reviewed":
+                  raise SystemExit(
+                      f"PR #{number} has no COMPLETED Codex review for {head}; "
+                      "quota deferrals are not accepted for beta.35")
+          print("Beta.35 release gate: completed exact-head Codex review required")
           PY
 
       - name: Ensure GitHub CLI is available on self-hosted runner
@@ -227,8 +227,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAG="ramses-arduino-v0.4.0-beta.34"
-          FILE="RAMSES-Arduino-Gateway-v0.4.0-beta.34-ESP32-WROOM-32E.zip"
+          TAG="ramses-arduino-v0.4.0-beta.35"
+          FILE="RAMSES-Arduino-Gateway-v0.4.0-beta.35-ESP32-WROOM-32E.zip"
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "::error::Release $TAG already exists: do not overwrite an immutable beta. Bump beta number for another build."
             exit 1
@@ -237,13 +237,12 @@ jobs:
             echo "::error::Beta tag ${TAG} exists already. Bump beta version; never reuse a stale tag."
             exit 1
           fi
-          cp firmware/arduino-wroom32e/RELEASE_NOTES_v0.4.0-beta.34.md "$RUNNER_TEMP/beta34-release-notes.md"
-          printf '\n### Codex review waiver\n\nPR #70 (exact final head ac1eed581737cd2ce2a87e20a8eebc2e65c19cdd) was published without completed Codex review at the repository owner\x27s explicit request. All protocol tests, ESP32 compile, required PR CI and P1/P2 thread checks were retained. **Review debt:** complete the outstanding review separately.\n' >> "$RUNNER_TEMP/beta34-release-notes.md"
+          cp firmware/arduino-wroom32e/RELEASE_NOTES_v0.4.0-beta.35.md "$RUNNER_TEMP/beta35-release-notes.md"
           gh release create "$TAG" \
             "dist/$FILE" "dist/$FILE.sha256" \
             --target "$GITHUB_SHA" \
-            --title "RAMSES Arduino Gateway v0.4.0-beta.34 (ESP32-WROOM-32E)" \
-            --notes-file "$RUNNER_TEMP/beta34-release-notes.md" \
+            --title "RAMSES Arduino Gateway v0.4.0-beta.35 (ESP32-WROOM-32E)" \
+            --notes-file "$RUNNER_TEMP/beta35-release-notes.md" \
             --prerelease
 
       - name: Add published date in CET/CEST to beta description
@@ -251,7 +250,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         shell: bash
-        run: python3 scripts/release_local_time.py --tag ramses-arduino-v0.4.0-beta.34
+        run: python3 scripts/release_local_time.py --tag ramses-arduino-v0.4.0-beta.35
 
       - name: Verify release exists and has both downloads
         env:
@@ -260,8 +259,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAG="ramses-arduino-v0.4.0-beta.34"
-          FILE="RAMSES-Arduino-Gateway-v0.4.0-beta.34-ESP32-WROOM-32E.zip"
+          TAG="ramses-arduino-v0.4.0-beta.35"
+          FILE="RAMSES-Arduino-Gateway-v0.4.0-beta.35-ESP32-WROOM-32E.zip"
           gh release view "$TAG" --json isPrerelease,assets \
             --jq '.isPrerelease == true' | grep -Fx true
           gh release view "$TAG" --json assets --jq '.assets[].name' | grep -Fx "$FILE"

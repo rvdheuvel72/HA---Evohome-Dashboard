@@ -103,4 +103,28 @@ struct ExistingController {
     }
   }
 };
+// Receive-only evidence for the existing Evohome Display source address.
+// A self-addressed 01: broadcast identifies the display's RF address but
+// does NOT prove that it is bound to the bridge. Only use this weaker evidence
+// for deliberately authorized read-only 3220 probes, never for pairing.
+// Conflicts or more than one observed 01: source fail closed.
+struct ObservedDisplay {
+  uint32_t id=0;
+  bool ambiguous=false;
+  void note(const ramses::Message& message) {
+    if(!(message.addrMask&1u) || type(message.addresses[0])!=1)return;
+    const uint32_t candidate=ramses_peer::id(message.addresses[0]);
+    if(!candidate || candidate>=262143 || ambiguous)return;
+    if(id && id!=candidate) {
+      id=0;ambiguous=true;return;
+    }
+    id=candidate;
+  }
+  uint32_t readSource(const ExistingController& linked) const {
+    if(ambiguous || linked.ambiguous || !id ||
+       (linked.id && linked.id!=id))return 0;
+    return id;
+  }
+};
+
 } // namespace ramses_peer

@@ -1,3 +1,30 @@
+## Beta.34: One-click CV data from the R8810A
+
+[RAMSES Arduino Gateway v0.4.0-beta.34](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.34)
+— ZIP: `RAMSES-Arduino-Gateway-v0.4.0-beta.34-ESP32-WROOM-32E.zip`.
+
+The authenticated gateway web interface now has **Read CV data**. One manually
+authorized click queues exactly eight OpenTherm Read-Data IDs on the radio task,
+at least **60 seconds apart**, without boiler writes, pairing, retries, or
+automated repeat cycles: **17** burner modulation, **18** CH pressure,
+**25** boiler flow, **28** boiler return, **5** fault flags (raw hex),
+**33** exhaust temperature, **57** maximum CH setpoint, and
+**26** DHW temperature. Room temperatures and unsupported outdoor ID27 are
+excluded. ID28 is labelled unverified because previous testing returned an
+implausible value. Invalid/unsupported/time-out statuses are preserved.
+
+A scan takes approximately 7–9 minutes, continues if the browser is refreshed
+or closed, and shows per-ID Read-Ack, raw/converted values, local TX outcome and
+sample gateway uptime on reconnect. Results are RAM-only: they reset with a new
+scan or firmware restart. Pressing the button when a session is active or the
+radio is in cooldown will not send a second batch.
+
+**Safety:** The request source duplicates the existing observed Evohome 01:
+address, so replies cannot be uniquely attributed to this sender and RF
+collisions remain possible. The physical Evohome-to-R8810A binding remains
+unchanged; never treat these readings as verified boiler control feedback
+without physical validation.
+
 ## Beta.33: direct READ-only telemetry from the R8810A without binding
 
 [RAMSES Arduino Gateway v0.4.0-beta.33](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.33)

@@ -23,12 +23,14 @@ struct Item {
 struct Batch {
   Item items[COUNT]={};
   bool active=false,completed=false,aborted=false,inflight=false;
+  uint32_t controllerId=0; // frozen spoofed 01 source for all eight reads
   uint8_t next=0;
   uint32_t startedAtMs=0,completedAtMs=0,dueMs=0;
-  bool start(uint32_t now) {
-    if(active)return false;
+  bool start(uint32_t now,uint32_t displayId) {
+    if(active || !displayId || displayId>=262143)return false;
     for(size_t i=0;i<COUNT;i++){items[i]=Item{};items[i].id=IDS[i];}
     active=true;completed=false;aborted=false;inflight=false;next=0;
+    controllerId=displayId;
     startedAtMs=now;completedAtMs=0;dueMs=now;return true;
   }
   bool due(uint32_t now)const {

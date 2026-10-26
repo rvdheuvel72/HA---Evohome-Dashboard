@@ -47,29 +47,30 @@ a{color:#a9d5ff}
 <a href="/api/v1/opentherm/profile" target="_blank">Export compatibility JSON</a>
 <span id="ot-state" class="muted">Loading...</span></div>
 <pre id="ot-results">No compatibility scan requested.</pre>
+<details id="bridge-read-panel" open><summary>R8810A single read as Evohome Display 01: (ID25 and other CV values)</summary><select id="bridge-read-id"><option>25</option><option>28</option><option>17</option><option>18</option><option>19</option><option>26</option><option>27</option><option>33</option></select><label><input id="bridge-read-confirm" type="checkbox">Authorize one read as Evohome 01: (RF collision risk)</label><button id="bridge-read-send" disabled>Read</button><pre id="bridge-read-result"></pre></details>
+<section class="panel" id="cv-read-panel" aria-label="CV boiler diagnostics">
+<h2>CV data — one-click reading</h2>
+<p class="muted">Tick authorization to enable each read button. If radio or controller evidence is not ready, the status below tells you why; the read does not silently transmit.</p>
+<p class="muted">Reads boiler-side data only (no Evohome room temperatures). One click queues up to 8 individual read-only 3220 requests using the existing Evohome 01: identity, spaced at least 60 seconds apart. Allow roughly 7–9 minutes; the scan continues on the ESP32 after closing or refreshing the browser. Results persist until the next scan or reboot. No retries. The real controller may also send requests, so matching replies do not prove RF causation. Unsupported readings are shown as such; ID28 needs physical validation. No outside-sensor ID27.</p>
+<label class="setting-check"><input type="checkbox" id="cv-read-confirm"> Authorize up to 8 read-only R8810A RF requests using the observed Evohome 01: identity (collision risk)</label>
+<div class="controls"><button id="cv-read-start" type="button" disabled>Read CV data</button><span id="cv-read-status" class="muted" aria-live="polite">No CV scan started.</span></div>
+<table class="pin-map"><thead><tr><th scope="col">Data</th><th scope="col">Last value</th><th scope="col">Result</th><th scope="col">Gateway uptime</th></tr></thead><tbody id="cv-read-results"></tbody></table>
+</section>
 <details class="panel" id="one-shot-panel">
-<summary>Manual OpenTherm ID25 read test (unpaired experimental 18: or verified bound 01:)</summary>
-<p class="muted">Send exactly ONE RAMSES 3220 Read-Data ID25 request (boiler flow temperature) at 868.300 MHz. A unique, unobserved 18: gateway identity can now request ID25 on standard 868 MHz hardware before pairing; verified bound 01: identities remain supported. The legacy 433 MHz cross-band path requires explicit experimental RX opt-in. No retries, polling, scan or heating writes. Minimum cooldown: 60 seconds.</p>
+<summary>Advanced legacy RF experiment: ID25 as gateway 18: or separately paired virtual 01:</summary>
+<p class="muted">This does NOT use the original Evohome Display address. For a normal CV read as the Evohome Display, use the R8810A single read or the CV scan above. Send exactly ONE RAMSES 3220 Read-Data ID25 request (boiler flow temperature) at 868.300 MHz. A unique, unobserved 18: gateway identity can now request ID25 on standard 868 MHz hardware before pairing; verified bound 01: identities remain supported. The legacy 433 MHz cross-band path requires explicit experimental RX opt-in. No retries, polling, scan or heating writes. Minimum cooldown: 60 seconds.</p>
 <p id="one-shot-status" class="muted">Checking bridge identity...</p>
 <label class="setting-check"><input type="checkbox" id="one-shot-confirm"> I verified the R8810A RF ID and my unique gateway 18: identity, or confirmed the additional 01: controller binding. I authorize ONE manually triggered read-only RF transmission.</label>
 <div class="controls"><label class="field">Single-test transmit method
 <select id="one-shot-method" aria-label="One-shot transmit method">
 <option value="uart">Original asynchronous UART / GDO0</option>
 <option value="fifo">Reference FIFO (upstream bit-aligned, 60 RF bytes)</option>
-</select></label><button type="button" id="one-shot-send" disabled>Transmit ONE Read-Data ID25</button><a href="/api/v1/opentherm/one-shot" target="_blank">One-shot diagnostic JSON</a></div>
+</select></label><button type="button" id="one-shot-send" disabled>Test gateway-source ID25</button><a href="/api/v1/opentherm/one-shot" target="_blank">One-shot diagnostic JSON</a></div>
 <small>One click = exactly one RF request using the selected method; never both. Each method shares a fixed nominal -10 dBm 868 MHz PATABLE value. A 433M PCB's radiated power at 868 MHz remains unknown. Keep automatic scans/polling off.</small>
 <p id="one-shot-result" aria-live="polite" class="muted">No request attempted.</p>
 <pre id="one-shot-diag" aria-live="polite">TX diagnostic data appears after one request.</pre>
 <pre id="one-shot-compare">UART/FIFO A-B comparison will appear here.</pre>
 </details>
-<details id="bridge-read-panel"><summary>R8810A single read (RF test)</summary><select id="bridge-read-id"><option>25</option><option>28</option><option>17</option><option>18</option><option>19</option><option>26</option><option>27</option><option>33</option></select><label><input id="bridge-read-confirm" type="checkbox">Authorize one read as Evohome 01: (RF collision risk)</label><button id="bridge-read-send" disabled>Read</button><pre id="bridge-read-result"></pre></details>
-<section class="panel" id="cv-read-panel" aria-label="CV boiler diagnostics">
-<h2>CV data — one-click reading</h2>
-<p class="muted">Reads boiler-side data only (no Evohome room temperatures). One click queues up to 8 individual read-only 3220 requests using the existing Evohome 01: identity, spaced at least 60 seconds apart. Allow roughly 7–9 minutes; the scan continues on the ESP32 after closing or refreshing the browser. Results persist until the next scan or reboot. No retries. The real controller may also send requests, so matching replies do not prove RF causation. Unsupported readings are shown as such; ID28 needs physical validation. No outside-sensor ID27.</p>
-<label class="setting-check"><input type="checkbox" id="cv-read-confirm"> Authorize up to 8 read-only R8810A RF requests using the observed Evohome 01: identity (collision risk)</label>
-<div class="controls"><button id="cv-read-start" type="button" disabled>Read CV data</button><span id="cv-read-status" class="muted" aria-live="polite">No CV scan started.</span></div>
-<table class="pin-map"><thead><tr><th scope="col">Data</th><th scope="col">Last value</th><th scope="col">Result</th><th scope="col">Gateway uptime</th></tr></thead><tbody id="cv-read-results"></tbody></table>
-</section>
 <details class="panel" id="pairing-panel">
 <summary>Experimental R8810A pairing — additional virtual controller (01:)</summary>
 <p class="muted">Experimental RAMSES 1FC9 binding. The <strong>Honeywell R8810A1018 device installation guide</strong>, page 2, says to press its button for <strong>5 seconds</strong> to enter binding mode: the red LED alternates 0.5 seconds ON / 0.5 seconds OFF. The manual does <strong>not</strong> require a preceding 15-second reset for this procedure. <strong>Do not clear existing bindings.</strong> Clicking the ESP32 button only queues an RF offer; it does not put the physical R8810A into binding mode. This manual documents a CM957 thermostat, not the safety or feasibility of adding a second virtual controller to an existing Evohome system. If the red LED does not flash after a deliberate 5-second press, stop the experiment and keep normal Evohome boiler control.</p>

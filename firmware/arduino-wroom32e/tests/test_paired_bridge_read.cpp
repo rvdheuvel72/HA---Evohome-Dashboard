@@ -24,7 +24,7 @@ int main(){
   assert(!makeRead(245914,48994,255,f,n));
   assert(!makeRead(0,48994,25,f,n));
   assert(!makeRead(245914,0,25,f,n));
-  for(uint8_t id:{18,117,121})
+  for(uint8_t id:{17,18,25,28,5,33,57,26,117,121,34,35,36,116,120,115})
     assert(makeRead(245914,48994,id,f,n));
   Probe p;
   assert(p.request(1000,245914,48994,18));
@@ -79,15 +79,15 @@ int main(){
   assert(late.observe(reply,200060));
   // CV button uses the same single-read hardware path at most once per ID.
   cv_read_batch::Batch batch;
-  assert(cv_read_batch::COUNT==3 && cv_read_batch::SPACING_MS==15000u);
+  assert(cv_read_batch::COUNT==16 && cv_read_batch::SPACING_MS==15000u);
   assert(batch.start(1000,245914));
-  assert(batch.active && batch.due(1000) && batch.id()==18);
+  assert(batch.active && batch.due(1000) && batch.id()==17);
   assert(!batch.start(1001,245914)); // no double-start while active
   batch.queued();
   assert(!batch.due(1001));
   ramses_bridge_read::Probe response;
   response.state=ramses_bridge_read::WAITING;
-  response.dataId=18;
+  response.dataId=17;
   ot_tx::Report localTx;
   localTx.phase=ot_tx::LOCAL_COMPLETE;
   localTx.expected_bytes=44;
@@ -96,16 +96,16 @@ int main(){
   response.state=ramses_bridge_read::READ_ACK;
   response.raw=0x0000;
   assert(batch.settle(response,localTx,1300));
-  assert(batch.next==1 && batch.items[0].id==18);
+  assert(batch.next==1 && batch.items[0].id==17);
   assert(batch.items[0].state==ramses_bridge_read::READ_ACK);
   assert(batch.items[0].txBytes==44 && batch.items[0].txExpectedBytes==44);
   assert(!batch.due(16299));
-  assert(batch.due(16300) && batch.id()==117);
+  assert(batch.due(16300) && batch.id()==18);
   batch.queued();
-  response.dataId=117;response.state=ramses_bridge_read::TIMEOUT;
+  response.dataId=18;response.state=ramses_bridge_read::TIMEOUT;
   assert(batch.settle(response,localTx,18000));
   assert(batch.items[1].state==ramses_bridge_read::TIMEOUT);
-  assert(batch.next==2 && batch.id()==121 && !batch.due(33000-1));
+  assert(batch.next==2 && batch.id()==25 && !batch.due(33000-1));
   assert(batch.due(33000));
   // If a future RF preflight remains blocked, fail closed; never retry the ID.
   assert(!batch.overdue(153000));
@@ -115,18 +115,30 @@ int main(){
   assert(!batch.due(153002));
   assert(batch.start(154000,245914)); // new click explicitly resets the result set
   assert(batch.items[0].state==ramses_bridge_read::IDLE);
-  assert(batch.items[0].id==18 && batch.items[2].id==121);
+  assert(batch.items[0].id==17 && batch.items[2].id==25 && batch.items[15].id==115);
   assert(!batch.start(154001,245914));
-  // Default CH scan never sends ID0 status/master flags or boiler/DHW values.
-  for(uint8_t id:cv_read_batch::IDS) {
-    assert(id==18 || id==117 || id==121);
-    assert(makeRead(245914,48994,id,f,n));
+  // All previously supported CV IDs plus extended diagnostics are restored.
+  const uint8_t expected[]={
+    17,18,25,28,5,33,57,26,117,121,34,35,36,116,120,115
+  };
+  for(size_t i=0;i<cv_read_batch::COUNT;i++) {
+    const uint8_t id=expected[i];
+    assert(cv_read_batch::IDS[i]==id && makeRead(245914,48994,id,f,n));
+    assert(ramses::decode(f,n,m) && m.messageType==0 &&
+           m.opcode==0x3220 && m.payload[2]==id);
   }
-  for(uint8_t excluded:{0,5,17,19,25,26,27,28,33,57,116,120})
+  // ID0 master-status, room-temperature, outside sensor and writes stay blocked.
+  for(uint8_t excluded:{0,16,19,24,27,37,56,255})
     assert(!makeRead(245914,48994,excluded,f,n));
-  float pump=0;
-  assert(ot_readonly::fixedPoint(117,1234,pump) && pump==1234.0f);
-  assert(ot_readonly::fixedPoint(121,5678,pump) && pump==5678.0f);
-  puts("CH-only 15-second R8810A read-only probe tests PASS");
+  float value=0;
+  assert(ot_readonly::fixedPoint(117,1234,value) && value==1234.0f);
+  assert(ot_readonly::fixedPoint(121,5678,value) && value==5678.0f);
+  assert(ot_readonly::fixedPoint(115,0x1234,value) && value==4660.0f);
+  assert(ot_readonly::fixedPoint(116,7,value) && value==7.0f);
+  assert(ot_readonly::fixedPoint(120,99,value) && value==99.0f);
+  assert(ot_readonly::fixedPoint(34,0x2280,value) && value==34.5f);
+  assert(ot_readonly::fixedPoint(36,0x0580,value) && value==5.5f);
+  assert(!ot_readonly::fixedPoint(35,0x1122,value)); // encoded u8/u8
+  puts("16-ID read-only diagnostics and 15s pacing PASS");
   return 0;
 }

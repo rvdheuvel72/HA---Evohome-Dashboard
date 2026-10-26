@@ -1,4 +1,4 @@
-// A bounded, manually authorized batch of three central-heating Read-Data queries.
+// A bounded, manually authorized batch of 16 selected OpenTherm Read-Data queries.
 // The radio task drives this model through the existing paired-bridge Probe.
 // No writes, bind traffic, automatic retries, scans or flash persistence.
 #pragma once
@@ -8,7 +8,7 @@
 #include "OpenThermTxDiagnostics.h"
 
 namespace cv_read_batch {
-constexpr uint8_t IDS[]={18,117,121};
+constexpr uint8_t IDS[]={17,18,25,28,5,33,57,26,117,121,34,35,36,116,120,115};
 constexpr size_t COUNT=sizeof(IDS)/sizeof(IDS[0]);
 constexpr uint32_t SPACING_MS=ramses_bridge_read::COOLDOWN_MS;
 constexpr uint32_t BLOCK_TIMEOUT_MS=120000u;
@@ -23,7 +23,7 @@ struct Item {
 struct Batch {
   Item items[COUNT]={};
   bool active=false,completed=false,aborted=false,inflight=false;
-  uint32_t controllerId=0; // frozen observed 01 source for all three reads
+  uint32_t controllerId=0; // frozen observed 01 source for all manual reads
   uint8_t next=0;
   uint32_t startedAtMs=0,completedAtMs=0,dueMs=0;
   bool start(uint32_t now,uint32_t displayId) {

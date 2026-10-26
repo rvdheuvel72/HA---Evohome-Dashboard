@@ -47,13 +47,13 @@ a{color:#a9d5ff}
 <a href="/api/v1/opentherm/profile" target="_blank">Export compatibility JSON</a>
 <span id="ot-state" class="muted">Loading...</span></div>
 <pre id="ot-results">No compatibility scan requested.</pre>
-<details id="bridge-read-panel" open><summary>R8810A single heating read as Evohome Display 01:</summary><select id="bridge-read-id"><option>18</option><option>117</option><option>121</option></select><label><input id="bridge-read-confirm" type="checkbox">Authorize one read as Evohome 01: (RF collision risk)</label><button id="bridge-read-send" disabled>Read</button><pre id="bridge-read-result"></pre></details>
-<section class="panel" id="cv-read-panel" aria-label="Central heating diagnostics">
-<h2>Central heating — one-click readings</h2>
+<details id="bridge-read-panel" open><summary>R8810A individual OpenTherm read as Evohome Display 01:</summary><select id="bridge-read-id"><option>17</option><option>18</option><option>25</option><option>28</option><option>5</option><option>33</option><option>57</option><option>26</option><option>117</option><option>121</option><option>34</option><option>35</option><option>36</option><option>116</option><option>120</option><option>115</option></select><label><input id="bridge-read-confirm" type="checkbox">Authorize one read as Evohome 01: (RF collision risk)</label><button id="bridge-read-send" disabled>Read</button><pre id="bridge-read-result"></pre></details>
+<section class="panel" id="cv-read-panel" aria-label="Heating and boiler diagnostics">
+<h2>OpenTherm — all heating and boiler readings</h2>
 <p class="muted">Tick authorization to enable each read button. If radio or controller evidence is not ready, the status below tells you why; the read does not silently transmit.</p>
-<p class="muted">Reads central-heating pressure and CH pump statistics, not burner, boiler water, exhaust, DHW or room temperatures. ID0 CH active is observed passively from real bridge replies, never transmitted. A click queues up to 3 read-only 3220 requests from the observed Evohome 01: source, at least 15 seconds apart (~30–45 seconds total). The session survives browser refresh; no automatic retries. Pump figures refer to the heating circulator reported by OpenTherm, not the separate underfloor-heating pump. Unsupported IDs show as such.</p>
-<label class="setting-check"><input type="checkbox" id="cv-read-confirm"> Authorize up to 3 CH-only R8810A RF requests using the observed Evohome 01: identity (collision risk)</label>
-<div class="controls"><button id="cv-read-start" type="button" disabled>Read heating data</button><span id="cv-read-status" class="muted" aria-live="polite">No CV scan started.</span></div>
+<p class="muted">Includes the 8 original IDs and 8 additional diagnostics, grouped as heating circuit, boiler operation and service. ID0 heating status is passive (never requested). Clicking reads 16 IDs at least 15s apart (about 4 minutes or longer). No room temperature or outside-sensor ID27; unsupported values remain visible. Results reset on reboot or a new scan; CH pump counters do not measure a separate underfloor pump.</p>
+<label class="setting-check"><input type="checkbox" id="cv-read-confirm"> Authorize 16 read-only R8810A RF requests using the observed Evohome 01: identity (collision risk)</label>
+<div class="controls"><button id="cv-read-start" type="button" disabled>Read all data</button><span id="cv-read-status" class="muted" aria-live="polite">No CV scan started.</span></div>
 <table class="pin-map"><thead><tr><th scope="col">Data</th><th scope="col">Last value</th><th scope="col">Result</th><th scope="col">Gateway uptime</th></tr></thead><tbody id="cv-read-results"></tbody></table>
 </section>
 <details class="panel" id="one-shot-panel">

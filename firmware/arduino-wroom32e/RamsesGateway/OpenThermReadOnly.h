@@ -54,6 +54,9 @@ inline const char* label(uint8_t id) {
     case 27:return "outside_temperature_c";
     case 28:return "boiler_return_c";
     case 33:return "exhaust_temperature_c";
+    case 34:return "boiler_heat_exchanger_c";
+    case 35:return "boiler_fan_speed";
+    case 36:return "flame_current_ua";
     case 48:return "dhw_bounds";
     case 49:return "ch_bounds";
     case 56:return "dhw_setpoint_c";
@@ -89,11 +92,12 @@ inline const char* state(Result r) {
 inline bool fixedPoint(uint8_t id, uint16_t raw, float& value) {
   switch(id){
     case 17:case 18:case 19:case 25:case 26:case 27:
-    case 28:case 56:case 57:
+    case 28:case 34:case 36:case 56:case 57:
       value=static_cast<int16_t>(raw)/256.0f;return true;
     case 33: // Exhaust temperature is OpenTherm s16, NOT f8.8.
       value=static_cast<int16_t>(raw);return true;
-    case 117:case 121: // CH pump starts and run-hours: OpenTherm u16.
+    case 115:case 116:case 117:case 120:case 121:
+      // OEM diagnostic, burner/CH-pump counters and hours: OpenTherm u16.
       value=static_cast<float>(raw);return true;
     default:return false;
   }

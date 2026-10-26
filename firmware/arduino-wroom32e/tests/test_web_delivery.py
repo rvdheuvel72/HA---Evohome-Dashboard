@@ -25,8 +25,8 @@ assert 'static const char GW_WEB_JS[] PROGMEM' in script
 assert html.count('<script defer src="/gateway.js"></script>')==1
 assert '<script>' not in html, "No inline JS should remain in HTML"
 assert html.count('</script>')==1, "Only the one external JS closing tag is allowed"
-assert len(html)<21000, "HTML response must be less than half old monolithic 41KB page"
-assert len(script)<31000  # virtual thermostat pending/sent status
+assert len(html)<23000, "HTML response must be less than half old monolithic 41KB page"
+assert len(script)<37000  # add eight-value CV diagnostics without inline scripts
 assert '"report_pending":%s' in ino or '\\"report_pending\\":%s' in ino
 assert 'next_report_in_ms' in ino and 'last_report_centi' in ino
 assert 'reportPending(now)' in ino and 'nextReportInMs(now)' in ino
@@ -52,6 +52,15 @@ assert 'web.on("/api/v1/opentherm/paired-read", HTTP_GET, httpPairedBridgeRead);
 assert 'web.on("/api/v1/opentherm/paired-read", HTTP_POST, httpPairedBridgeRead);' in ino
 assert 'id="bridge-read-panel"' in html and 'id="bridge-read-confirm"' in html
 assert 'one-read-own-r8810a-as-observed-controller' in script
+assert 'id="cv-read-panel"' in html and 'id="cv-read-results"' in html
+assert 'id="cv-read-confirm"' in html and 'id="cv-read-start"' in html
+assert "const cvCatalog=" in script and "cvStart()" in script
+assert "cvScanRunning" in script and "125000" in script
+assert "one-read-own-r8810a-as-observed-controller" in script
+assert "data_id:String(field.id)" in script
+assert "cvOutcomes.clear()" in script
+assert "cvScanRunning=false" in script
+assert "id:27" not in script[script.index("const cvCatalog="):script.index("const cvOutcomes=")]
 assert 'requestPairedBridgeRead' in (SKETCH/"OpenThermGateway.h").read_text()
 assert 'directRequestSeen' in (SKETCH/"OpenThermGateway.h").read_text()
 for url, method in (

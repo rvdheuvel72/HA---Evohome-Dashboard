@@ -335,6 +335,7 @@ class OpenThermGateway {
       const uint32_t id=rfId(msg.addresses[0]);
       portENTER_CRITICAL(&mutex_);
       seenControllers_.note(id);
+      passiveDisplay_.note(msg);
       portEXIT_CRITICAL(&mutex_);
     }
     if(linkedController) {
@@ -391,33 +392,55 @@ class OpenThermGateway {
   // Guarded one-shot READ-Data from R8810A using the physically observed
   // original Evohome 01: identity. No 1FC9 binding, writes or auto polling.
   // This source-address use is intentionally NOT allowed by other RF APIs.
-  bool pairedBridgeReadReady(bool batch=false) const {
-    if(!config_ || config_->otTxEnabled || config_->otAutoPoll ||
-       config_->otScanAll || !bridgeSeen_ || !config_->otBridge ||
-       config_->otBridge>=262143 || requested_ || work_.active ||
-       !radio_frequency::evohomeTxFrequency(config_->rfFrequencyKhz,
-                                              moduleBand_))return false;
+  // Explicitly authorized spoof of the already observed Evohome Display 01:
+  // source. A sole, checksum-validated 01: source identifies the display
+  // without requiring a controller-to-bridge request during this boot.
+  // Conflicting controller evidence always blocks transmitting.
+  const char* pairedBridgeReadBlockReason(bool batch=false) const {
+    if(!config_)return "configuration_unavailable";
+    if(config_->otTxEnabled || config_->otAutoPoll || config_->otScanAll)
+      return "disable_automatic_opentherm_rf";
+    if(!config_->otBridge || config_->otBridge>=262143)
+      return "configure_r8810a_id";
+    if(!bridgeSeen_)return "r8810a_not_observed";
+    if(requested_ || work_.active)return "opentherm_scan_active";
+    if(!radio_frequency::evohomeTxFrequency(config_->rfFrequencyKhz,
+                                              moduleBand_))
+      return "requires_868_mhz_module";
+    const uint32_t now=millis();
     portENTER_CRITICAL(&mutex_);
-    const bool ready=(!cvBatch_.active || batch) &&
-      controllerEvidence_.directRequestSeen && !controllerEvidence_.ambiguous && observedController_>0 &&
-      observedController_<262143 && !binding_.busy() &&
-      !pairedBridgeRead_.busy() &&
-      singleProbe_.state!=ot_single::QUEUED &&
-      singleProbe_.state!=ot_single::WAITING &&
-      (!lastControllerTxMs_ ||
-         static_cast<uint32_t>(millis()-lastControllerTxMs_)>=2500u);
+    const char* reason=nullptr;
+    if(cvBatch_.active && !batch)reason="cv_batch_active";
+    else if(passiveDisplay_.ambiguous || controllerEvidence_.ambiguous)
+      reason="controller_identity_ambiguous";
+    else if(!passiveDisplay_.id)reason="evohome_display_not_observed";
+    else if(controllerEvidence_.id &&
+            controllerEvidence_.id!=passiveDisplay_.id)
+      reason="evohome_bridge_source_conflict";
+    else if(seenControllers_.saturated())reason="controller_id_coverage_exhausted";
+    else if(binding_.busy())reason="pairing_active";
+    else if(pairedBridgeRead_.busy())reason="another_read_active";
+    else if(singleProbe_.state==ot_single::QUEUED ||
+            singleProbe_.state==ot_single::WAITING)
+      reason="one_shot_active";
+    else if(pairedBridgeRead_.cooldown(now))reason="read_cooldown";
+    else if(lastControllerTxMs_ &&
+            static_cast<uint32_t>(now-lastControllerTxMs_)<2500u)
+      reason="rf_quiet_window";
     portEXIT_CRITICAL(&mutex_);
-    return ready;
+    return reason;
+  }
+  bool pairedBridgeReadReady(bool batch=false) const {
+    return pairedBridgeReadBlockReason(batch)==nullptr;
   }
   bool requestPairedBridgeRead(uint8_t id) {
     if(!ramses_bridge_read::supportedId(id) || !pairedBridgeReadReady())return false;
     portENTER_CRITICAL(&mutex_);
-    const bool ok=controllerEvidence_.directRequestSeen &&
-      !controllerEvidence_.ambiguous && !binding_.busy() &&
+    const uint32_t displayId=passiveDisplay_.readSource(controllerEvidence_);
+    const bool ok=displayId && !seenControllers_.saturated() && !binding_.busy() &&
       singleProbe_.state!=ot_single::QUEUED &&
       singleProbe_.state!=ot_single::WAITING &&
-      pairedBridgeRead_.request(millis(),observedController_,
-                                config_->otBridge,id);
+      pairedBridgeRead_.request(millis(),displayId,config_->otBridge,id);
     if(ok)pairedBridgeReadTx_=ot_tx::Report{};
     portEXIT_CRITICAL(&mutex_);
     return ok;
@@ -427,10 +450,11 @@ class OpenThermGateway {
   bool requestCvBatch() {
     if(!pairedBridgeReadReady())return false;
     portENTER_CRITICAL(&mutex_);
-    const bool ok=!cvBatch_.active && !pairedBridgeRead_.busy() &&
+    const uint32_t displayId=passiveDisplay_.readSource(controllerEvidence_);
+    const bool ok=displayId && !seenControllers_.saturated() &&
+      !cvBatch_.active && !pairedBridgeRead_.busy() &&
       pairedBridgeRead_.cooldown(millis())==0 &&
-      controllerEvidence_.directRequestSeen && !controllerEvidence_.ambiguous &&
-      cvBatch_.start(millis());
+      cvBatch_.start(millis(),displayId);
     portEXIT_CRITICAL(&mutex_);
     return ok;
   }
@@ -606,7 +630,8 @@ class OpenThermGateway {
       portENTER_CRITICAL(&mutex_);
       if(cvBatch_.due(now) && !pairedBridgeRead_.busy() &&
          pairedBridgeRead_.cooldown(now)==0 &&
-         pairedBridgeRead_.request(now,observedController_,config_->otBridge,
+         cvBatch_.controllerId==passiveDisplay_.readSource(controllerEvidence_) &&
+         pairedBridgeRead_.request(now,cvBatch_.controllerId,config_->otBridge,
                                    cvBatch_.id())) {
         cvBatch_.queued();
         pairedBridgeReadTx_=ot_tx::Report{};
@@ -811,6 +836,7 @@ class OpenThermGateway {
   ot_single::Probe singleProbe_;
   ramses_bridge_read::Probe pairedBridgeRead_;
   cv_read_batch::Batch cvBatch_;
+  ramses_peer::ObservedDisplay passiveDisplay_; // manual spoofed 01 source only
   ot_tx::Report pairedBridgeReadTx_;
   ot_tx::Report lastReports_[2];
   ot_tx::Comparison comparisons_[2];

@@ -48,6 +48,12 @@ assert "loopback" not in script.lower()
 assert "if(rawTemperature==='')" in script
 assert "Number(rawTemperature)" in script
 assert 'web.on("/api/v1/thermostat", HTTP_GET, httpThermostatStatus);' in ino
+assert 'web.on("/api/v1/opentherm/paired-read", HTTP_GET, httpPairedBridgeRead);' in ino
+assert 'web.on("/api/v1/opentherm/paired-read", HTTP_POST, httpPairedBridgeRead);' in ino
+assert 'id="bridge-read-panel"' in html and 'id="bridge-read-confirm"' in html
+assert 'one-read-own-r8810a-as-observed-controller' in script
+assert 'requestPairedBridgeRead' in (SKETCH/"OpenThermGateway.h").read_text()
+assert 'directRequestSeen' in (SKETCH/"OpenThermGateway.h").read_text()
 for url, method in (
     ('/api/v1/thermostat/forget', 'httpThermostatForget'),
     ('/api/v1/opentherm/pairing/forget', 'httpVirtualControllerForget'),

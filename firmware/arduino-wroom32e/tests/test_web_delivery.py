@@ -54,13 +54,18 @@ assert 'id="bridge-read-panel"' in html and 'id="bridge-read-confirm"' in html
 assert 'one-read-own-r8810a-as-observed-controller' in script
 assert 'id="cv-read-panel"' in html and 'id="cv-read-results"' in html
 assert 'id="cv-read-confirm"' in html and 'id="cv-read-start"' in html
-assert "const cvCatalog=" in script and "cvStart()" in script
-assert "cvScanRunning" in script and "125000" in script
-assert "one-read-own-r8810a-as-observed-controller" in script
-assert "data_id:String(field.id)" in script
-assert "cvOutcomes.clear()" in script
-assert "cvScanRunning=false" in script
-assert "id:27" not in script[script.index("const cvCatalog="):script.index("const cvOutcomes=")]
+assert "const cvCatalog=" in script and "cvStatus()" in script
+assert "/api/v1/opentherm/cv-batch" in script
+assert "eight-read-only-requests-existing-evohome-identity" in script
+assert "cvDraw(s)" in script and "s.completed" in script
+assert "cvPosting=false" in script
+assert "id:27" not in script[script.index("const cvCatalog="):script.index("let cvPosting=")]
+assert 'web.on("/api/v1/opentherm/cv-batch", HTTP_GET, httpCvReadBatch);' in ino
+assert 'web.on("/api/v1/opentherm/cv-batch", HTTP_POST, httpCvReadBatch);' in ino
+assert 'strongThermostatAuth()' in ino[ino.index('void httpCvReadBatch()'):ino.index('void httpOtOneShot()')]
+assert "CvReadBatch.h" in (SKETCH / "OpenThermGateway.h").read_text()
+assert "pairedBridgeRead_.cooldown(now)==0" in (SKETCH / "OpenThermGateway.h").read_text()
+assert "cvBatch_.settle(" in (SKETCH / "OpenThermGateway.h").read_text()
 assert 'requestPairedBridgeRead' in (SKETCH/"OpenThermGateway.h").read_text()
 assert 'directRequestSeen' in (SKETCH/"OpenThermGateway.h").read_text()
 for url, method in (

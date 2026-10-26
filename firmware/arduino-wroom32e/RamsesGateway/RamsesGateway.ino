@@ -993,8 +993,9 @@ void httpPairedBridgeRead() {
     return;
   }
   if(!radioReady || !otGateway.requestPairedBridgeRead(static_cast<uint8_t>(id))) {
+    const char* reason=radioReady?otGateway.pairedBridgeReadBlockReason():"radio_not_ready";
     web.send(409,"application/json",
-      "{\"error\":\"bridge_read_blocked_observe_direct_evohome_rq_or_wait_for_cooldown\"}");
+      String("{\"error\":\"")+(reason?reason:"bridge_read_busy")+"\"}");
     return;
   }
   char line[130];
@@ -1022,8 +1023,9 @@ void httpCvReadBatch(){
     return;
   }
   if(!radioReady || !otGateway.requestCvBatch()){
+    const char* reason=radioReady?otGateway.pairedBridgeReadBlockReason():"radio_not_ready";
     web.send(409,"application/json",
-      "{\"error\":\"cv_read_busy_not_ready_or_in_cooldown\"}");
+      String("{\"error\":\"")+(reason?reason:"cv_read_busy")+"\"}");
     return;
   }
   recordLog(GatewayDebug::WARN,

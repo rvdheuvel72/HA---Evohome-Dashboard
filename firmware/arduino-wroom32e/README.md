@@ -1,3 +1,17 @@
+## Beta.36: Central-heating-only R8810A diagnostics
+
+[RAMSES Arduino Gateway v0.4.0-beta.36](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.36)
+— ZIP: `RAMSES-Arduino-Gateway-v0.4.0-beta.36-ESP32-WROOM-32E.zip`.
+
+The one-click **Read heating data** scan no longer queries boiler flow,
+return, burner, exhaust, DHW or setpoint data. It performs only three
+central-heating Read-Data requests: **ID18 pressure, ID117 CH pump starts,
+ID121 CH pump hours**, with **15-second minimum spacing**. ID0 CH-active
+status is observed from existing bridge traffic **passively**; the
+gateway never transmits an ID0 request with master status flags.
+The standalone legacy ID25 RF experiment remains separate and unchanged.
+Unconfirmed ID support is displayed as unsupported or timed out.
+
 ## Beta.35: R8810A CV read buttons fixed
 
 [RAMSES Arduino Gateway v0.4.0-beta.35](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.35)

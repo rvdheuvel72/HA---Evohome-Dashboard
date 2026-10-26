@@ -80,9 +80,9 @@ int main(){
   // CV button uses the same single-read hardware path at most once per ID.
   cv_read_batch::Batch batch;
   assert(cv_read_batch::COUNT==8);
-  assert(batch.start(1000));
+  assert(batch.start(1000,245914));
   assert(batch.active && batch.due(1000) && batch.id()==17);
-  assert(!batch.start(1001)); // no double-start while active
+  assert(!batch.start(1001,245914)); // no double-start while active
   batch.queued();
   assert(!batch.due(1001));
   ramses_bridge_read::Probe response;
@@ -113,10 +113,10 @@ int main(){
   batch.abort(243001);
   assert(!batch.active && batch.aborted && batch.completed);
   assert(!batch.due(243002));
-  assert(batch.start(244000)); // new click explicitly resets the result set
+  assert(batch.start(244000,245914)); // new click explicitly resets the result set
   assert(batch.items[0].state==ramses_bridge_read::IDLE);
   assert(batch.items[0].id==17 && batch.items[7].id==26);
-  assert(!batch.start(244001));
+  assert(!batch.start(244001,245914));
   // All IDs are deliberate, read-only, and outside ID 0/27 and write controls.
   for(uint8_t id:cv_read_batch::IDS) {
     assert(id!=0 && id!=27 && id!=56);

@@ -91,7 +91,7 @@ constexpr uint32_t HEARTBEAT_MS = 15000;
 constexpr uint32_t RADIO_RECOVERY_RETRY_MS = 5000;
 constexpr uint32_t RX_HEALTH_SAMPLE_MS = 5000;
 constexpr uint8_t DEBUG_QUEUE_SIZE = 32;
-constexpr char FW_VERSION[] = "0.4.0-beta.36";
+constexpr char FW_VERSION[] = "0.4.0-beta.37";
 constexpr uint32_t MDNS_RETRY_MS = 15000;
 constexpr uint32_t MQTT_STATE_INTERVAL_MS = 15000;
 
@@ -1017,7 +1017,7 @@ void httpCvReadBatch(){
   if(!strongThermostatAuth())return;
   if(!web.hasHeader("X-Gateway-Config") ||
      web.header("X-Gateway-Config")!="cv-read-batch" ||
-     web.arg("confirm")!="sixteen-read-only-requests-existing-evohome-identity"){
+     web.arg("confirm")!="three-ch-read-only-requests-existing-evohome-identity"){
     web.send(403,"application/json",
       "{\"error\":\"explicit_cv_read_authorization_required\"}");
     return;
@@ -1029,9 +1029,9 @@ void httpCvReadBatch(){
     return;
   }
   recordLog(GatewayDebug::WARN,
-    "Manual R8810A diagnostic scan queued: 16 read-only IDs, >=15s spacing, observed Evohome identity");
+    "Manual R8810A heating diagnostics queued: 3 CH-only IDs, >=15s spacing, observed Evohome identity");
   web.send(202,"application/json",
-    "{\"queued\":true,\"read_only\":true,\"requests_max\":16,\"minimum_spacing_ms\":15000}");
+    "{\"queued\":true,\"read_only\":true,\"requests_max\":3,\"minimum_spacing_ms\":15000}");
 }
 void httpOtOneShot(){
   if(!authorized())return;
@@ -1907,8 +1907,8 @@ void handlePacket(const PacketEvent& event) {
 void setup() {
   Serial.begin(115200);
   delay(250);
-  Serial.println("\n# RAMSES II Arduino v0.4.0-beta.36 (read-only OpenTherm discovery)");
-  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-beta.36");
+  Serial.println("\n# RAMSES II Arduino v0.4.0-beta.37 (read-only OpenTherm discovery)");
+  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-beta.37");
   char bootInfo[96];
   snprintf(bootInfo, sizeof(bootInfo), "Reset reason: %s", resetReason());
   recordLog(GatewayDebug::INFO, bootInfo);

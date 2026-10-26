@@ -93,6 +93,8 @@ inline bool fixedPoint(uint8_t id, uint16_t raw, float& value) {
       value=static_cast<int16_t>(raw)/256.0f;return true;
     case 33: // Exhaust temperature is OpenTherm s16, NOT f8.8.
       value=static_cast<int16_t>(raw);return true;
+    case 117:case 121: // CH pump starts and run-hours: OpenTherm u16.
+      value=static_cast<float>(raw);return true;
     default:return false;
   }
 }

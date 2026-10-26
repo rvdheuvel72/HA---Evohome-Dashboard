@@ -185,6 +185,56 @@ async function otStatus(){
   set('ot-results',lines.length?lines.join('\n'):'No OpenTherm replies recorded.');
  }catch(e){set('ot-state','Profile unavailable: '+e.message)}
 }
+let bridgeReadNotice='';
+async function updatePairedBridgeRead(){
+ try{
+  const r=await fetch('/api/v1/opentherm/paired-read',{cache:'no-store'});
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  const v=await r.json();
+  el('bridge-read-send').disabled=!v.ready||!el('bridge-read-confirm').checked;
+  set('bridge-read-result',
+    'Target R8810A: 10:'+String(v.bridge_id).padStart(6,'0')+
+    ' · source existing Evohome: 01:'+String(v.controller_id).padStart(6,'0')+
+    '\\nBridge heard: '+v.bridge_seen+' · verified direct controller RQ: '+v.direct_controller_observed+
+    '\\nReady: '+v.ready+' · cooldown: '+Math.ceil(v.cooldown_ms/1000)+'s'+
+    '\\nLast read ID '+v.data_id+' '+v.data_name+' · state: '+v.state+
+    (v.has_value?' · '+Number(v.value).toFixed(2)+' (native units)':' · no verified Read-Ack')+
+    '\\nLocal TX: '+v.tx_phase+' ('+v.tx_bytes+'/'+v.tx_expected_bytes+' bytes)'+
+    '\\n'+(bridgeReadNotice||v.note));
+ }catch(e){
+  el('bridge-read-send').disabled=true;
+  set('bridge-read-result','R8810A direct read unavailable: '+e.message);
+ }
+}
+el('bridge-read-confirm').addEventListener('change',updatePairedBridgeRead);
+el('bridge-read-send').addEventListener('click',async()=>{
+ el('bridge-read-send').disabled=true;
+ try{
+  const id=el('bridge-read-id').value;
+  const r=await fetch('/api/v1/opentherm/paired-read',{
+   method:'POST',
+   headers:{'X-Gateway-Config':'paired-bridge-read',
+            'Content-Type':'application/x-www-form-urlencoded'},
+   body:new URLSearchParams({
+     data_id:id,
+     confirm:'one-read-own-r8810a-as-observed-controller'
+   }).toString()
+  });
+  const reply=await r.json();
+  if(!r.ok)throw new Error(reply.error||'HTTP '+r.status);
+  bridgeReadNotice='One READ-only RQ queued to R8810A; awaiting its response.';
+ }catch(e){
+  bridgeReadNotice='R8810A read blocked: '+e.message;
+ }
+ el('bridge-read-confirm').checked=false;
+ await updatePairedBridgeRead();
+});
+function refreshPairedBridgeRead(){
+ if(el('bridge-read-panel').open)scheduled('bridge-read',updatePairedBridgeRead)
+}
+el('bridge-read-panel').addEventListener('toggle',refreshPairedBridgeRead);
+setInterval(refreshPairedBridgeRead,10000);
+
 const pairingBlockMessages={
   configuration_unavailable:'Gateway configuration has not loaded.',
   configure_bridge_id:'Settings: enter the numeric RF address of YOUR observed R8810A (10:xxxxxx, without the 10: prefix), not another installation\'s ID.',

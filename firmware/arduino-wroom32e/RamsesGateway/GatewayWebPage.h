@@ -30,7 +30,7 @@ a{color:#a9d5ff}
 .pin-map{width:100%;border-collapse:collapse;font-size:.9rem}
 .pin-map td,.pin-map th{padding:6px;text-align:left;border-bottom:1px solid #334354}
 </style></head><body>
-<header><div><h1>RAMSES II Gateway</h1><small>ESP32-WROOM-32E · CC1101 · Controller (01:) + virtual room thermostat (12:) · passive RF diagnostics</small></div><span id="connection" class="muted">Connecting...</span></header>
+<header><h1>RAMSES II Gateway</h1><small>ESP32 · CC1101</small><span id="connection">Connecting...</span></header>
 <nav class="tabs" role="tablist" aria-label="Gateway pages"><button type="button" id="tab-diagnostics" role="tab" aria-selected="true" aria-controls="page-diagnostics">Diagnostics</button><button type="button" id="tab-settings" role="tab" aria-selected="false" aria-controls="page-settings">Settings</button></nav>
 <div id="page-diagnostics" role="tabpanel" aria-labelledby="tab-diagnostics">
 <section class="grid">
@@ -62,6 +62,7 @@ a{color:#a9d5ff}
 <pre id="one-shot-diag" aria-live="polite">TX diagnostic data appears after one request.</pre>
 <pre id="one-shot-compare">UART/FIFO A-B comparison will appear here.</pre>
 </details>
+<details id="bridge-read-panel"><summary>R8810A single read (RF test)</summary><select id="bridge-read-id"><option>25</option><option>28</option><option>17</option><option>18</option><option>19</option><option>26</option><option>27</option><option>33</option></select><label><input id="bridge-read-confirm" type="checkbox">Authorize one read as Evohome 01: (RF collision risk)</label><button id="bridge-read-send" disabled>Read</button><pre id="bridge-read-result"></pre></details>
 <details class="panel" id="pairing-panel">
 <summary>Experimental R8810A pairing — additional virtual controller (01:)</summary>
 <p class="muted">Experimental RAMSES 1FC9 binding. The <strong>Honeywell R8810A1018 device installation guide</strong>, page 2, says to press its button for <strong>5 seconds</strong> to enter binding mode: the red LED alternates 0.5 seconds ON / 0.5 seconds OFF. The manual does <strong>not</strong> require a preceding 15-second reset for this procedure. <strong>Do not clear existing bindings.</strong> Clicking the ESP32 button only queues an RF offer; it does not put the physical R8810A into binding mode. This manual documents a CM957 thermostat, not the safety or feasibility of adding a second virtual controller to an existing Evohome system. If the red LED does not flash after a deliberate 5-second press, stop the experiment and keep normal Evohome boiler control.</p>

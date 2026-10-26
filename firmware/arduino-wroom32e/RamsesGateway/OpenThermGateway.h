@@ -14,6 +14,7 @@
 #include "GatewayRuntimeConfig.h"
 #include "RamsesCodec.h"
 #include "RamsesBinding.h"
+#include "RamsesPairedBridgeRead.h"
 #include "RamsesPeerDetection.h"
 #include "RamsesControllerIds.h"
 
@@ -100,6 +101,7 @@ class OpenThermGateway {
     if(work_.active)return "opentherm_scan_active";
     if(requested_)return "opentherm_scan_requested";
     if(probeBusy)return "opentherm_one_shot_active";
+    if(pairedBridgeRead_.busy())return "paired_identity_bridge_read_active";
     if(bindingBusy)return "pairing_already_running";
     if(cooling)return "pairing_cooldown";
     return nullptr;
@@ -112,6 +114,7 @@ class OpenThermGateway {
     const uint32_t now=millis();
     portENTER_CRITICAL(&mutex_);
     const bool idle=!requested_ && !work_.active && !binding_.busy() &&
+       !pairedBridgeRead_.busy() &&
        singleProbe_.state!=ot_single::QUEUED &&
        singleProbe_.state!=ot_single::WAITING &&
        (!lastControllerTxMs_ ||
@@ -145,7 +148,8 @@ class OpenThermGateway {
   bool requestBinding(uint32_t virtualControllerId){
     if(bindingBlockReason()!=nullptr || !bindingReady())return false;
     portENTER_CRITICAL(&mutex_);
-    const bool blocked=singleProbe_.state==ot_single::QUEUED ||
+    const bool blocked=pairedBridgeRead_.busy() ||
+      singleProbe_.state==ot_single::QUEUED ||
        singleProbe_.state==ot_single::WAITING;
     const bool ok=!bindingForgetRequested_ && !blocked && !binding_.busy() &&
        seenControllers_.eligible(virtualControllerId) &&
@@ -239,7 +243,8 @@ class OpenThermGateway {
     server.send(200,"application/json",body);
   }
   bool requestOneShot(ot_tx::Method method) {
-    if(!experimentalOneShotReady() || work_.active || requested_ || binding_.busy())return false;
+    if(!experimentalOneShotReady() || work_.active || requested_ || binding_.busy() ||
+       pairedBridgeRead_.busy())return false;
     portENTER_CRITICAL(&mutex_);
     const bool ok=singleProbe_.request(millis(),method);
     portEXIT_CRITICAL(&mutex_);
@@ -373,17 +378,93 @@ class OpenThermGateway {
     publishSnapshot();
   }
   bool requestScan() {
-    if(!transmitEnabled() || binding_.busy())return false;
+    if(!transmitEnabled() || binding_.busy() || pairedBridgeRead_.busy())return false;
     portENTER_CRITICAL(&mutex_);
-    const bool ok=!published_.active && !requested_ && !binding_.busy();
+    const bool ok=!published_.active && !requested_ && !binding_.busy() &&
+       !pairedBridgeRead_.busy();
     if(ok)requested_=true;
     portEXIT_CRITICAL(&mutex_);
     return ok;
+  }
+  // Guarded one-shot READ-Data from R8810A using the physically observed
+  // original Evohome 01: identity. No 1FC9 binding, writes or auto polling.
+  // This source-address use is intentionally NOT allowed by other RF APIs.
+  bool pairedBridgeReadReady() const {
+    if(!config_ || config_->otTxEnabled || config_->otAutoPoll ||
+       config_->otScanAll || !bridgeSeen_ || !config_->otBridge ||
+       config_->otBridge>=262143 || requested_ || work_.active ||
+       !radio_frequency::evohomeTxFrequency(config_->rfFrequencyKhz,
+                                              moduleBand_))return false;
+    portENTER_CRITICAL(&mutex_);
+    const bool ready=controllerEvidence_.directRequestSeen &&
+      !controllerEvidence_.ambiguous && observedController_>0 &&
+      observedController_<262143 && !binding_.busy() &&
+      !pairedBridgeRead_.busy() &&
+      singleProbe_.state!=ot_single::QUEUED &&
+      singleProbe_.state!=ot_single::WAITING &&
+      (!lastControllerTxMs_ ||
+         static_cast<uint32_t>(millis()-lastControllerTxMs_)>=2500u);
+    portEXIT_CRITICAL(&mutex_);
+    return ready;
+  }
+  bool requestPairedBridgeRead(uint8_t id) {
+    if(!ramses_bridge_read::supportedId(id) || !pairedBridgeReadReady())return false;
+    portENTER_CRITICAL(&mutex_);
+    const bool ok=controllerEvidence_.directRequestSeen &&
+      !controllerEvidence_.ambiguous && !binding_.busy() &&
+      singleProbe_.state!=ot_single::QUEUED &&
+      singleProbe_.state!=ot_single::WAITING &&
+      pairedBridgeRead_.request(millis(),observedController_,
+                                config_->otBridge,id);
+    if(ok)pairedBridgeReadTx_=ot_tx::Report{};
+    portEXIT_CRITICAL(&mutex_);
+    return ok;
+  }
+  void sendPairedBridgeReadStatus(WebServer& server,bool radioReady) {
+    ramses_bridge_read::Probe snap;ot_tx::Report tx;
+    bool direct=false;
+    portENTER_CRITICAL(&mutex_);
+    snap=pairedBridgeRead_;tx=pairedBridgeReadTx_;
+    direct=controllerEvidence_.directRequestSeen &&
+           !controllerEvidence_.ambiguous;
+    portEXIT_CRITICAL(&mutex_);
+    float value=0;
+    const bool hasValue=snap.state==ramses_bridge_read::READ_ACK &&
+      ot_readonly::fixedPoint(snap.dataId,snap.raw,value);
+    char response[740];
+    snprintf(response,sizeof(response),
+      "{\"state\":\"%s\",\"ready\":%s,\"bridge_seen\":%s,"
+      "\"direct_controller_observed\":%s,\"bridge_id\":%lu,"
+      "\"controller_id\":%lu,\"data_id\":%u,\"data_name\":\"%s\","
+      "\"cooldown_ms\":%lu,\"raw\":%u,\"has_value\":%s,"
+      "\"value\":%.3f,\"tx_phase\":\"%s\","
+      "\"tx_local_complete\":%s,\"tx_bytes\":%u,"
+      "\"tx_expected_bytes\":%u,"
+      "\"note\":\"One manual Read-Data RQ only. Existing 01 identity is reused;"
+      " replies may also be seen by the real controller; RX matching does not"
+      " cryptographically prove causal attribution.\"}",
+      ramses_bridge_read::label(snap.state),
+      (radioReady && pairedBridgeReadReady() &&
+        snap.cooldown(millis())==0)?"true":"false",
+      bridgeSeen_?"true":"false",direct?"true":"false",
+      static_cast<unsigned long>(config_->otBridge),
+      static_cast<unsigned long>(snap.controllerId?snap.controllerId:observedController_),
+      static_cast<unsigned>(snap.dataId),ot_readonly::label(snap.dataId),
+      static_cast<unsigned long>(snap.cooldown(millis())),
+      static_cast<unsigned>(snap.raw),hasValue?"true":"false",
+      static_cast<double>(hasValue?value:0.0f),
+      ot_tx::phaseName(tx.phase),
+      tx.phase==ot_tx::LOCAL_COMPLETE?"true":"false",
+      static_cast<unsigned>(tx.written_bytes),
+      static_cast<unsigned>(tx.expected_bytes));
+    server.sendHeader("Cache-Control","no-store");
+    server.send(200,"application/json",response);
   }
   // Must be called from the radioTask after a checksum-validated frame.
   bool observe(const ramses::Message& msg,uint8_t& id,
                ot_readonly::Result& r,uint16_t& raw) {
     portENTER_CRITICAL(&mutex_);
+    pairedBridgeRead_.observe(msg,millis());
     binding_.observe(msg,millis());
     portEXIT_CRITICAL(&mutex_);
     if(msg.opcode!=0x3220 || msg.messageType!=3 ||
@@ -392,6 +473,9 @@ class OpenThermGateway {
        !ot_readonly::response(msg.payload,msg.length,id,r,raw))return false;
     // Only attribute scan results to our transaction when the reply
     // explicitly addresses the configured gateway RF identity.
+    const bool directedExistingController=(msg.addrMask&2u) &&
+      rfType(msg.addresses[1])==1 &&
+      rfId(msg.addresses[1])==observedController_;
     const bool directedGateway=(msg.addrMask&2) &&
       rfType(msg.addresses[1])==18 &&
       rfId(msg.addresses[1])==config_->otSource;
@@ -399,7 +483,11 @@ class OpenThermGateway {
       binding_.state==ramses_bind::VERIFIED &&
       rfType(msg.addresses[1])==1 &&
       rfId(msg.addresses[1])==binding_.virtualId;
-    if(directedGateway || directedPairedController) {
+    // The direct bridge probe already checks its own strict TX window,
+    // source+destination, OpenTherm parity and requested Data-ID above.
+    // Never attribute an existing-controller reply to a gateway scan.
+    if((directedGateway || directedPairedController) &&
+       !(directedExistingController && pairedBridgeRead_.busy())) {
       portENTER_CRITICAL(&mutex_);
       if(singleProbe_.accept(id,r,raw,millis())) {
         ot_tx::Comparison& summary=comparisons_[singleProbe_.method];
@@ -435,6 +523,27 @@ class OpenThermGateway {
     if(previous==ot_single::WAITING && singleProbe_.state==ot_single::TIMEOUT)
       comparisons_[method].timeouts++;
     portEXIT_CRITICAL(&mutex_);
+    // Start a selected, explicit single READ-Data transaction after
+    // lower-level RF quiet gating. Never retry automatically.
+    ramses_bridge_read::Probe bridgeSnap;
+    bool bridgeStart=false;
+    portENTER_CRITICAL(&mutex_);
+    pairedBridgeRead_.tick(now);
+    bridgeStart=pairedBridgeRead_.begin(now);
+    bridgeSnap=pairedBridgeRead_;
+    portEXIT_CRITICAL(&mutex_);
+    if(bridgeStart) {
+      uint8_t frame[16]={};size_t length=0;ot_tx::Report tx{};
+      const bool built=ramses_bridge_read::makeRead(
+        bridgeSnap.controllerId,bridgeSnap.bridgeId,bridgeSnap.dataId,
+        frame,length);
+      const bool sent=built && sendBindingFrame(
+        radio,port,decoder,frame,length,tx);
+      portENTER_CRITICAL(&mutex_);
+      pairedBridgeReadTx_=tx;
+      pairedBridgeRead_.sent(sent);
+      portEXIT_CRITICAL(&mutex_);
+    }
     if(oneShot) {
       ot_tx::Report details;
       details.method=method;
@@ -511,6 +620,7 @@ class OpenThermGateway {
     }
     // Normal polling is opt-in, derived ONLY from observed READ_ACK IDs.
     if(config_ && config_->otAutoPoll==1 && !work_.active && work_.completed &&
+       !pairedBridgeRead_.busy() &&
        static_cast<int32_t>(now-nextPolling_)>=0 && transmitEnabled()) {
       nextPolling_=now+60000; // at most one request per minute
       for(unsigned attempts=0;attempts<256;attempts++){
@@ -608,6 +718,8 @@ class OpenThermGateway {
   volatile bool bridgeSeen_=false;
   volatile bool sourceConflict_=false;
   ot_single::Probe singleProbe_;
+  ramses_bridge_read::Probe pairedBridgeRead_;
+  ot_tx::Report pairedBridgeReadTx_;
   ot_tx::Report lastReports_[2];
   ot_tx::Comparison comparisons_[2];
   ramses_bind::Session binding_;

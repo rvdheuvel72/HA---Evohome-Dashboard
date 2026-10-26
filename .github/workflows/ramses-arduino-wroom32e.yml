@@ -132,6 +132,11 @@ jobs:
           g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer \
             firmware/arduino-wroom32e/tests/test_pairing.cpp -o /tmp/test-ramses-pairing
           /tmp/test-ramses-pairing
+      - name: Test direct R8810A Read-Data only using existing controller identity
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror \
+            firmware/arduino-wroom32e/tests/test_paired_bridge_read.cpp -o /tmp/test-paired-bridge-read
+          /tmp/test-paired-bridge-read
       - name: Test strict local CC1101 TX verification
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror \

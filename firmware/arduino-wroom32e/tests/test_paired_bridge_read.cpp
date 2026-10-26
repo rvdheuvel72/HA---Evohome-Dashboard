@@ -18,11 +18,11 @@ int main(){
   assert(m.payload[0]==0 && m.payload[2]==25);
   assert((m.payload[1]&0x70)==0); // OpenTherm Read-Data ONLY
   assert(!makeRead(245914,48994,0,f,n)); // status/control deliberately blocked
-  assert(!makeRead(245914,48994,56,f,n)); // setpoint controls deliberately blocked
+  assert(!makeRead(245914,48994,56,f,n)); // setpoint controls deliberately blocked\n  assert(!makeRead(245914,48994,0,f,n)); // status master flags never transmitted
   assert(!makeRead(245914,48994,255,f,n));
   assert(!makeRead(0,48994,25,f,n));
   assert(!makeRead(245914,0,25,f,n));
-  for(uint8_t id:{17,18,19,25,26,27,28,33})
+  for(uint8_t id:{5,17,18,19,25,26,27,28,33,57})
     assert(makeRead(245914,48994,id,f,n));
   Probe p;
   assert(p.request(1000,245914,48994,25));

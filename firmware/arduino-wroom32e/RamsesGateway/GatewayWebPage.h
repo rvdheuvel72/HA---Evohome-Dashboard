@@ -62,6 +62,24 @@ a{color:#a9d5ff}
 <pre id="one-shot-diag" aria-live="polite">TX diagnostic data appears after one request.</pre>
 <pre id="one-shot-compare">UART/FIFO A-B comparison will appear here.</pre>
 </details>
+<details class="panel" id="bridge-read-panel">
+<summary>Read OpenTherm values from MY R8810A (10:) — no additional pairing</summary>
+<p class="muted">Experimental, explicitly authorized ONE-RQ test to the <strong>observed R8810A</strong>, using the RF identity of the existing physical Evohome 01: controller. The original pairing is NOT modified. Only OpenTherm Read-Data 3220 is allowed, never Write-Data or heating-demand changes. Requires a directly observed controller-to-bridge request, native 868.300 MHz module, RF TX ready, scan/auto-poll disabled, and strong web authentication. Never use the physical R8810A reset button. Identical RF identities can collide or confuse devices: use only during supervised testing. At most one request every 60 seconds, no automatic retries.</p>
+<div class="controls"><label class="field">OpenTherm read-only Data ID
+<select id="bridge-read-id">
+<option value="25">25 — boiler flow temperature (°C)</option>
+<option value="28">28 — boiler return temperature (°C)</option>
+<option value="17">17 — modulation (%)</option>
+<option value="18">18 — water pressure (bar)</option>
+<option value="19">19 — domestic hot-water flow (L/min)</option>
+<option value="26">26 — domestic hot-water temperature (°C)</option>
+<option value="27">27 — outside temperature (°C)</option>
+<option value="33">33 — exhaust temperature (°C)</option>
+</select></label><a href="/api/v1/opentherm/paired-read" target="_blank">R8810A read diagnostic JSON</a></div>
+<label class="setting-check"><input id="bridge-read-confirm" type="checkbox"> I own the connected R8810A and authorize ONE read-only RF request using the observed real Evohome controller address. I understand no pairing or boiler control is changed, but address reuse carries operational risk.</label>
+<div class="controls"><button type="button" id="bridge-read-send" disabled>Read from R8810A (one request)</button></div>
+<pre id="bridge-read-result" aria-live="polite">R8810A read state not yet loaded.</pre>
+</details>
 <details class="panel" id="pairing-panel">
 <summary>Experimental R8810A pairing — additional virtual controller (01:)</summary>
 <p class="muted">Experimental RAMSES 1FC9 binding. The <strong>Honeywell R8810A1018 device installation guide</strong>, page 2, says to press its button for <strong>5 seconds</strong> to enter binding mode: the red LED alternates 0.5 seconds ON / 0.5 seconds OFF. The manual does <strong>not</strong> require a preceding 15-second reset for this procedure. <strong>Do not clear existing bindings.</strong> Clicking the ESP32 button only queues an RF offer; it does not put the physical R8810A into binding mode. This manual documents a CM957 thermostat, not the safety or feasibility of adding a second virtual controller to an existing Evohome system. If the red LED does not flash after a deliberate 5-second press, stop the experiment and keep normal Evohome boiler control.</p>

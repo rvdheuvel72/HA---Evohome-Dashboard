@@ -168,11 +168,38 @@ jobs:
           print('SHA256:', checksum)
           PY
 
-      - name: Require reviewed, merged PR and exact-head CI
+      - name: Require completed review, merged PR and exact-head CI
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
-        run: python3 scripts/check_release_readiness.py
+        run: |
+          set -euo pipefail
+          python3 scripts/check_release_readiness.py
+          python3 - <<'PY'
+          import os
+          import sys
+          sys.path.insert(0, "scripts")
+          from check_codex_review import pages, review_disposition
+          from check_release_readiness import matching_merged_prs
+
+          token = os.environ["GITHUB_TOKEN"]
+          repo = os.environ["GITHUB_REPOSITORY"]
+          sha = os.environ["GITHUB_SHA"]
+          prs = matching_merged_prs(
+              pages(token, f"/repos/{repo}/commits/{sha}/pulls"), sha)
+          if not prs:
+              raise SystemExit("Release requires a merged PR for the exact commit")
+          for pr in prs:
+              number = pr["number"]
+              head = pr["head"]["sha"]
+              reviews = pages(token, f"/repos/{repo}/pulls/{number}/reviews")
+              comments = pages(token, f"/repos/{repo}/issues/{number}/comments")
+              if review_disposition(reviews, comments, head) != "reviewed":
+                  raise SystemExit(
+                      f"PR #{number} has no COMPLETED Codex review for {head}; "
+                      "quota deferrals are not accepted for beta.35")
+          print("Beta.35 release gate: completed exact-head Codex review required")
+          PY
 
       - name: Ensure GitHub CLI is available on self-hosted runner
         shell: bash

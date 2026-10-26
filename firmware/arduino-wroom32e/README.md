@@ -1,3 +1,17 @@
+## Beta.35: R8810A CV read buttons fixed
+
+[RAMSES Arduino Gateway v0.4.0-beta.35](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.35)
+— ZIP: `RAMSES-Arduino-Gateway-v0.4.0-beta.35-ESP32-WROOM-32E.zip`.
+
+The manual **R8810A single read** and **Read CV data** actions use the
+uniquely observed Evohome Display `01:` RF identity, without waiting
+for a direct Evohome-to-bridge request on every boot. When an action
+cannot start, the page shows why; HTTP rejections remain visible.
+Identity conflicts still block reads, and manual authorization,
+read-only ID allowlists and the 60-second pacing remain unchanged.
+The older gateway-`18:` test is clearly labelled as a separate
+advanced experiment. See `RELEASE_NOTES_v0.4.0-beta.35.md` for limits.
+
 ## Beta.34: One-click CV data from the R8810A
 
 [RAMSES Arduino Gateway v0.4.0-beta.34](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.34)

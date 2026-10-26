@@ -460,21 +460,32 @@ class OpenThermGateway {
   }
   void sendCvBatchStatus(WebServer& server,bool radioReady) {
     cv_read_batch::Batch snap;
+    bool passiveChValid=false;
+    uint16_t passiveChRaw=0;
+    uint32_t passiveChAtMs=0;
     portENTER_CRITICAL(&mutex_);
     snap=cvBatch_;
+    passiveChValid=passiveChValid_;
+    passiveChRaw=passiveChRaw_;
+    passiveChAtMs=passiveChAtMs_;
     const uint32_t cooldown=pairedBridgeRead_.cooldown(millis());
     portEXIT_CRITICAL(&mutex_);
+    // ID0 includes master CH-enable flags and is NEVER actively queried here.
+    const bool passiveChFresh=passiveChValid &&
+      static_cast<uint32_t>(millis()-passiveChAtMs)<=300000u;
     const char* reason=radioReady?pairedBridgeReadBlockReason():"radio_not_ready";
     const bool ready=reason==nullptr;
     server.sendHeader("Cache-Control","no-store");
     server.setContentLength(CONTENT_LENGTH_UNKNOWN);
     server.send(200,"application/json","");
-    char header[350];
+    char header[460];
     snprintf(header,sizeof(header),
       "{\"active\":%s,\"completed\":%s,\"aborted\":%s,\"ready\":%s,"
       "\"block_reason\":\"%s\",\"source_controller_id\":%lu,"
       "\"count\":%u,\"next_index\":%u,\"cooldown_ms\":%lu,"
-      "\"started_at_ms\":%lu,\"completed_at_ms\":%lu,\"results\":[",
+      "\"started_at_ms\":%lu,\"completed_at_ms\":%lu,"
+      "\"passive_ch\":{\"observed\":%s,\"ch_active\":%s,\"updated_at_ms\":%lu},"
+      "\"results\":[",
       snap.active?"true":"false",snap.completed?"true":"false",
       snap.aborted?"true":"false",ready?"true":"false",
       reason?reason:"",static_cast<unsigned long>(snap.controllerId),
@@ -482,7 +493,10 @@ class OpenThermGateway {
       static_cast<unsigned>(snap.next),
       static_cast<unsigned long>(cooldown),
       static_cast<unsigned long>(snap.startedAtMs),
-      static_cast<unsigned long>(snap.completedAtMs));
+      static_cast<unsigned long>(snap.completedAtMs),
+      passiveChFresh?"true":"false",
+      passiveChFresh && (passiveChRaw&0x02u)?"true":"false",
+      static_cast<unsigned long>(passiveChAtMs));
     server.sendContent(header);
     for(size_t i=0;i<cv_read_batch::COUNT;i++) {
       const auto& item=snap.items[i];
@@ -568,6 +582,20 @@ class OpenThermGateway {
        !(msg.addrMask&1) || rfType(msg.addresses[0])!=10 ||
        (config_->otBridge!=0 && rfId(msg.addresses[0])!=config_->otBridge) ||
        !ot_readonly::response(msg.payload,msg.length,id,r,raw))return false;
+    // Passive CH status: only a legitimate bridge Read-Ack ID0 directed to
+    // the observed original 01 controller. Never create an ID0 request:
+    // OpenTherm master-status bits in that request could affect CH demand.
+    if(id==0 && r==ot_readonly::READ_ACK && config_->otBridge &&
+       (msg.addrMask&2u) && rfType(msg.addresses[1])==1) {
+      portENTER_CRITICAL(&mutex_);
+      if(rfId(msg.addresses[1])==
+           passiveDisplay_.readSource(controllerEvidence_)) {
+        passiveChValid_=true;
+        passiveChRaw_=raw;
+        passiveChAtMs_=millis();
+      }
+      portEXIT_CRITICAL(&mutex_);
+    }
     // Only attribute scan results to our transaction when the reply
     // explicitly addresses the configured gateway RF identity.
     const bool directedExistingController=(msg.addrMask&2u) &&
@@ -842,6 +870,9 @@ class OpenThermGateway {
   ot_single::Probe singleProbe_;
   ramses_bridge_read::Probe pairedBridgeRead_;
   cv_read_batch::Batch cvBatch_;
+  bool passiveChValid_=false;
+  uint16_t passiveChRaw_=0;
+  uint32_t passiveChAtMs_=0;
   ramses_peer::ObservedDisplay passiveDisplay_; // manual spoofed 01 source only
   ot_tx::Report pairedBridgeReadTx_;
   ot_tx::Report lastReports_[2];

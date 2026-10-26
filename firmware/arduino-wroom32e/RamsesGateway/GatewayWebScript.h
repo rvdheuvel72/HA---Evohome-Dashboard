@@ -235,8 +235,8 @@ function refreshPairedBridgeRead(){
 el('bridge-read-panel').addEventListener('toggle',refreshPairedBridgeRead);
 setInterval(refreshPairedBridgeRead,10000);
 
-// A click starts a bounded, sequential set of already-authorized single R8810A
-// reads. No firmware auto-poll, scans, retransmissions or boiler writes.
+// CV snapshot reads are driven by the gateway radio task, not by browser timers.
+// A refresh/reconnect resumes presentation without issuing duplicate RF requests.
 const cvCatalog=[
  {id:17,name:'Burner modulation',unit:'%',digits:1},
  {id:18,name:'CH water pressure',unit:'bar',digits:2},
@@ -247,115 +247,81 @@ const cvCatalog=[
  {id:57,name:'Maximum CH setpoint',unit:'°C',digits:2},
  {id:26,name:'Hot-water temperature',unit:'°C',digits:2}
 ];
-const cvOutcomes=new Map();
-let cvScanRunning=false;
-const cvSleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
-function cvRender(){
+let cvPosting=false;
+function cvFormatValue(field,result){
+ if(!result||result.state!=='read_ack')return '—';
+ if(field.id===5)
+  return '0x'+Number(result.raw).toString(16).toUpperCase().padStart(4,'0')+' (flags / OEM code)';
+ if(result.value===null || !Number.isFinite(Number(result.value)))return 'Raw '+result.raw;
+ return Number(result.value).toFixed(field.digits)+' '+field.unit;
+}
+function cvDraw(snapshot){
  const tbody=el('cv-read-results');
  tbody.replaceChildren();
  for(const field of cvCatalog){
-  const result=cvOutcomes.get(field.id)||{value:'—',status:'Not read',received:'—'};
-  const tr=document.createElement('tr');
-  for(const cell of ['ID '+field.id+' · '+field.name,result.value,result.status,result.received]){
-   const td=document.createElement('td');
-   td.textContent=cell;
-   tr.appendChild(td);
+  const item=(snapshot.results||[]).find(x=>x.id===field.id);
+  const phase=item?.state||'not_tested';
+  const tx= item?.tx_phase==='local_complete' &&
+    item.tx_expected_bytes>0 && item.tx_bytes===item.tx_expected_bytes;
+  const status=phase==='read_ack'?
+      (tx?'Read-Ack / local TX complete':'Read-Ack / TX unverified'):
+      phase.replace(/_/g,' ');
+  const timestamp=item?.updated_at_ms?'+ '+Math.round(item.updated_at_ms/1000)+'s uptime':'—';
+  const row=document.createElement('tr');
+  for(const content of ['ID '+field.id+' · '+field.name,
+        cvFormatValue(field,item),status,timestamp]){
+   const cell=document.createElement('td');
+   cell.textContent=content;
+   row.appendChild(cell);
   }
-  tbody.appendChild(tr);
+  tbody.appendChild(row);
  }
 }
 async function cvStatus(){
- const response=await fetch('/api/v1/opentherm/paired-read',{cache:'no-store'});
- if(!response.ok)throw Error('Status HTTP '+response.status);
- return await response.json();
-}
-function cvValue(field,s){
- if(s.state!=='read_ack')return '—';
- if(field.id===5)return '0x'+Number(s.raw).toString(16).toUpperCase().padStart(4,'0')+' (flags / OEM code)';
- if(!s.has_value || !Number.isFinite(Number(s.value)))return 'Raw '+s.raw;
- return Number(s.value).toFixed(field.digits)+' '+field.unit;
-}
-async function cvReady(id){
- const deadline=Date.now()+125000;
- while(Date.now()<deadline){
-  const s=await cvStatus();
-  if(s.ready && s.cooldown_ms===0)return;
-  if(!s.bridge_seen||!s.direct_controller_observed)
-   throw Error('No observed R8810A / Evohome direct communication');
-  set('cv-read-status','ID '+id+': waiting for safe RF window (cooldown '+
-      Math.ceil((s.cooldown_ms||0)/1000)+'s)');
-  await cvSleep(2500);
- }
- throw Error('R8810A remained unavailable for 125 seconds');
-}
-async function cvResult(id){
- const deadline=Date.now()+15000;
- while(Date.now()<deadline){
-  const s=await cvStatus();
-  if(Number(s.data_id)!==id)
-   throw Error('Another read changed the R8810A request ID');
-  if(['read_ack','data_invalid','unknown_data_id','timeout','tx_failed'].includes(s.state))
-   return s;
-  await cvSleep(900);
- }
- throw Error('No terminal result returned for ID '+id);
-}
-async function cvStart(){
- if(cvScanRunning || !el('cv-read-confirm').checked)return;
- cvScanRunning=true;
- el('cv-read-start').disabled=true;
- cvOutcomes.clear();
- cvRender();
- let issued=0,confirmed=0;
  try{
-  for(const field of cvCatalog){
-   cvOutcomes.set(field.id,{value:'—',status:'Awaiting RF window',received:'—'});
-   cvRender();
-   await cvReady(field.id);
-   const response=await fetch('/api/v1/opentherm/paired-read',{
-    method:'POST',
-    headers:{'X-Gateway-Config':'paired-bridge-read',
-             'Content-Type':'application/x-www-form-urlencoded'},
-    body:new URLSearchParams({
-     data_id:String(field.id),
-     confirm:'one-read-own-r8810a-as-observed-controller'
-    }).toString()
-   });
-   const answer=await response.json();
-   if(!response.ok)throw Error('ID '+field.id+': '+(answer.error||'HTTP '+response.status));
-   issued++;
-   cvOutcomes.set(field.id,{value:'—',status:'Request queued',received:'—'});
-   set('cv-read-status','Reading CV ID '+field.id+' ('+issued+'/'+cvCatalog.length+')');
-   cvRender();
-   const result=await cvResult(field.id);
-   const txComplete=result.tx_local_complete===true &&
-     result.tx_expected_bytes>0 && result.tx_bytes===result.tx_expected_bytes;
-   if(result.state==='read_ack')confirmed++;
-   cvOutcomes.set(field.id,{
-    value:cvValue(field,result),
-    status:result.state==='read_ack'?
-      (txComplete?'Read-Ack / local TX complete':'Read-Ack / TX unverified'):
-      result.state.replace(/_/g,' '),
-    received:new Date().toLocaleTimeString()
-   });
-   cvRender();
-  }
-  set('cv-read-status','Completed: '+issued+' requests, '+confirmed+
-    ' Read-Acks. Click again to take new readings.');
+  const response=await fetch('/api/v1/opentherm/cv-batch',{cache:'no-store'});
+  if(!response.ok)throw Error('HTTP '+response.status);
+  const s=await response.json();
+  cvDraw(s);
+  const finished=(s.results||[]).filter(x=>
+   ['read_ack','data_invalid','unknown_data_id','timeout','tx_failed'].includes(x.state)).length;
+  const acks=(s.results||[]).filter(x=>x.state==='read_ack').length;
+  set('cv-read-status',s.active?
+    'Reading '+finished+'/'+s.count+' completed · '+acks+
+       ' Read-Acks · 60s minimum RF spacing':
+    s.completed?(s.aborted?'Stopped (RF preflight unavailable)':'Completed')+
+      ': '+finished+'/'+s.count+' requests · '+acks+' Read-Acks':
+    'Not read yet; one click starts eight paced RF requests.');
+  el('cv-read-start').disabled=cvPosting||s.active||!s.ready||
+    !el('cv-read-confirm').checked;
  }catch(error){
-  set('cv-read-status','Stopped after '+issued+' requests: '+error.message+
-    '. No automatic retry.');
- }finally{
-  cvScanRunning=false;
-  el('cv-read-confirm').checked=false;
+  set('cv-read-status','CV status unavailable: '+error.message);
   el('cv-read-start').disabled=true;
  }
 }
-el('cv-read-confirm').addEventListener('change',()=>{
- el('cv-read-start').disabled=cvScanRunning||!el('cv-read-confirm').checked;
+el('cv-read-confirm').addEventListener('change',()=>scheduled('cv-status',cvStatus));
+el('cv-read-start').addEventListener('click',async()=>{
+ if(cvPosting||!el('cv-read-confirm').checked)return;
+ cvPosting=true;
+ el('cv-read-start').disabled=true;
+ try{
+  const response=await fetch('/api/v1/opentherm/cv-batch',{
+   method:'POST',
+   headers:{'X-Gateway-Config':'cv-read-batch',
+            'Content-Type':'application/x-www-form-urlencoded'},
+   body:new URLSearchParams({
+    confirm:'eight-read-only-requests-existing-evohome-identity'
+   }).toString()
+  });
+  const answer=await response.json();
+  if(!response.ok)throw Error(answer.error||'HTTP '+response.status);
+  el('cv-read-confirm').checked=false;
+  set('cv-read-status','CV read session queued on ESP32');
+ }catch(error){set('cv-read-status','CV request rejected: '+error.message)}
+ finally{cvPosting=false;await cvStatus()}
 });
-el('cv-read-start').addEventListener('click',cvStart);
-cvRender();
+scheduled('cv-status',cvStatus);
+setInterval(()=>scheduled('cv-status',cvStatus),5000);
 
 const pairingBlockMessages={
   configuration_unavailable:'Gateway configuration has not loaded.',

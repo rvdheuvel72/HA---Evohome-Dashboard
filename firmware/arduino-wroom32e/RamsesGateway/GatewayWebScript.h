@@ -255,6 +255,7 @@ function refreshPairedBridgeRead(){
  if(el('bridge-read-panel').open)scheduled('bridge-read',updatePairedBridgeRead)
 }
 el('bridge-read-panel').addEventListener('toggle',refreshPairedBridgeRead);
+scheduled('bridge-read',updatePairedBridgeRead);
 setInterval(refreshPairedBridgeRead,10000);
 
 // CV snapshot reads are driven by the gateway radio task, not by browser timers.

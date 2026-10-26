@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <initializer_list>
 #include <string.h>
 #include "../RamsesGateway/RamsesPairedBridgeRead.h"
 using namespace ramses_bridge_read;

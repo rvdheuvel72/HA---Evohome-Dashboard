@@ -91,7 +91,7 @@ constexpr uint32_t HEARTBEAT_MS = 15000;
 constexpr uint32_t RADIO_RECOVERY_RETRY_MS = 5000;
 constexpr uint32_t RX_HEALTH_SAMPLE_MS = 5000;
 constexpr uint8_t DEBUG_QUEUE_SIZE = 32;
-constexpr char FW_VERSION[] = "0.4.0-beta.32";
+constexpr char FW_VERSION[] = "0.4.0-beta.33";
 constexpr uint32_t MDNS_RETRY_MS = 15000;
 constexpr uint32_t MQTT_STATE_INTERVAL_MS = 15000;
 
@@ -963,6 +963,47 @@ void httpOtPairing(){
     "Manual 1FC9 additional-controller binding queued: one offer, one confirmation if accepted, one read verification");
   web.send(202,"application/json",
     "{\"queued\":true,\"protocol\":\"1FC9\",\"mode\":\"experimental\"}");
+}
+void httpPairedBridgeRead() {
+  if(web.method()==HTTP_GET) {
+    if(!authorized())return;
+    otGateway.sendPairedBridgeReadStatus(web,radioReady);
+    return;
+  }
+  if(!strongThermostatAuth())return;
+  if(!web.hasHeader("X-Gateway-Config") ||
+     web.header("X-Gateway-Config")!="paired-bridge-read" ||
+     web.arg("confirm")!="one-read-own-r8810a-as-observed-controller") {
+    web.send(403,"application/json",
+      "{\\"error\\":\\"explicit_bridge_read_authorization_required\\"}");
+    return;
+  }
+  const String text=web.arg("data_id");
+  if(text.isEmpty() || text.length()>3) {
+    web.send(400,"application/json","{\\"error\\":\\"invalid_opentherm_id\\"}");
+    return;
+  }
+  for(size_t i=0;i<text.length();i++)if(text[i]<'0'||text[i]>'9'){
+    web.send(400,"application/json","{\\"error\\":\\"invalid_opentherm_id\\"}");
+    return;
+  }
+  const uint32_t id=static_cast<uint32_t>(text.toInt());
+  if(id>255 || !ramses_bridge_read::supportedId(static_cast<uint8_t>(id))) {
+    web.send(400,"application/json","{\\"error\\":\\"read_id_not_allowlisted\\"}");
+    return;
+  }
+  if(!radioReady || !otGateway.requestPairedBridgeRead(static_cast<uint8_t>(id))) {
+    web.send(409,"application/json",
+      "{\\"error\\":\\"bridge_read_blocked_observe_direct_evohome_rq_or_wait_for_cooldown\\"}");
+    return;
+  }
+  char line[130];
+  snprintf(line,sizeof(line),
+    "Manual R8810A 3220 Read-Data ID%u queued as observed Evohome identity (no bind/write)",
+    static_cast<unsigned>(id));
+  recordLog(GatewayDebug::WARN,line);
+  web.send(202,"application/json",
+    "{\\"queued\\":true,\\"request_count\\":1,\\"read_only\\":true,\\"identity\\":\\"observed_existing_01\\",\\"cooldown_seconds\\":60}");
 }
 void httpOtOneShot(){
   if(!authorized())return;
@@ -1838,8 +1879,8 @@ void handlePacket(const PacketEvent& event) {
 void setup() {
   Serial.begin(115200);
   delay(250);
-  Serial.println("\n# RAMSES II Arduino v0.4.0-beta.32 (read-only OpenTherm discovery)");
-  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-beta.32");
+  Serial.println("\n# RAMSES II Arduino v0.4.0-beta.33 (read-only OpenTherm discovery)");
+  recordLog(GatewayDebug::INFO, "Boot: RAMSES gateway v0.4.0-beta.33");
   char bootInfo[96];
   snprintf(bootInfo, sizeof(bootInfo), "Reset reason: %s", resetReason());
   recordLog(GatewayDebug::INFO, bootInfo);
@@ -1913,6 +1954,8 @@ void setup() {
   web.on("/api/v1/thermostat/temperature", HTTP_POST, httpThermostatTemperature);
   web.on("/api/v1/opentherm/pairing", HTTP_GET, httpOtPairing);
   web.on("/api/v1/opentherm/pairing", HTTP_POST, httpOtPairing);
+  web.on("/api/v1/opentherm/paired-read", HTTP_GET, httpPairedBridgeRead);
+  web.on("/api/v1/opentherm/paired-read", HTTP_POST, httpPairedBridgeRead);
   web.on("/api/v1/opentherm/one-shot", HTTP_GET, httpOtOneShot);
   web.on("/api/v1/opentherm/one-shot", HTTP_POST, httpOtOneShot);
   web.on("/api/v1/opentherm/scan", HTTP_POST, httpOtScan);

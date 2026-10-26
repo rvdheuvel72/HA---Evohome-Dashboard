@@ -201,6 +201,30 @@ int main(){
   assert(ramses_peer::controllerLinkedToBridge(maxBridge,262143)==CONTROLLER);
   assert(ramses_peer::controllerLinkedToBridge(maxBridge,262142)==0);
   assert(!ramses_peer::isBridgeSender(maxBridge,0));
+  // RX-only Display broadcasts are sufficient for a manual 01-source read
+  // when there are no competing controller identities.
+  ramses_peer::ObservedDisplay display{};
+  ramses_peer::ExistingController linked{};
+  ramses::Message broadcast{};
+  broadcast.messageType=1;broadcast.addrMask=5;broadcast.opcode=0x2309;
+  ramses_read::putAddress(broadcast.addresses[0],1,CONTROLLER);
+  ramses_read::putAddress(broadcast.addresses[2],1,CONTROLLER);
+  display.note(broadcast);
+  assert(display.id==CONTROLLER && display.readSource(linked)==CONTROLLER);
+  ramses::Message unrelated=broadcast;
+  ramses_read::putAddress(unrelated.addresses[0],12,160002);
+  display.note(unrelated);
+  assert(display.readSource(linked)==CONTROLLER);
+  linked.id=160001;
+  assert(display.readSource(linked)==0); // bridge evidence conflicts
+  linked.id=CONTROLLER;
+  assert(display.readSource(linked)==CONTROLLER);
+  linked.ambiguous=true;
+  assert(display.readSource(linked)==0);
+  linked.ambiguous=false;
+  ramses_read::putAddress(broadcast.addresses[0],1,160001);
+  display.note(broadcast);
+  assert(display.ambiguous && display.readSource(linked)==0);
   printf("RAMSES bridge-to-controller passive 3EF0 inference PASS\n");
   return 0;
 }

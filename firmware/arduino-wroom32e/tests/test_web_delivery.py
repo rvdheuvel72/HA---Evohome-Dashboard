@@ -26,7 +26,7 @@ assert html.count('<script defer src="/gateway.js"></script>')==1
 assert '<script>' not in html, "No inline JS should remain in HTML"
 assert html.count('</script>')==1, "Only the one external JS closing tag is allowed"
 assert len(html)<23000, "HTML response must be less than half old monolithic 41KB page"
-assert len(script)<37000  # add eight-value CV diagnostics without inline scripts
+assert len(script)<41000  # 16-row diagnostics while JS remains separately cached
 assert '"report_pending":%s' in ino or '\\"report_pending\\":%s' in ino
 assert 'next_report_in_ms' in ino and 'last_report_centi' in ino
 assert 'reportPending(now)' in ino and 'nextReportInMs(now)' in ino
@@ -56,7 +56,15 @@ assert 'id="cv-read-panel"' in html and 'id="cv-read-results"' in html
 assert 'id="cv-read-confirm"' in html and 'id="cv-read-start"' in html
 assert "const cvCatalog=" in script and "cvStatus()" in script
 assert "/api/v1/opentherm/cv-batch" in script
-assert "three-ch-read-only-requests-existing-evohome-identity" in script
+assert "sixteen-read-only-requests-existing-evohome-identity" in script
+assert "15s minimum RF spacing" in script
+catalog = script[script.index("const cvCatalog="):script.index("let cvPosting=")]
+expected_ids = {17,18,25,28,5,33,57,26,117,121,34,35,36,116,120,115}
+actual_ids = {int(m) for m in re.findall(r"\bid:(\d+),", catalog)}
+assert actual_ids == expected_ids, (actual_ids, expected_ids)
+assert "Heating circuit" in catalog and "Boiler operation" in catalog
+assert "Service diagnostics" in catalog
+
 assert "cvDraw(s)" in script and "s.completed" in script
 assert "cvPosting=false" in script
 assert "id:27" not in script[script.index("const cvCatalog="):script.index("let cvPosting=")]

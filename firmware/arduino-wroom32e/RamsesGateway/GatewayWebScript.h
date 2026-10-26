@@ -270,7 +270,7 @@ const cvCatalog=[
  {id:57,name:'Maximum CH setpoint',unit:'°C',digits:2},
  {id:26,name:'Hot-water temperature',unit:'°C',digits:2}
 ];
-let cvPosting=false;
+let cvPosting=false,cvPostError='';
 function cvFormatValue(field,result){
  if(!result||result.state!=='read_ack')return '—';
  if(field.id===5)
@@ -316,7 +316,7 @@ async function cvStatus(){
       ': '+finished+'/'+s.count+' requests · '+acks+' Read-Acks':
     'Not read yet; one click starts eight paced RF requests.';
   const source=s.source_controller_id?' · source 01:'+String(s.source_controller_id).padStart(6,'0'):'';
-  set('cv-read-status',phase+source+
+  set('cv-read-status',(cvPostError?cvPostError+' · ':'')+phase+source+
     (s.block_reason&&!s.active?' · '+whyReadBlocked(s.block_reason):
       s.ready&&!el('cv-read-confirm').checked?' · Tick authorization to enable Read CV data.':''));
   el('cv-read-start').disabled=cvPosting||s.active||!s.ready||
@@ -326,7 +326,7 @@ async function cvStatus(){
   el('cv-read-start').disabled=true;
  }
 }
-el('cv-read-confirm').addEventListener('change',()=>scheduled('cv-status',cvStatus));
+el('cv-read-confirm').addEventListener('change',()=>{cvPostError='';scheduled('cv-status',cvStatus)});
 el('cv-read-start').addEventListener('click',async()=>{
  if(cvPosting||!el('cv-read-confirm').checked)return;
  cvPosting=true;
@@ -342,9 +342,10 @@ el('cv-read-start').addEventListener('click',async()=>{
   });
   const answer=await response.json();
   if(!response.ok)throw Error(answer.error||'HTTP '+response.status);
+  cvPostError='';
   el('cv-read-confirm').checked=false;
   set('cv-read-status','CV read session queued on ESP32');
- }catch(error){set('cv-read-status','CV request rejected: '+error.message)}
+ }catch(error){cvPostError='CV request rejected: '+error.message;set('cv-read-status',cvPostError)}
  finally{cvPosting=false;await cvStatus()}
 });
 scheduled('cv-status',cvStatus);

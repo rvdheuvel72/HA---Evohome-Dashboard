@@ -56,7 +56,7 @@ assert 'id="cv-read-panel"' in html and 'id="cv-read-results"' in html
 assert 'id="cv-read-confirm"' in html and 'id="cv-read-start"' in html
 assert "const cvCatalog=" in script and "cvStatus()" in script
 assert "/api/v1/opentherm/cv-batch" in script
-assert "eight-read-only-requests-existing-evohome-identity" in script
+assert "three-ch-read-only-requests-existing-evohome-identity" in script
 assert "cvDraw(s)" in script and "s.completed" in script
 assert "cvPosting=false" in script
 assert "id:27" not in script[script.index("const cvCatalog="):script.index("let cvPosting=")]

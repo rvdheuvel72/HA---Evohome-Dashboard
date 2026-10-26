@@ -220,7 +220,8 @@ async function updatePairedBridgeRead(){
     ' · cooldown: '+Math.ceil(v.cooldown_ms/1000)+'s'+
     (v.block_reason?'\\nWaiting: '+whyReadBlocked(v.block_reason):'\\nReady for an authorized read.')+
     '\\nLast read ID '+v.data_id+' '+v.data_name+' · state: '+v.state+
-    (v.has_value?' · '+Number(v.value).toFixed(2)+' (native units)':' · no verified Read-Ack')+
+    (v.has_value?' · '+Number(v.value).toFixed(2)+' (native units)':
+      v.state==='read_ack'?' · raw 0x'+Number(v.raw).toString(16).toUpperCase().padStart(4,'0'):' · no verified Read-Ack')+
     '\\nLocal TX: '+v.tx_phase+' ('+v.tx_bytes+'/'+v.tx_expected_bytes+' bytes)'+
     '\\n'+(bridgeReadNotice||v.note));
  }catch(e){

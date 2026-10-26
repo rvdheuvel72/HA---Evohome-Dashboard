@@ -1,3 +1,17 @@
+## Beta.37: Full diagnostic list restored
+
+[RAMSES Arduino Gateway v0.4.0-beta.37](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.37)
+— ZIP: `RAMSES-Arduino-Gateway-v0.4.0-beta.37-ESP32-WROOM-32E.zip`.
+
+The **Read all data** panel now shows all 8 original OpenTherm IDs and 8
+additional boiler/CH diagnostic IDs (16 explicit read-only requests),
+plus the passive ID0 central-heating status. Each value is displayed
+under heating circuit, boiler operation, or service diagnostics.
+The 15-second minimum RF spacing remains in effect; unanswered
+or unsupported IDs remain visible. The separate legacy ID25 test
+and the passive-only ID0 policy remain unchanged.
+See `RELEASE_NOTES_v0.4.0-beta.37.md`.
+
 ## Beta.36: Central-heating-only R8810A diagnostics
 
 [RAMSES Arduino Gateway v0.4.0-beta.36](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.36)

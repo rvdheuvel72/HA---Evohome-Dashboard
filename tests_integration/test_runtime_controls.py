@@ -39,7 +39,9 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
             async def execute():
                 await asyncio.sleep(0.015)
                 holder["until"] = new_expiry
-                return None
+                async def wait():
+                    await asyncio.sleep(0)
+                return SimpleNamespace(wait=wait)
 
             def check(previous):
                 hub.previous.append(previous)
@@ -54,17 +56,61 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(a["verified"] and b["verified"])
         self.assertEqual(hub.previous, [t0, first])
 
-    async def test_v2_update_and_write_api_is_installed(self):
+    async def test_v3_setup_and_commtask_api_is_installed(self):
         from inspect import iscoroutinefunction
         from importlib.metadata import version
         from _evohome.exceptions import EvohomeError
-        from evohomeasync2 import EvohomeClient, Location, Zone
-        self.assertEqual(version("evohome-async"), "2.1.0")
+        from evohomeasync2 import EvohomeClient, Location, Zone, CommTask
+        self.assertEqual(version("evohome-async"), "3.1.0")
         self.assertTrue(issubclass(EvohomeError, Exception))
-        self.assertTrue(iscoroutinefunction(EvohomeClient.update))
-        self.assertTrue(iscoroutinefunction(Location.update))
+        self.assertTrue(iscoroutinefunction(EvohomeClient.setup))
+        self.assertTrue(iscoroutinefunction(Location.get_status))
         self.assertTrue(iscoroutinefunction(Zone.set_temperature))
-        self.assertFalse(hasattr(EvohomeClient, "setup"))
+        self.assertTrue(iscoroutinefunction(CommTask.wait))
+
+    async def test_commtask_waits_before_cloud_readback(self):
+        hub = FakeCoordinator()
+        events = []
+        async def write():
+            events.append("put")
+            async def wait():
+                events.append("task_completed")
+            return SimpleNamespace(wait=wait)
+        async def verify(location, predicate):
+            events.append("get_status")
+            self.assertTrue(predicate())
+        async def refresh():
+            events.append("refresh")
+        hub._wait_for_state = verify
+        hub.async_request_refresh = refresh
+        result = await EvohomeHub._execute(hub, "zone", "id", write, object(), lambda: True)
+        self.assertTrue(result["verified"])
+        self.assertEqual(events, ["put", "task_completed", "get_status", "refresh"])
+
+    async def test_commtask_failure_fails_closed(self):
+        hub = FakeCoordinator()
+        events = []
+        async def write():
+            async def wait():
+                raise RuntimeError("comm task failed")
+            return SimpleNamespace(wait=wait)
+        async def record(operation, exc, target):
+            events.append("recorded")
+        async def verify(location, predicate):
+            events.append("incorrect_verification")
+        hub._record = record
+        hub._wait_for_state = verify
+        with self.assertRaisesRegex(RuntimeError, "comm task failed"):
+            await EvohomeHub._execute(hub, "zone", "id", write, object(), lambda: True)
+        self.assertEqual(events, ["recorded"])
+
+    async def test_schedule_waits_for_commtask_before_get(self):
+        import inspect
+        code = inspect.getsource(EvohomeHub.save_zone_schedule)
+        self.assertIn("task = await zone.set_schedule(validated)", code)
+        self.assertIn("await task.wait()", code)
+        self.assertLess(code.index("await task.wait()"),
+                        code.index("confirmed = normalize(await zone.get_schedule())"))
 
     async def test_all_native_platforms_declared(self):
         self.assertEqual(set(PLATFORMS),

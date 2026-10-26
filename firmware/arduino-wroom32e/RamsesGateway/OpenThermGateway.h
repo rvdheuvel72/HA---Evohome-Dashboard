@@ -15,6 +15,7 @@
 #include "RamsesCodec.h"
 #include "RamsesBinding.h"
 #include "RamsesPairedBridgeRead.h"
+#include "CvReadBatch.h"
 #include "RamsesPeerDetection.h"
 #include "RamsesControllerIds.h"
 
@@ -102,6 +103,7 @@ class OpenThermGateway {
     if(requested_)return "opentherm_scan_requested";
     if(probeBusy)return "opentherm_one_shot_active";
     if(pairedBridgeRead_.busy())return "paired_identity_bridge_read_active";
+    if(cvBatch_.active)return "cv_read_batch_active";
     if(bindingBusy)return "pairing_already_running";
     if(cooling)return "pairing_cooldown";
     return nullptr;
@@ -148,7 +150,7 @@ class OpenThermGateway {
   bool requestBinding(uint32_t virtualControllerId){
     if(bindingBlockReason()!=nullptr || !bindingReady())return false;
     portENTER_CRITICAL(&mutex_);
-    const bool blocked=pairedBridgeRead_.busy() ||
+    const bool blocked=cvBatch_.active || pairedBridgeRead_.busy() ||
       singleProbe_.state==ot_single::QUEUED ||
        singleProbe_.state==ot_single::WAITING;
     const bool ok=!bindingForgetRequested_ && !blocked && !binding_.busy() &&
@@ -243,7 +245,7 @@ class OpenThermGateway {
     server.send(200,"application/json",body);
   }
   bool requestOneShot(ot_tx::Method method) {
-    if(!experimentalOneShotReady() || work_.active || requested_ || binding_.busy() ||
+    if(!experimentalOneShotReady() || work_.active || requested_ || cvBatch_.active || binding_.busy() ||
        pairedBridgeRead_.busy())return false;
     portENTER_CRITICAL(&mutex_);
     const bool ok=singleProbe_.request(millis(),method);
@@ -378,9 +380,9 @@ class OpenThermGateway {
     publishSnapshot();
   }
   bool requestScan() {
-    if(!transmitEnabled() || binding_.busy() || pairedBridgeRead_.busy())return false;
+    if(!transmitEnabled() || binding_.busy() || pairedBridgeRead_.busy() || cvBatch_.active)return false;
     portENTER_CRITICAL(&mutex_);
-    const bool ok=!published_.active && !requested_ && !binding_.busy() &&
+    const bool ok=!published_.active && !requested_ && !cvBatch_.active && !binding_.busy() &&
        !pairedBridgeRead_.busy();
     if(ok)requested_=true;
     portEXIT_CRITICAL(&mutex_);
@@ -389,15 +391,15 @@ class OpenThermGateway {
   // Guarded one-shot READ-Data from R8810A using the physically observed
   // original Evohome 01: identity. No 1FC9 binding, writes or auto polling.
   // This source-address use is intentionally NOT allowed by other RF APIs.
-  bool pairedBridgeReadReady() const {
+  bool pairedBridgeReadReady(bool batch=false) const {
     if(!config_ || config_->otTxEnabled || config_->otAutoPoll ||
        config_->otScanAll || !bridgeSeen_ || !config_->otBridge ||
        config_->otBridge>=262143 || requested_ || work_.active ||
        !radio_frequency::evohomeTxFrequency(config_->rfFrequencyKhz,
                                               moduleBand_))return false;
     portENTER_CRITICAL(&mutex_);
-    const bool ready=controllerEvidence_.directRequestSeen &&
-      !controllerEvidence_.ambiguous && observedController_>0 &&
+    const bool ready=(!cvBatch_.active || batch) &&
+      controllerEvidence_.directRequestSeen && !controllerEvidence_.ambiguous && observedController_>0 &&
       observedController_<262143 && !binding_.busy() &&
       !pairedBridgeRead_.busy() &&
       singleProbe_.state!=ot_single::QUEUED &&
@@ -419,6 +421,71 @@ class OpenThermGateway {
     if(ok)pairedBridgeReadTx_=ot_tx::Report{};
     portEXIT_CRITICAL(&mutex_);
     return ok;
+  }
+  // A single explicit web request authorizes precisely COUNT spaced reads.
+  // The batch is held on the gateway so browser refreshes cannot duplicate TX.
+  bool requestCvBatch() {
+    if(!pairedBridgeReadReady())return false;
+    portENTER_CRITICAL(&mutex_);
+    const bool ok=!cvBatch_.active && !pairedBridgeRead_.busy() &&
+      pairedBridgeRead_.cooldown(millis())==0 &&
+      controllerEvidence_.directRequestSeen && !controllerEvidence_.ambiguous &&
+      cvBatch_.start(millis());
+    portEXIT_CRITICAL(&mutex_);
+    return ok;
+  }
+  void sendCvBatchStatus(WebServer& server,bool radioReady) {
+    cv_read_batch::Batch snap;
+    portENTER_CRITICAL(&mutex_);
+    snap=cvBatch_;
+    const uint32_t cooldown=pairedBridgeRead_.cooldown(millis());
+    portEXIT_CRITICAL(&mutex_);
+    const bool ready=radioReady && pairedBridgeReadReady() && cooldown==0;
+    server.sendHeader("Cache-Control","no-store");
+    server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+    server.send(200,"application/json","");
+    char header[230];
+    snprintf(header,sizeof(header),
+      "{\"active\":%s,\"completed\":%s,\"aborted\":%s,\"ready\":%s,"
+      "\"count\":%u,\"next_index\":%u,\"cooldown_ms\":%lu,"
+      "\"started_at_ms\":%lu,\"completed_at_ms\":%lu,\"results\":[",
+      snap.active?"true":"false",snap.completed?"true":"false",
+      snap.aborted?"true":"false",ready?"true":"false",
+      static_cast<unsigned>(cv_read_batch::COUNT),
+      static_cast<unsigned>(snap.next),
+      static_cast<unsigned long>(cooldown),
+      static_cast<unsigned long>(snap.startedAtMs),
+      static_cast<unsigned long>(snap.completedAtMs));
+    server.sendContent(header);
+    for(size_t i=0;i<cv_read_batch::COUNT;i++) {
+      const auto& item=snap.items[i];
+      float value=0;
+      const uint8_t id=cv_read_batch::IDS[i];
+      const bool hasValue=item.state==ramses_bridge_read::READ_ACK &&
+        ot_readonly::fixedPoint(id,item.raw,value);
+      char row[320];
+      if(hasValue)
+        snprintf(row,sizeof(row),
+          "%s{\"id\":%u,\"name\":\"%s\",\"state\":\"%s\","
+          "\"raw\":%u,\"value\":%.3f,\"updated_at_ms\":%lu,"
+          "\"tx_phase\":\"%s\",\"tx_bytes\":%u,\"tx_expected_bytes\":%u}",
+          i?",":"",id,ot_readonly::label(id),
+          ramses_bridge_read::label(item.state),item.raw,
+          static_cast<double>(value),static_cast<unsigned long>(item.updatedAtMs),
+          ot_tx::phaseName(item.txPhase),item.txBytes,item.txExpectedBytes);
+      else
+        snprintf(row,sizeof(row),
+          "%s{\"id\":%u,\"name\":\"%s\",\"state\":\"%s\","
+          "\"raw\":%u,\"value\":null,\"updated_at_ms\":%lu,"
+          "\"tx_phase\":\"%s\",\"tx_bytes\":%u,\"tx_expected_bytes\":%u}",
+          i?",":"",id,ot_readonly::label(id),
+          ramses_bridge_read::label(item.state),item.raw,
+          static_cast<unsigned long>(item.updatedAtMs),
+          ot_tx::phaseName(item.txPhase),item.txBytes,item.txExpectedBytes);
+      server.sendContent(row);
+    }
+    server.sendContent("]}");
+    server.sendContent("");
   }
   void sendPairedBridgeReadStatus(WebServer& server,bool radioReady) {
     ramses_bridge_read::Probe snap;ot_tx::Report tx;
@@ -523,6 +590,29 @@ class OpenThermGateway {
     if(previous==ot_single::WAITING && singleProbe_.state==ot_single::TIMEOUT)
       comparisons_[method].timeouts++;
     portEXIT_CRITICAL(&mutex_);
+    // Settle each batch request, including timeouts/TX failures. Every
+    // subsequent request waits through the original 60-second cooldown.
+    // The radio task alone may queue the next read; HTTP never sends RF.
+    bool batchDue=false,batchOverdue=false;
+    portENTER_CRITICAL(&mutex_);
+    pairedBridgeRead_.tick(now);
+    if(cvBatch_.inflight && !pairedBridgeRead_.busy())
+      cvBatch_.settle(pairedBridgeRead_,pairedBridgeReadTx_,now);
+    batchDue=cvBatch_.due(now);
+    batchOverdue=cvBatch_.overdue(now);
+    if(batchOverdue)cvBatch_.abort(now); // fail closed after 120s blocked
+    portEXIT_CRITICAL(&mutex_);
+    if(batchDue && !batchOverdue && pairedBridgeReadReady(true)) {
+      portENTER_CRITICAL(&mutex_);
+      if(cvBatch_.due(now) && !pairedBridgeRead_.busy() &&
+         pairedBridgeRead_.cooldown(now)==0 &&
+         pairedBridgeRead_.request(now,observedController_,config_->otBridge,
+                                   cvBatch_.id())) {
+        cvBatch_.queued();
+        pairedBridgeReadTx_=ot_tx::Report{};
+      }
+      portEXIT_CRITICAL(&mutex_);
+    }
     // Start a selected, explicit single READ-Data transaction after
     // lower-level RF quiet gating. Never retry automatically.
     ramses_bridge_read::Probe bridgeSnap;
@@ -620,6 +710,7 @@ class OpenThermGateway {
     }
     // Normal polling is opt-in, derived ONLY from observed READ_ACK IDs.
     if(config_ && config_->otAutoPoll==1 && !work_.active && work_.completed &&
+       !cvBatch_.active &&
        !pairedBridgeRead_.busy() &&
        static_cast<int32_t>(now-nextPolling_)>=0 && transmitEnabled()) {
       nextPolling_=now+60000; // at most one request per minute
@@ -719,6 +810,7 @@ class OpenThermGateway {
   volatile bool sourceConflict_=false;
   ot_single::Probe singleProbe_;
   ramses_bridge_read::Probe pairedBridgeRead_;
+  cv_read_batch::Batch cvBatch_;
   ot_tx::Report pairedBridgeReadTx_;
   ot_tx::Report lastReports_[2];
   ot_tx::Comparison comparisons_[2];

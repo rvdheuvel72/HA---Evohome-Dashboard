@@ -235,6 +235,94 @@ function refreshPairedBridgeRead(){
 el('bridge-read-panel').addEventListener('toggle',refreshPairedBridgeRead);
 setInterval(refreshPairedBridgeRead,10000);
 
+// CV snapshot reads are driven by the gateway radio task, not by browser timers.
+// A refresh/reconnect resumes presentation without issuing duplicate RF requests.
+const cvCatalog=[
+ {id:17,name:'Burner modulation',unit:'%',digits:1},
+ {id:18,name:'CH water pressure',unit:'bar',digits:2},
+ {id:25,name:'Heating flow temperature',unit:'°C',digits:2},
+ {id:28,name:'Heating return (unverified)',unit:'°C',digits:2},
+ {id:5,name:'Fault / service flags',unit:'raw',digits:0},
+ {id:33,name:'Exhaust temperature',unit:'°C',digits:0},
+ {id:57,name:'Maximum CH setpoint',unit:'°C',digits:2},
+ {id:26,name:'Hot-water temperature',unit:'°C',digits:2}
+];
+let cvPosting=false;
+function cvFormatValue(field,result){
+ if(!result||result.state!=='read_ack')return '—';
+ if(field.id===5)
+  return '0x'+Number(result.raw).toString(16).toUpperCase().padStart(4,'0')+' (flags / OEM code)';
+ if(result.value===null || !Number.isFinite(Number(result.value)))return 'Raw '+result.raw;
+ return Number(result.value).toFixed(field.digits)+' '+field.unit;
+}
+function cvDraw(snapshot){
+ const tbody=el('cv-read-results');
+ tbody.replaceChildren();
+ for(const field of cvCatalog){
+  const item=(snapshot.results||[]).find(x=>x.id===field.id);
+  const phase=item?.state||'not_tested';
+  const tx= item?.tx_phase==='local_complete' &&
+    item.tx_expected_bytes>0 && item.tx_bytes===item.tx_expected_bytes;
+  const status=phase==='read_ack'?
+      (tx?'Read-Ack / local TX complete':'Read-Ack / TX unverified'):
+      phase.replace(/_/g,' ');
+  const timestamp=item?.updated_at_ms?'+ '+Math.round(item.updated_at_ms/1000)+'s uptime':'—';
+  const row=document.createElement('tr');
+  for(const content of ['ID '+field.id+' · '+field.name,
+        cvFormatValue(field,item),status,timestamp]){
+   const cell=document.createElement('td');
+   cell.textContent=content;
+   row.appendChild(cell);
+  }
+  tbody.appendChild(row);
+ }
+}
+async function cvStatus(){
+ try{
+  const response=await fetch('/api/v1/opentherm/cv-batch',{cache:'no-store'});
+  if(!response.ok)throw Error('HTTP '+response.status);
+  const s=await response.json();
+  cvDraw(s);
+  const finished=(s.results||[]).filter(x=>
+   ['read_ack','data_invalid','unknown_data_id','timeout','tx_failed'].includes(x.state)).length;
+  const acks=(s.results||[]).filter(x=>x.state==='read_ack').length;
+  set('cv-read-status',s.active?
+    'Reading '+finished+'/'+s.count+' completed · '+acks+
+       ' Read-Acks · 60s minimum RF spacing':
+    s.completed?(s.aborted?'Stopped (RF preflight unavailable)':'Completed')+
+      ': '+finished+'/'+s.count+' requests · '+acks+' Read-Acks':
+    'Not read yet; one click starts eight paced RF requests.');
+  el('cv-read-start').disabled=cvPosting||s.active||!s.ready||
+    !el('cv-read-confirm').checked;
+ }catch(error){
+  set('cv-read-status','CV status unavailable: '+error.message);
+  el('cv-read-start').disabled=true;
+ }
+}
+el('cv-read-confirm').addEventListener('change',()=>scheduled('cv-status',cvStatus));
+el('cv-read-start').addEventListener('click',async()=>{
+ if(cvPosting||!el('cv-read-confirm').checked)return;
+ cvPosting=true;
+ el('cv-read-start').disabled=true;
+ try{
+  const response=await fetch('/api/v1/opentherm/cv-batch',{
+   method:'POST',
+   headers:{'X-Gateway-Config':'cv-read-batch',
+            'Content-Type':'application/x-www-form-urlencoded'},
+   body:new URLSearchParams({
+    confirm:'eight-read-only-requests-existing-evohome-identity'
+   }).toString()
+  });
+  const answer=await response.json();
+  if(!response.ok)throw Error(answer.error||'HTTP '+response.status);
+  el('cv-read-confirm').checked=false;
+  set('cv-read-status','CV read session queued on ESP32');
+ }catch(error){set('cv-read-status','CV request rejected: '+error.message)}
+ finally{cvPosting=false;await cvStatus()}
+});
+scheduled('cv-status',cvStatus);
+setInterval(()=>scheduled('cv-status',cvStatus),5000);
+
 const pairingBlockMessages={
   configuration_unavailable:'Gateway configuration has not loaded.',
   configure_bridge_id:'Settings: enter the numeric RF address of YOUR observed R8810A (10:xxxxxx, without the 10: prefix), not another installation\'s ID.',

@@ -63,6 +63,13 @@ a{color:#a9d5ff}
 <pre id="one-shot-compare">UART/FIFO A-B comparison will appear here.</pre>
 </details>
 <details id="bridge-read-panel"><summary>R8810A single read (RF test)</summary><select id="bridge-read-id"><option>25</option><option>28</option><option>17</option><option>18</option><option>19</option><option>26</option><option>27</option><option>33</option></select><label><input id="bridge-read-confirm" type="checkbox">Authorize one read as Evohome 01: (RF collision risk)</label><button id="bridge-read-send" disabled>Read</button><pre id="bridge-read-result"></pre></details>
+<section class="panel" id="cv-read-panel" aria-label="CV boiler diagnostics">
+<h2>CV data — one-click reading</h2>
+<p class="muted">Reads boiler-side data only (no Evohome room temperatures). One click queues up to 8 individual read-only 3220 requests using the existing Evohome 01: identity, spaced at least 60 seconds apart. Allow roughly 7–9 minutes; the scan continues on the ESP32 after closing or refreshing the browser. Results persist until the next scan or reboot. No retries. The real controller may also send requests, so matching replies do not prove RF causation. Unsupported readings are shown as such; ID28 needs physical validation. No outside-sensor ID27.</p>
+<label class="setting-check"><input type="checkbox" id="cv-read-confirm"> Authorize up to 8 read-only R8810A RF requests using the observed Evohome 01: identity (collision risk)</label>
+<div class="controls"><button id="cv-read-start" type="button" disabled>Read CV data</button><span id="cv-read-status" class="muted" aria-live="polite">No CV scan started.</span></div>
+<table class="pin-map"><thead><tr><th scope="col">Data</th><th scope="col">Last value</th><th scope="col">Result</th><th scope="col">Gateway uptime</th></tr></thead><tbody id="cv-read-results"></tbody></table>
+</section>
 <details class="panel" id="pairing-panel">
 <summary>Experimental R8810A pairing — additional virtual controller (01:)</summary>
 <p class="muted">Experimental RAMSES 1FC9 binding. The <strong>Honeywell R8810A1018 device installation guide</strong>, page 2, says to press its button for <strong>5 seconds</strong> to enter binding mode: the red LED alternates 0.5 seconds ON / 0.5 seconds OFF. The manual does <strong>not</strong> require a preceding 15-second reset for this procedure. <strong>Do not clear existing bindings.</strong> Clicking the ESP32 button only queues an RF offer; it does not put the physical R8810A into binding mode. This manual documents a CM957 thermostat, not the safety or feasibility of adding a second virtual controller to an existing Evohome system. If the red LED does not flash after a deliberate 5-second press, stop the experiment and keep normal Evohome boiler control.</p>

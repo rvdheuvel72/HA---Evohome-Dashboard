@@ -4,6 +4,7 @@
 #include <initializer_list>
 #include <string.h>
 #include "../RamsesGateway/RamsesPairedBridgeRead.h"
+#include "../RamsesGateway/CvReadBatch.h"
 using namespace ramses_bridge_read;
 int main(){
   uint8_t f[16]={};size_t n=0;
@@ -19,10 +20,11 @@ int main(){
   assert((m.payload[1]&0x70)==0); // OpenTherm Read-Data ONLY
   assert(!makeRead(245914,48994,0,f,n)); // status/control deliberately blocked
   assert(!makeRead(245914,48994,56,f,n)); // setpoint controls deliberately blocked
+  assert(!makeRead(245914,48994,0,f,n)); // status master flags never transmitted
   assert(!makeRead(245914,48994,255,f,n));
   assert(!makeRead(0,48994,25,f,n));
   assert(!makeRead(245914,0,25,f,n));
-  for(uint8_t id:{17,18,19,25,26,27,28,33})
+  for(uint8_t id:{5,17,18,19,25,26,27,28,33,57})
     assert(makeRead(245914,48994,id,f,n));
   Probe p;
   assert(p.request(1000,245914,48994,25));
@@ -75,6 +77,51 @@ int main(){
   invalid.payload[1]^=0x80; // OT parity invalid
   assert(!late.observe(invalid,200050));
   assert(late.observe(reply,200060));
+  // CV button uses the same single-read hardware path at most once per ID.
+  cv_read_batch::Batch batch;
+  assert(cv_read_batch::COUNT==8);
+  assert(batch.start(1000));
+  assert(batch.active && batch.due(1000) && batch.id()==17);
+  assert(!batch.start(1001)); // no double-start while active
+  batch.queued();
+  assert(!batch.due(1001));
+  ramses_bridge_read::Probe response;
+  response.state=ramses_bridge_read::WAITING;
+  response.dataId=17;
+  ot_tx::Report localTx;
+  localTx.phase=ot_tx::LOCAL_COMPLETE;
+  localTx.expected_bytes=44;
+  localTx.written_bytes=44;
+  assert(!batch.settle(response,localTx,1200)); // no unconfirmed RX
+  response.state=ramses_bridge_read::READ_ACK;
+  response.raw=0x0000;
+  assert(batch.settle(response,localTx,1300));
+  assert(batch.next==1 && batch.items[0].id==17);
+  assert(batch.items[0].state==ramses_bridge_read::READ_ACK);
+  assert(batch.items[0].txBytes==44 && batch.items[0].txExpectedBytes==44);
+  assert(!batch.due(61299));
+  assert(batch.due(61300) && batch.id()==18);
+  batch.queued();
+  response.dataId=18;response.state=ramses_bridge_read::TIMEOUT;
+  assert(batch.settle(response,localTx,63000));
+  assert(batch.items[1].state==ramses_bridge_read::TIMEOUT);
+  assert(batch.next==2 && batch.id()==25 && !batch.due(123000-1));
+  assert(batch.due(123000));
+  // If a future RF preflight remains blocked, fail closed; never retry the ID.
+  assert(!batch.overdue(243000));
+  assert(batch.overdue(243001));
+  batch.abort(243001);
+  assert(!batch.active && batch.aborted && batch.completed);
+  assert(!batch.due(243002));
+  assert(batch.start(244000)); // new click explicitly resets the result set
+  assert(batch.items[0].state==ramses_bridge_read::IDLE);
+  assert(batch.items[0].id==17 && batch.items[7].id==26);
+  assert(!batch.start(244001));
+  // All IDs are deliberate, read-only, and outside ID 0/27 and write controls.
+  for(uint8_t id:cv_read_batch::IDS) {
+    assert(id!=0 && id!=27 && id!=56);
+    assert(makeRead(245914,48994,id,f,n));
+  }
   puts("Real-controller-identity R8810A read-only probe tests PASS");
   return 0;
 }

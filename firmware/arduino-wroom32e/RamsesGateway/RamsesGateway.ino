@@ -975,26 +975,26 @@ void httpPairedBridgeRead() {
      web.header("X-Gateway-Config")!="paired-bridge-read" ||
      web.arg("confirm")!="one-read-own-r8810a-as-observed-controller") {
     web.send(403,"application/json",
-      "{\\"error\\":\\"explicit_bridge_read_authorization_required\\"}");
+      "{\"error\":\"explicit_bridge_read_authorization_required\"}");
     return;
   }
   const String text=web.arg("data_id");
   if(text.isEmpty() || text.length()>3) {
-    web.send(400,"application/json","{\\"error\\":\\"invalid_opentherm_id\\"}");
+    web.send(400,"application/json","{\"error\":\"invalid_opentherm_id\"}");
     return;
   }
   for(size_t i=0;i<text.length();i++)if(text[i]<'0'||text[i]>'9'){
-    web.send(400,"application/json","{\\"error\\":\\"invalid_opentherm_id\\"}");
+    web.send(400,"application/json","{\"error\":\"invalid_opentherm_id\"}");
     return;
   }
   const uint32_t id=static_cast<uint32_t>(text.toInt());
   if(id>255 || !ramses_bridge_read::supportedId(static_cast<uint8_t>(id))) {
-    web.send(400,"application/json","{\\"error\\":\\"read_id_not_allowlisted\\"}");
+    web.send(400,"application/json","{\"error\":\"read_id_not_allowlisted\"}");
     return;
   }
   if(!radioReady || !otGateway.requestPairedBridgeRead(static_cast<uint8_t>(id))) {
     web.send(409,"application/json",
-      "{\\"error\\":\\"bridge_read_blocked_observe_direct_evohome_rq_or_wait_for_cooldown\\"}");
+      "{\"error\":\"bridge_read_blocked_observe_direct_evohome_rq_or_wait_for_cooldown\"}");
     return;
   }
   char line[130];
@@ -1003,7 +1003,7 @@ void httpPairedBridgeRead() {
     static_cast<unsigned>(id));
   recordLog(GatewayDebug::WARN,line);
   web.send(202,"application/json",
-    "{\\"queued\\":true,\\"request_count\\":1,\\"read_only\\":true,\\"identity\\":\\"observed_existing_01\\",\\"cooldown_seconds\\":60}");
+    "{\"queued\":true,\"request_count\":1,\"read_only\":true,\"identity\":\"observed_existing_01\",\"cooldown_seconds\":60}");
 }
 void httpOtOneShot(){
   if(!authorized())return;

@@ -261,26 +261,32 @@ setInterval(refreshPairedBridgeRead,10000);
 // CV snapshot reads are driven by the gateway radio task, not by browser timers.
 // A refresh/reconnect resumes presentation without issuing duplicate RF requests.
 const cvCatalog=[
- {id:17,name:'Burner modulation',unit:'%',digits:1},
- {id:18,name:'CH water pressure',unit:'bar',digits:2},
- {id:25,name:'Heating flow temperature',unit:'°C',digits:2},
- {id:28,name:'Heating return (unverified)',unit:'°C',digits:2},
- {id:5,name:'Fault / service flags',unit:'raw',digits:0},
- {id:33,name:'Exhaust temperature',unit:'°C',digits:0},
- {id:57,name:'Maximum CH setpoint',unit:'°C',digits:2},
- {id:26,name:'Hot-water temperature',unit:'°C',digits:2}
+ {id:18,name:'CH circuit pressure',unit:'bar',digits:2},
+ {id:117,name:'CH pump starts',unit:'starts',digits:0},
+ {id:121,name:'CH pump running time',unit:'hours',digits:0}
 ];
 let cvPosting=false,cvPostError='';
 function cvFormatValue(field,result){
  if(!result||result.state!=='read_ack')return '—';
- if(field.id===5)
-  return '0x'+Number(result.raw).toString(16).toUpperCase().padStart(4,'0')+' (flags / OEM code)';
  if(result.value===null || !Number.isFinite(Number(result.value)))return 'Raw '+result.raw;
  return Number(result.value).toFixed(field.digits)+' '+field.unit;
 }
 function cvDraw(snapshot){
  const tbody=el('cv-read-results');
  tbody.replaceChildren();
+ const passive=snapshot.passive_ch||{};
+ const passiveRow=document.createElement('tr');
+ const passiveData=[
+  'ID 0 · Central heating active (passive)',
+  passive.observed?(passive.ch_active?'CH active':'CH inactive'):'—',
+  passive.observed?'Observed bridge Read-Ack; no request sent':'Awaiting natural bridge status; never requested',
+  passive.observed?'+ '+Math.round(passive.updated_at_ms/1000)+'s uptime':'—'
+ ];
+ for(const value of passiveData){
+  const cell=document.createElement('td');
+  cell.textContent=value;passiveRow.appendChild(cell);
+ }
+ tbody.appendChild(passiveRow);
  for(const field of cvCatalog){
   const item=(snapshot.results||[]).find(x=>x.id===field.id);
   const phase=item?.state||'not_tested';
@@ -311,10 +317,10 @@ async function cvStatus(){
   const acks=(s.results||[]).filter(x=>x.state==='read_ack').length;
   const phase=s.active?
     'Reading '+finished+'/'+s.count+' completed · '+acks+
-       ' Read-Acks · 60s minimum RF spacing':
+       ' Read-Acks · 15s minimum RF spacing':
     s.completed?(s.aborted?'Stopped (RF preflight unavailable)':'Completed')+
       ': '+finished+'/'+s.count+' requests · '+acks+' Read-Acks':
-    'Not read yet; one click starts eight paced RF requests.';
+    'Not read yet; one click starts three paced CH-only RF requests.';
   const source=s.source_controller_id?' · source 01:'+String(s.source_controller_id).padStart(6,'0'):'';
   set('cv-read-status',(cvPostError?cvPostError+' · ':'')+phase+source+
     (s.block_reason&&!s.active?' · '+whyReadBlocked(s.block_reason):
@@ -337,7 +343,7 @@ el('cv-read-start').addEventListener('click',async()=>{
    headers:{'X-Gateway-Config':'cv-read-batch',
             'Content-Type':'application/x-www-form-urlencoded'},
    body:new URLSearchParams({
-    confirm:'eight-read-only-requests-existing-evohome-identity'
+    confirm:'three-ch-read-only-requests-existing-evohome-identity'
    }).toString()
   });
   const answer=await response.json();

@@ -102,7 +102,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m pip install "evohome-async==2.1.0"
+          python -m pip install "evohome-async==3.1.0"
       - name: Verify API signatures, common exceptions package and used methods
         shell: bash
         run: |
@@ -111,13 +111,13 @@ jobs:
           from importlib.metadata import version
           from _evohome.exceptions import EvohomeError
           import evohomeasync2
-          assert version("evohome-async") == "2.1.0"
+          assert version("evohome-async") == "3.1.0"
           assert EvohomeError is not None
-          print("HA 2026.10 pinned Evohome and _evohome import PASS")
+          print("Experimental evohome-async 3.1.0 and _evohome import PASS")
           PY
 
   ha-runtime-import:
-    name: Home Assistant 2026.10 runtime imports
+    name: Home Assistant 2026.10 isolated v3 runtime imports
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 25
     steps:
@@ -137,8 +137,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m pip install "homeassistant>=2026.10,<2026.11" "evohome-async==2.1.0"
-      - name: Import every native HA platform
+          python -m pip install "homeassistant>=2026.10,<2026.11" "evohome-async==3.1.0"
+      - name: Import custom HA platforms (not built-in Evohome coexistence)
         shell: bash
         run: |
           set -euo pipefail

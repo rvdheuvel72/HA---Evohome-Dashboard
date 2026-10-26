@@ -10,7 +10,7 @@ from asyncio import TimeoutError
 
 
 def classify_setup_error(error: Exception) -> str:
-    """Classify errors raised by evohome-async 2.1.0 without leaking secrets."""
+    """Classify errors raised by evohome-async 3.1.0 without leaking secrets."""
     names = {cls.__name__ for cls in type(error).__mro__}
     status = getattr(error, "status", None)
 
@@ -19,7 +19,7 @@ def classify_setup_error(error: Exception) -> str:
     if "BadUserCredentialsError" in names or "AuthenticationFailedError" in names:
         return "invalid_auth"
     if ("BadApiResponseError" in names or "InvalidConfigError" in names
-            or "InvalidStatusError" in names):
+            or "InvalidStatusError" in names or "StaleConfigError" in names):
         return "invalid_response"
     if (isinstance(error, (ConnectionError, TimeoutError))
             or "ClientError" in names or "ClientConnectionError" in names

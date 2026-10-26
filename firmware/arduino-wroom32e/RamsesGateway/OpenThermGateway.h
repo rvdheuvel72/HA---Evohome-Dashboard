@@ -382,7 +382,7 @@ class OpenThermGateway {
   bool requestScan() {
     if(!transmitEnabled() || binding_.busy() || pairedBridgeRead_.busy() || cvBatch_.active)return false;
     portENTER_CRITICAL(&mutex_);
-    const bool ok=!published_.active && !requested_ && !binding_.busy() &&
+    const bool ok=!published_.active && !requested_ && !cvBatch_.active && !binding_.busy() &&
        !pairedBridgeRead_.busy();
     if(ok)requested_=true;
     portEXIT_CRITICAL(&mutex_);
@@ -460,15 +460,16 @@ class OpenThermGateway {
     for(size_t i=0;i<cv_read_batch::COUNT;i++) {
       const auto& item=snap.items[i];
       float value=0;
+      const uint8_t id=cv_read_batch::IDS[i];
       const bool hasValue=item.state==ramses_bridge_read::READ_ACK &&
-        ot_readonly::fixedPoint(item.id,item.raw,value);
+        ot_readonly::fixedPoint(id,item.raw,value);
       char row[320];
       if(hasValue)
         snprintf(row,sizeof(row),
           "%s{\"id\":%u,\"name\":\"%s\",\"state\":\"%s\","
           "\"raw\":%u,\"value\":%.3f,\"updated_at_ms\":%lu,"
           "\"tx_phase\":\"%s\",\"tx_bytes\":%u,\"tx_expected_bytes\":%u}",
-          i?",":"",item.id,ot_readonly::label(item.id),
+          i?",":"",id,ot_readonly::label(id),
           ramses_bridge_read::label(item.state),item.raw,
           static_cast<double>(value),static_cast<unsigned long>(item.updatedAtMs),
           ot_tx::phaseName(item.txPhase),item.txBytes,item.txExpectedBytes);
@@ -477,7 +478,7 @@ class OpenThermGateway {
           "%s{\"id\":%u,\"name\":\"%s\",\"state\":\"%s\","
           "\"raw\":%u,\"value\":null,\"updated_at_ms\":%lu,"
           "\"tx_phase\":\"%s\",\"tx_bytes\":%u,\"tx_expected_bytes\":%u}",
-          i?",":"",item.id,ot_readonly::label(item.id),
+          i?",":"",id,ot_readonly::label(id),
           ramses_bridge_read::label(item.state),item.raw,
           static_cast<unsigned long>(item.updatedAtMs),
           ot_tx::phaseName(item.txPhase),item.txBytes,item.txExpectedBytes);

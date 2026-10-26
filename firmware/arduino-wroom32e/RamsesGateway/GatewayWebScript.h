@@ -261,14 +261,32 @@ setInterval(refreshPairedBridgeRead,10000);
 // CV snapshot reads are driven by the gateway radio task, not by browser timers.
 // A refresh/reconnect resumes presentation without issuing duplicate RF requests.
 const cvCatalog=[
- {id:18,name:'CH circuit pressure',unit:'bar',digits:2},
- {id:117,name:'CH pump starts',unit:'starts',digits:0},
- {id:121,name:'CH pump running time',unit:'hours',digits:0}
+ {id:18,name:'CH water pressure',unit:'bar',digits:2,group:'Heating circuit'},
+ {id:25,name:'Boiler CH flow temperature',unit:'°C',digits:2,group:'Heating circuit'},
+ {id:28,name:'Heating return (unverified)',unit:'°C',digits:2,group:'Heating circuit'},
+ {id:57,name:'Maximum CH setpoint',unit:'°C',digits:2,group:'Heating circuit'},
+ {id:117,name:'CH pump starts',unit:'starts',digits:0,group:'Heating circuit'},
+ {id:121,name:'CH pump operating hours',unit:'hours',digits:0,group:'Heating circuit'},
+ {id:17,name:'Burner modulation',unit:'%',digits:1,group:'Boiler operation'},
+ {id:33,name:'Exhaust temperature',unit:'°C',digits:0,group:'Boiler operation'},
+ {id:26,name:'Domestic hot-water temperature',unit:'°C',digits:2,group:'Boiler operation'},
+ {id:34,name:'Heat-exchanger temperature',unit:'°C',digits:2,group:'Boiler operation'},
+ {id:35,name:'Fan speed setpoint / actual',unit:'',digits:0,group:'Boiler operation'},
+ {id:36,name:'Flame current',unit:'µA',digits:2,group:'Boiler operation'},
+ {id:116,name:'Burner starts',unit:'starts',digits:0,group:'Boiler operation'},
+ {id:120,name:'Burner operating hours',unit:'hours',digits:0,group:'Boiler operation'},
+ {id:5,name:'Fault / service flags',unit:'',digits:0,group:'Service diagnostics'},
+ {id:115,name:'Manufacturer diagnostic code',unit:'',digits:0,group:'Service diagnostics'}
 ];
 let cvPosting=false,cvPostError='';
 function cvFormatValue(field,result){
  if(!result||result.state!=='read_ack')return '—';
- if(result.value===null || !Number.isFinite(Number(result.value)))return 'Raw '+result.raw;
+ const raw=Number(result.raw)||0;
+ if(field.id===5||field.id===115)
+  return '0x'+raw.toString(16).toUpperCase().padStart(4,'0');
+ if(field.id===35)
+  return 'Set '+(raw>>8)+' / actual '+(raw&255)+' (encoded)';
+ if(result.value===null||!Number.isFinite(Number(result.value)))return 'Raw '+raw;
  return Number(result.value).toFixed(field.digits)+' '+field.unit;
 }
 function cvDraw(snapshot){
@@ -287,7 +305,15 @@ function cvDraw(snapshot){
   cell.textContent=value;passiveRow.appendChild(cell);
  }
  tbody.appendChild(passiveRow);
+ let lastGroup='';
  for(const field of cvCatalog){
+  if(field.group!==lastGroup){
+   const heading=document.createElement('tr');
+   const title=document.createElement('th');
+   title.colSpan=4;title.scope='rowgroup';title.textContent=field.group;
+   heading.appendChild(title);tbody.appendChild(heading);
+   lastGroup=field.group;
+  }
   const item=(snapshot.results||[]).find(x=>x.id===field.id);
   const phase=item?.state||'not_tested';
   const tx= item?.tx_phase==='local_complete' &&
@@ -320,7 +346,7 @@ async function cvStatus(){
        ' Read-Acks · 15s minimum RF spacing':
     s.completed?(s.aborted?'Stopped (RF preflight unavailable)':'Completed')+
       ': '+finished+'/'+s.count+' requests · '+acks+' Read-Acks':
-    'Not read yet; one click starts three paced CH-only RF requests.';
+    'Not read yet; one click requests 16 diagnostic values (15s spacing).';
   const source=s.source_controller_id?' · source 01:'+String(s.source_controller_id).padStart(6,'0'):'';
   set('cv-read-status',(cvPostError?cvPostError+' · ':'')+phase+source+
     (s.block_reason&&!s.active?' · '+whyReadBlocked(s.block_reason):
@@ -343,7 +369,7 @@ el('cv-read-start').addEventListener('click',async()=>{
    headers:{'X-Gateway-Config':'cv-read-batch',
             'Content-Type':'application/x-www-form-urlencoded'},
    body:new URLSearchParams({
-    confirm:'three-ch-read-only-requests-existing-evohome-identity'
+    confirm:'sixteen-read-only-requests-existing-evohome-identity'
    }).toString()
   });
   const answer=await response.json();

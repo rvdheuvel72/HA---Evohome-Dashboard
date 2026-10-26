@@ -198,7 +198,7 @@ jobs:
                   raise SystemExit(
                       f"PR #{number} has no COMPLETED Codex review for {head}; "
                       "quota deferrals are not accepted for beta.37")
-          print("Beta.35 release gate: completed exact-head Codex review required")
+          print("Beta.37 release gate: completed exact-head Codex review required")
           PY
 
       - name: Ensure GitHub CLI is available on self-hosted runner

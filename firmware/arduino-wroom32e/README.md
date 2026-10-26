@@ -1,3 +1,32 @@
+## Beta.33: direct READ-only telemetry from the R8810A without binding
+
+[RAMSES Arduino Gateway v0.4.0-beta.33](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.33)
+— ZIP: `RAMSES-Arduino-Gateway-v0.4.0-beta.33-ESP32-WROOM-32E.zip`.
+
+A new **Read from MY R8810A** panel issues exactly one manually authorized
+OpenTherm `3220` Read-Data request. It uses the controller RF identity
+observed in a valid real Evohome-to-R8810A request (only on 868.300 MHz),
+allowing an exploratory query without binding any additional controller.
+The 01: source address is used only by this isolated manual probe; it is
+not available to the automatic scanner, pairing, thermostat or write paths.
+
+Allowed IDs: 17 (modulation), 18 (water pressure), 19 (DHW flow), 25
+(boiler flow), 26 (DHW temperature), 27 (outside), 28 (return), 33 (exhaust).
+The one-shot request uses **OpenTherm Read-Data only** and is constrained
+to the observed and configured R8810A. An authenticated UI checkbox and
+hard 60-second cooldown prevent unattended repetitive queries. Any
+directed `3220` Read-Ack is captured by the gateway with the decoded
+value and raw words, or a timeout is reported. Because the same 01:
+identity is used by the physical Evohome, a directed response within
+the brief waiting window is a strong correlation, NOT cryptographic
+proof that this exact request caused it. Remote acceptance is unproven
+until physical beta.33 testing.
+
+**Safety:** Does not reset/unpair the R8810A, mutate the Evohome binding,
+send `1FC9`, send OpenTherm writes, or transmit heating demand. Real
+controller address reuse is experimental and could still cause RF
+collisions/interference; this option is never automatic.
+
 ## Beta.32: prompt, rate-limited virtual thermostat temperature changes
 
 **Release:** [RAMSES Arduino Gateway v0.4.0-beta.32](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.32).

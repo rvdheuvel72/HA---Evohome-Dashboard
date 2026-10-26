@@ -57,6 +57,7 @@ assert 'id="cv-read-confirm"' in html and 'id="cv-read-start"' in html
 assert "const cvCatalog=" in script and "cvStatus()" in script
 assert "/api/v1/opentherm/cv-batch" in script
 assert "sixteen-read-only-requests-existing-evohome-identity" in script
+assert "sixteen-read-only-requests-existing-evohome-identity" in ino, "HTTP batch token must match UI"
 assert "15s minimum RF spacing" in script
 catalog = script[script.index("const cvCatalog="):script.index("let cvPosting=")]
 expected_ids = {17,18,25,28,5,33,57,26,117,121,34,35,36,116,120,115}

@@ -1017,7 +1017,7 @@ void httpCvReadBatch(){
   if(!strongThermostatAuth())return;
   if(!web.hasHeader("X-Gateway-Config") ||
      web.header("X-Gateway-Config")!="cv-read-batch" ||
-     web.arg("confirm")!="three-ch-read-only-requests-existing-evohome-identity"){
+     web.arg("confirm")!="sixteen-read-only-requests-existing-evohome-identity"){
     web.send(403,"application/json",
       "{\"error\":\"explicit_cv_read_authorization_required\"}");
     return;
@@ -1029,9 +1029,9 @@ void httpCvReadBatch(){
     return;
   }
   recordLog(GatewayDebug::WARN,
-    "Manual R8810A heating diagnostics queued: 3 CH-only IDs, >=15s spacing, observed Evohome identity");
+    "Manual R8810A diagnostic scan queued: 16 read-only IDs, >=15s spacing, observed Evohome identity");
   web.send(202,"application/json",
-    "{\"queued\":true,\"read_only\":true,\"requests_max\":3,\"minimum_spacing_ms\":15000}");
+    "{\"queued\":true,\"read_only\":true,\"requests_max\":16,\"minimum_spacing_ms\":15000}");
 }
 void httpOtOneShot(){
   if(!authorized())return;

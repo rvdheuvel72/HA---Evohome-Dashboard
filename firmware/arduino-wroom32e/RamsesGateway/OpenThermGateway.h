@@ -517,17 +517,21 @@ class OpenThermGateway {
   void sendPairedBridgeReadStatus(WebServer& server,bool radioReady) {
     ramses_bridge_read::Probe snap;ot_tx::Report tx;
     bool direct=false;
+    uint32_t displayId=0;
     portENTER_CRITICAL(&mutex_);
     snap=pairedBridgeRead_;tx=pairedBridgeReadTx_;
     direct=controllerEvidence_.directRequestSeen &&
            !controllerEvidence_.ambiguous;
+    displayId=passiveDisplay_.readSource(controllerEvidence_);
     portEXIT_CRITICAL(&mutex_);
+    const char* reason=radioReady?pairedBridgeReadBlockReason():"radio_not_ready";
     float value=0;
     const bool hasValue=snap.state==ramses_bridge_read::READ_ACK &&
       ot_readonly::fixedPoint(snap.dataId,snap.raw,value);
-    char response[740];
+    char response[900];
     snprintf(response,sizeof(response),
       "{\"state\":\"%s\",\"ready\":%s,\"bridge_seen\":%s,"
+      "\"block_reason\":\"%s\",\"source_identity\":\"observed_existing_01\","
       "\"direct_controller_observed\":%s,\"bridge_id\":%lu,"
       "\"controller_id\":%lu,\"data_id\":%u,\"data_name\":\"%s\","
       "\"cooldown_ms\":%lu,\"raw\":%u,\"has_value\":%s,"
@@ -538,11 +542,10 @@ class OpenThermGateway {
       " replies may also be seen by the real controller; RX matching does not"
       " cryptographically prove causal attribution.\"}",
       ramses_bridge_read::label(snap.state),
-      (radioReady && pairedBridgeReadReady() &&
-        snap.cooldown(millis())==0)?"true":"false",
-      bridgeSeen_?"true":"false",direct?"true":"false",
+      reason?"false":"true",
+      bridgeSeen_?"true":"false",reason?reason:"",direct?"true":"false",
       static_cast<unsigned long>(config_->otBridge),
-      static_cast<unsigned long>(snap.controllerId?snap.controllerId:observedController_),
+      static_cast<unsigned long>(snap.controllerId?snap.controllerId:displayId),
       static_cast<unsigned>(snap.dataId),ot_readonly::label(snap.dataId),
       static_cast<unsigned long>(snap.cooldown(millis())),
       static_cast<unsigned>(snap.raw),hasValue?"true":"false",

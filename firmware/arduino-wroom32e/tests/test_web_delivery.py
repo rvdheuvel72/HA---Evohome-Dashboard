@@ -36,6 +36,18 @@ assert 'web.on("/gateway.js", HTTP_GET, httpGatewayJs);' in ino
 assert 'web.sendContent_P(data+pos,n)' in ino
 assert 'constexpr size_t BLOCK=1024' in ino
 assert 'web.setContentLength(length)' in ino
+# HTTP performance counters and memory safety must remain observable.
+for key in ('http_last_ms','http_max_ms','http_slow_calls',
+            'web_asset_last_ms','web_asset_max_ms','free_heap',
+            'min_free_heap','largest_free_heap_block',
+            'radio_task_stack_min_free_bytes'):
+    assert key in ino, key
+assert 'ESP.getMinFreeHeap()' in ino
+assert 'heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)' in ino
+assert 'uxTaskGetStackHighWaterMark(nullptr)' in ino
+assert 'now-lastStackSampleMs>=15000u' in ino
+assert 'jsonLength<0 || static_cast<size_t>(jsonLength)>=sizeof(json)' in ino
+assert 'status_json_overflow' in ino
 assert 'MAX_SCAN=20' in ino and 'web.send(200,"application/json",json)' in ino
 assert 'web.sendContent(item)' not in ino
 for token in ('thermostat-panel', 'pairing-panel', 'one-shot-panel',

@@ -1243,6 +1243,12 @@ void httpConfigSave(){
     web.send(400,"application/json","{\"error\":\"invalid_settings_or_rf_band\"}");
     return;
   }
+  if(configuration.unchanged(staged,GW_CC1101_MODULE_BAND)) {
+    // Do not restart Wi-Fi/MQTT or rewrite flash for a no-op settings save.
+    web.sendHeader("Cache-Control","no-store");
+    web.send(200,"application/json","{\"saved\":true,\"unchanged\":true,\"restart_in_seconds\":0}");
+    return;
+  }
   if(!configuration.stage(staged,GW_CC1101_MODULE_BAND)){
     web.send(500,"application/json","{\"error\":\"nvs_save_failed\"}");
     return;

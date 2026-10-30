@@ -65,6 +65,10 @@ int main(){
   chosen=defaultsConfig;
   Store store;store.begin(868);
   assert(!store.pending);
+  Preferences::resetWriteCount();
+  assert(store.unchanged(store.current,868));
+  assert(store.stage(store.current,868));
+  assert(!store.pending && Preferences::writeCount()==0);
   Settings updated=store.current;
   updated.rfModuleBand=433;
   updated.rfExperimentalRx=1;
@@ -72,7 +76,10 @@ int main(){
   copy(updated.timezone,sizeof(updated.timezone),"UTC");
   updated.mqttPort=1884;
   updated.mqttDiscovery=0;
+  assert(!store.unchanged(updated,868));
   assert(store.stage(updated,868) && store.pending);
+  assert(Preferences::writeCount()==3); // previous, pending, candidate
+  assert(!store.unchanged(updated,868)); // pending never bypasses recovery
   Store pending;pending.begin(868);
   assert(pending.pending && strcmp(pending.current.hostname,"test-gateway")==0);
   assert(pending.current.rfModuleBand==433 && pending.current.rfExperimentalRx==1);
@@ -88,6 +95,10 @@ int main(){
          persisted.current.rfExperimentalRx==1);
   assert(!persisted.pending && persisted.current.mqttPort==1884 &&
          persisted.current.mqttDiscovery==0);
+  Preferences::resetWriteCount();
+  assert(persisted.unchanged(persisted.current,868));
+  assert(persisted.stage(persisted.current,868) && !persisted.pending);
+  assert(Preferences::writeCount()==0);
   // Upgrade a genuine v1 binary record, preserving network credentials.
   LegacySettingsV1 old={};
   gw_config::copy(old.wifiSSID,sizeof(old.wifiSSID),defaultsConfig.wifiSSID);

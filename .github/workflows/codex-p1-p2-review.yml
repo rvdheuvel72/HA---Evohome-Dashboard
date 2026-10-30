@@ -19,17 +19,41 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  review-preflight:
+    name: Initial Codex P1/P2 review
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Refuse external PR branches for authenticated review
+        if: github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
+        env:
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
+        run: test "$HEAD_REPO" = "$BASE_REPO"
+      - name: Checkout PR source for read-only review verifier
+        if: github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Require completed exact-head Codex review before self-hosted jobs
+        if: github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/check_codex_review.py --review-only
+
   # Staged gate: wait for all required checks before the final P1/P2 decision.
   # This is intentionally a distinct job: the required "Codex P1/P2 review gate"
   # is the LAST approval check and must not turn green while CI is pending.
   await-validation:
+    needs: [review-preflight]
     name: Await required build and test checks
     if: >-
       (github.event_name == 'pull_request_target' && github.event.pull_request.draft == false) ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request != null &&
        (github.event.comment.user.login == 'chatgpt-codex-connector[bot]' ||
         github.event.comment.user.login == 'chatgpt-codex-connector'))
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-latest
     timeout-minutes: 33
     steps:
       - name: Check out trusted base branch only
@@ -54,7 +78,7 @@ jobs:
        (github.event_name == 'issue_comment' && github.event.issue.pull_request != null &&
         (github.event.comment.user.login == 'chatgpt-codex-connector[bot]' ||
          github.event.comment.user.login == 'chatgpt-codex-connector')))
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-latest
     timeout-minutes: 19
     steps:
       - name: Require successful build and test preflight

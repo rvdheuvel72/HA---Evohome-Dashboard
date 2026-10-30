@@ -19,13 +19,39 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
+  issues: read
 
 concurrency:
   group: evohome-phase1-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  review-preflight:
+    name: Initial Codex P1/P2 review
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Refuse external PR branches for authenticated review
+        if: github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
+        env:
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
+        run: test "$HEAD_REPO" = "$BASE_REPO"
+      - name: Checkout PR source for read-only review verifier
+        if: github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Require completed exact-head Codex review before self-hosted jobs
+        if: github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/check_codex_review.py --review-only
+
   verify:
+    needs: [review-preflight]
     name: Python contract and dashboard syntax
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 15
@@ -57,6 +83,7 @@ jobs:
           python3 scripts/package_frontend.py --output build/evohome-dashboard-ui.zip
 
   standalone-frontend-bundle:
+    needs: [review-preflight]
     name: Independent HACS frontend package
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 10
@@ -82,6 +109,7 @@ jobs:
           if-no-files-found: error
 
   pinned-evohome-api:
+    needs: [review-preflight]
     name: Pinned evohome-async runtime contract
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 15
@@ -117,6 +145,7 @@ jobs:
           PY
 
   ha-runtime-import:
+    needs: [review-preflight]
     name: Home Assistant 2026.10 runtime imports
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 25

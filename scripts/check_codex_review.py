@@ -290,21 +290,29 @@ def check_review(token, full_repo, number, sha):
 
 
 def check(token, full_repo, number, sha):
-    """Final gate: exact-head CI and review must both pass before merge."""
+    # The final review stage cannot start before the CI preflight has passed.
     state, reason = check_ci(token, full_repo, number, sha)
     if state != "passed":
         return state, reason
-    review_state, review_reason = check_review(token, full_repo, number, sha)
-    if review_state == "passed":
-        return "passed", review_reason + "; all CI passed"
-    # Preserve the existing, explicitly labelled quota-debt exception in the
-    # final gate; early CI never starts without a completed review.
-    if review_state == "pending":
-        prefix = "/repos/" + full_repo
-        summaries = pages(token, prefix + "/issues/" + str(number) + "/comments")
-        if quota_deferred(summaries, sha):
-            return "passed", "Verified quota-deferred review debt; all CI passed"
-    return review_state, review_reason
+    owner, name = full_repo.split("/", 1)
+    # An unresolved P1/P2 or a P1/P2 on the *current head* always blocks,
+    # even when Codex is currently over quota.
+    unresolved = blockers(token, owner, name, number, sha)
+    if unresolved:
+        return "blocked", "Unresolved Codex P1/P2: " + "; ".join(unresolved[:8])
+    prefix = "/repos/" + full_repo
+    revs = pages(token, prefix + "/pulls/" + str(number) + "/reviews")
+    summaries = pages(token, prefix + "/issues/" + str(number) + "/comments")
+    disposition = review_disposition(revs, summaries, sha)
+    if disposition == "reviewed":
+        return "passed", "Latest-head Codex review completed; zero P1/P2; all CI passed"
+    if disposition == "quota_deferred":
+        return "passed", (
+            "Codex review deferred by verified quota notice for exact head "
+            + sha + "; zero P1/P2; all CI passed; REVIEW DEBT must be tracked "
+            "and revisited on the next available review run"
+        )
+    return "pending", "Waiting for exact-head Codex review or verified current-head quota notice"
 
 
 def main():

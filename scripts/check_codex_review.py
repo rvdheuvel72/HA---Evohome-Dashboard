@@ -263,11 +263,17 @@ def check_ci(token, full_repo, number, sha):
     return required_ci_state(token, full_repo, sha, pr_number=number)
 
 
-def check(token, full_repo, number, sha):
-    # The final review stage cannot start before the CI preflight has passed.
-    state, reason = check_ci(token, full_repo, number, sha)
-    if state != "passed":
-        return state, reason
+def check_review(token, full_repo, number, sha):
+    """Require an authenticated exact-head review before expensive CI starts.
+
+    Unlike the final gate, the early gate fails closed on quota exhaustion:
+    unreviewed code must not consume self-hosted CI resources.
+    """
+    info = request(token, "/repos/" + full_repo + "/pulls/" + str(number))
+    if info["head"]["sha"] != sha:
+        return "changed", "PR head changed; review newest commit"
+    if info.get("state") != "open":
+        return "skipped", "PR is closed"
     owner, name = full_repo.split("/", 1)
     # An unresolved P1/P2 or a P1/P2 on the *current head* always blocks,
     # even when Codex is currently over quota.
@@ -279,20 +285,33 @@ def check(token, full_repo, number, sha):
     summaries = pages(token, prefix + "/issues/" + str(number) + "/comments")
     disposition = review_disposition(revs, summaries, sha)
     if disposition == "reviewed":
-        return "passed", "Latest-head Codex review completed; zero P1/P2; all CI passed"
-    if disposition == "quota_deferred":
-        return "passed", (
-            "Codex review deferred by verified quota notice for exact head "
-            + sha + "; zero P1/P2; all CI passed; REVIEW DEBT must be tracked "
-            "and revisited on the next available review run"
-        )
-    return "pending", "Waiting for exact-head Codex review or verified current-head quota notice"
+        return "passed", "Exact-head Codex review completed; zero P1/P2"
+    return "pending", "Waiting for exact-head Codex review (quota does not waive early review)"
+
+
+def check(token, full_repo, number, sha):
+    """Final gate: exact-head CI and review must both pass before merge."""
+    state, reason = check_ci(token, full_repo, number, sha)
+    if state != "passed":
+        return state, reason
+    review_state, review_reason = check_review(token, full_repo, number, sha)
+    if review_state == "passed":
+        return "passed", review_reason + "; all CI passed"
+    # Preserve the existing, explicitly labelled quota-debt exception in the
+    # final gate; early CI never starts without a completed review.
+    if review_state == "pending":
+        prefix = "/repos/" + full_repo
+        summaries = pages(token, prefix + "/issues/" + str(number) + "/comments")
+        if quota_deferred(summaries, sha):
+            return "passed", "Verified quota-deferred review debt; all CI passed"
+    return review_state, review_reason
 
 
 def main():
-    if len(sys.argv) > 2 or (len(sys.argv) == 2 and sys.argv[1] != "--ci-only"):
+    if len(sys.argv) > 2 or (len(sys.argv) == 2 and sys.argv[1] not in ("--ci-only", "--review-only")):
         raise ValueError("Unknown gate option")
-    ci_only = len(sys.argv) == 2
+    ci_only = len(sys.argv) == 2 and sys.argv[1] == "--ci-only"
+    review_only = len(sys.argv) == 2 and sys.argv[1] == "--review-only"
     with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as stream:
         event = json.load(stream)
     token, full_repo = os.environ["GITHUB_TOKEN"], os.environ["GITHUB_REPOSITORY"]
@@ -304,7 +323,7 @@ def main():
         raise RuntimeError("A PR event is required")
     expires = time.monotonic() + (1800 if ci_only else 900)
     while True:
-        task = check_ci if ci_only else check
+        task = check_ci if ci_only else check_review if review_only else check
         result, message = task(token, full_repo, pr["number"], pr["head"]["sha"])
         print(message, flush=True)
         if result in ("passed", "skipped"):

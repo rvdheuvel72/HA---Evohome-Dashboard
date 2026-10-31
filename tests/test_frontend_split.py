@@ -38,6 +38,9 @@ class FrontendSplitTests(unittest.TestCase):
         self.assertIn(marker, loader)
         self.assertIn(marker, ui)
         self.assertIn("backend-version-label-v1", ui)
+        self.assertIn("class EvohomeDashboardHAPanel extends EvohomeDashboardPanel", ui)
+        self.assertIn("evohome-dashboard-ha-panel", (COMP / "__init__.py").read_text())
+
         self.assertIn('["demand","Heating demand"]', ui)
         bundled = (COMP / "frontend" / "dashboard-legacy.js").read_text()
         self.assertIn('["demand","Heating demand"]', bundled)

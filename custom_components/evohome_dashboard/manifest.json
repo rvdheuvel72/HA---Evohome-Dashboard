@@ -11,5 +11,8 @@
   ],
   "loggers": [
     "evohomeasync2"
+  ],
+  "after_dependencies": [
+    "mqtt"
   ]
 }

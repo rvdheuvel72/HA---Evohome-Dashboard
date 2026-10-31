@@ -9,6 +9,10 @@ on:
 
 permissions:
   contents: write
+  pull-requests: read
+  issues: read
+  checks: read
+  actions: read
 
 concurrency:
   group: evohome-hacs-stable-release
@@ -43,6 +47,15 @@ jobs:
             echo "::error::Main moved after CI; stale release will not be published."
             exit 1
           fi
+
+      - name: Require a merged exact-head reviewed PR (no quota waiver)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/check_ha_release_readiness.py
 
       - name: Evaluate HA manifest version against stable releases
         id: plan

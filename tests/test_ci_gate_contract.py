@@ -31,6 +31,11 @@ class ReviewGateContract(unittest.TestCase):
                 for job in jobs:
                     self.assertIn("  " + job + ":\n    needs: [review-preflight]\n", text)
 
+    def test_feature_push_cannot_bypass_review(self):
+        text = (WORKFLOWS / "ramses-arduino-wroom32e.yml").read_text()
+        self.assertIn("  push:\\n    branches: [main]\\n", text)
+        self.assertIn("  pull_request:\\n", text)
+
     def test_final_review_is_retained(self):
         text = (WORKFLOWS / "codex-p1-p2-review.yml").read_text()
         self.assertIn("  codex-review:\n", text)

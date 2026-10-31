@@ -7,7 +7,6 @@ from __future__ import annotations
 import logging
 from datetime import timedelta
 
-from homeassistant.components import mqtt
 from homeassistant.core import callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_time_interval
@@ -38,6 +37,9 @@ class RfDemandMonitor:
         saved = await self._store.async_load()
         self.ledger.restore_daily(saved)
         try:
+            # Optional MQTT requirements are installed by HA after_dependencies.
+            # Import lazily so cloud-only module/runtime imports never need paho.
+            from homeassistant.components import mqtt
             self._unsubscribe = await mqtt.async_subscribe(
                 self.hass, self.topic, self._on_message, qos=0
             )

@@ -75,6 +75,13 @@ def valid_zone_names(text: str) -> dict[int, str]:
     return result
 
 
+def valid_zone_names_for_storage(key: object, name: object) -> bool:
+    return (isinstance(key, str)
+            and re.fullmatch(r"0[0-9AB]", key.upper()) is not None
+            and isinstance(name, str) and 0 < len(name) <= 20
+            and all(32 <= ord(c) <= 126 for c in name))
+
+
 @dataclass
 class DeviceState:
     value: float
@@ -100,6 +107,8 @@ class HeatDemandLedger:
             raise ValueError("Explicit RAMSES controller 01:xxxxxx ID required")
         self.controller_id = controller_id
         self.zone_names = dict(zone_names or {})
+        self.radio_names: dict[int, str] = {}
+        self.mapping_metadata: dict[int, dict] = {}
         self.tz = ZoneInfo(time_zone)
         self.zones: dict[int, ZoneState] = {}
         self.controller_demand: DeviceState | None = None
@@ -191,6 +200,27 @@ class HeatDemandLedger:
             self._event(at, "zone_demand", zone=f"{zone_idx:02X}",
                         source=src, demand_pct=pct)
             return True
+        # 0004 is the controller's zone-name report. Unlike cloud zone IDs,
+        # the first byte is the RAMSES RF zone index. Accept only the documented
+        # 22-byte controller report: index, 00, 20 ASCII bytes padded by NUL.
+        if (frame.code == "0004" and frame.verb in ("I", "RP")
+                and src == self.controller_id and len(frame.payload) == 22):
+            index = frame.payload[0]
+            if index >= MAX_ZONES or frame.payload[1] != 0:
+                return False
+            try:
+                raw_name = frame.payload[2:]
+                data = raw_name.split(b"\x00", 1)[0]
+                if raw_name[len(data):].strip(b"\x00"):
+                    return False
+                name = data.decode("ascii").strip()
+            except UnicodeDecodeError:
+                return False
+            if not name or len(name) > 20 or any(ord(c) < 32 or ord(c) > 126 for c in name):
+                return False
+            self.radio_names[index] = name
+            self._event(at, "rf_zone_name", zone=f"{index:02X}", name=name)
+            return True
         # 0008 from the *controller* is a separate control signal, not measured
         # boiler fuel or verified firing. A 0008 originating from a thermostat
         # is NOT system/bridge demand.
@@ -253,6 +283,8 @@ class HeatDemandLedger:
         return {
             "index": f"{idx:02X}", "name": self.zone_names.get(idx, f"RF zone {idx:02X}"),
             "mapped": idx in self.zone_names, "demand_pct": value,
+            "mapping": self.mapping_metadata.get(idx, {"source": "unlinked"}),
+            "rf_reported_name": self.radio_names.get(idx),
             "state": "unknown_stale" if value is None else "requesting" if value > 0 else "idle",
             "last_seen": z.last_seen.isoformat() if z.last_seen else None,
             "today_minutes": round(z.on_seconds / 60, 1),
@@ -279,6 +311,12 @@ class HeatDemandLedger:
 
     def restore_daily(self, saved: dict, now: datetime | None = None) -> None:
         now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        if isinstance(saved, dict) and saved.get("controller_id") == self.controller_id:
+            names = saved.get("radio_names", {})
+            if isinstance(names, dict):
+                for key, name in names.items():
+                    if (valid_zone_names_for_storage(key, name)):
+                        self.radio_names[int(key, 16)] = name
         if not isinstance(saved, dict) or saved.get("date") != self._day(now).isoformat():
             return
         for key, value in saved.get("zones", {}).items():
@@ -297,7 +335,8 @@ class HeatDemandLedger:
 
     def daily_storage(self, now: datetime | None = None) -> dict:
         snap = self.snapshot(now)
-        return {"date": snap["date"],
+        return {"date": snap["date"], "controller_id": self.controller_id,
+                "radio_names": {f"{idx:02X}": name for idx, name in self.radio_names.items()},
                 "zones": {z["index"]: {"minutes": z["today_minutes"],
                                        "weighted": z["today_weighted_minutes"]}
                           for z in snap["zones"]}}

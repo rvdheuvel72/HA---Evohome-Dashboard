@@ -16,7 +16,6 @@ from .const import (
     DEFAULT_RF_MQTT_TOPIC,
 )
 from .heat_demand import valid_zone_names
-from .rf_monitor import RfDemandMonitor
 from .hub import EvohomeHub
 from .websocket import register_commands
 
@@ -78,6 +77,8 @@ async def async_setup_entry(hass, entry):
     try:
         controller_id = entry.options.get(CONF_RF_CONTROLLER_ID, "")
         if controller_id:
+            # Import optional MQTT requirements only when monitoring is enabled.
+            from .rf_monitor import RfDemandMonitor
             hub.rf_monitor = RfDemandMonitor(
                 hass, entry.entry_id, controller_id,
                 entry.options.get(CONF_RF_MQTT_TOPIC, DEFAULT_RF_MQTT_TOPIC),

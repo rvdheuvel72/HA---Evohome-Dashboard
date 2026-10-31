@@ -100,8 +100,14 @@ class RfDemandMonitor:
             self._cloud_state() if cloud_snapshot is None else cloud_snapshot,
             self._cloud_links, self._manual_zone_names, self.ledger.radio_names,
         )
+        changed = (names != self.ledger.zone_names or
+                   mapping != self.ledger.mapping_metadata)
         self.ledger.zone_names = names
         self.ledger.mapping_metadata = mapping
+        if changed:
+            # Update already-created HA sensors when cloud names change or a
+            # controller 0004 name arrives, without changing entity unique IDs.
+            async_dispatcher_send(self.hass, self.signal, None)
 
     def snapshot(self):
         self.refresh_names()

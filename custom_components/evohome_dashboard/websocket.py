@@ -55,6 +55,10 @@ def register_commands(hass):
                         "state": hub.data if hub.data else {"locations": []},
                         "online": hub.last_update_success, "errors": len(hub.error_data()),
                         "entry_id": hub.entry_id,
+                        "heat_demand": (hub.rf_monitor.snapshot()
+                                        if getattr(hub, "rf_monitor", None) is not None
+                                        else {"enabled": False,
+                                              "reason": "Configure an RF controller ID in Evohome options"}),
                     }
                 elif _method == "_errors":
                     result = {"events": hub.error_data()}

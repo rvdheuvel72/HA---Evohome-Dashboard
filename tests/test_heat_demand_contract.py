@@ -1,5 +1,6 @@
 """Contracts: RF observation is optional, authenticated and strictly passive."""
 import unittest
+import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,6 +25,9 @@ class RfFeatureContracts(unittest.TestCase):
         self.assertIn("valid_controller_id(controller)", flow)
         self.assertIn("valid_zone_names(names)", flow)
         self.assertIn("await hub.rf_monitor.async_stop()", init)
+        self.assertIn("if controller_id:\\n            # Import optional MQTT", init)
+        manifest = json.loads((HA / "manifest.json").read_text())
+        self.assertEqual(manifest.get("after_dependencies"), ["mqtt"])
 
     def test_dashboard_and_ha_sensor_have_demand_values(self):
         sensor = (HA / "sensor.py").read_text()
@@ -31,6 +35,9 @@ class RfFeatureContracts(unittest.TestCase):
         self.assertIn("class RFZoneDemand(", sensor)
         self.assertIn("class RFZoneMinutes(", sensor)
         self.assertIn('"heat_demand": (hub.rf_monitor.snapshot()', websocket)
+        self.assertIn("from homeassistant.core import callback", sensor)
+        self.assertIn("@callback\\n        def on_rf_event", sensor)
+        self.assertIn("@callback\\n        def on_update", sensor)
         for path in (HA / "frontend" / "dashboard-legacy.js",
                      ROOT / "frontend-package" / "dist" / "evohome-dashboard-ui.js"):
             contents = path.read_text()

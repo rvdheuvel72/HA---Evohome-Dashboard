@@ -53,7 +53,7 @@ async def _setup_frontend(hass):
     await panel_custom.async_register_panel(
         hass,
         frontend_url_path=PANEL_PATH,
-        webcomponent_name="evohome-dashboard-panel",
+        webcomponent_name="evohome-dashboard-ha-panel",
         module_url=f"/api/{DOMAIN}/dashboard.js?v={frontend_version}",
         sidebar_title="Evohome",
         sidebar_icon="mdi:home-thermometer",

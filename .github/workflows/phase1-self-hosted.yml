@@ -118,6 +118,7 @@ jobs:
           node --check custom_components/evohome_dashboard/frontend/dashboard-legacy.js
           node --check frontend-package/dist/evohome-dashboard-ui.js
           node tests/test_ui_fallback_preloaded.js
+          node tests/test_ui_cloud_zone_mapping.js
       - name: Execute pure-function tests
         shell: bash
         run: |

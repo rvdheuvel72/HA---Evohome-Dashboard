@@ -1,4 +1,7 @@
-/* Evohome Dashboard UI v0.1.0 — standalone HACS dashboard module (MIT license). */
+/* Evohome Dashboard UI — standalone HACS dashboard module (MIT license). */
+/* EVOHOME_UI_FEATURE: heating-demand-v1 */
+/* EVOHOME_UI_FEATURE: backend-version-label-v1 */
+const EVOHOME_UI_SOURCE = "HACS";
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const modes = {auto:"Auto",auto_with_eco:"Eco",away:"Away",day_off:"Day Off",custom:"Custom",heating_off:"Heating Off",auto_with_reset:"Auto Reset"};
 const DAY_NAMES = ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"];
@@ -55,7 +58,7 @@ class EvohomeDashboardPanel extends HTMLElement {
     super();
     this.attachShadow({mode:"open"});
     this.tab = "overview"; this.entry = null; this.entries = [];
-    this.state = null; this.online = false; this.errors = 0; this.rfDemand = null;
+    this.state = null; this.online = false; this.errors = 0; this.rfDemand = null; this.backendVersion = null;
     this.banner = ""; this.loading = false; this.modal = null;
     this.schedule = null; this.scheduleSystem = ""; this.scheduleZone = "";
     this.activeDay = "monday"; this.timer = null; this.refreshing = false;
@@ -94,7 +97,7 @@ class EvohomeDashboardPanel extends HTMLElement {
     this.refreshing=true;
     try {
       const x = await this.ws("status");
-      this.state=x.state; this.online=x.online; this.errors=x.errors; this.rfDemand=x.heat_demand||null; this.banner="";
+      this.state=x.state; this.online=x.online; this.errors=x.errors; this.rfDemand=x.heat_demand||null; this.backendVersion=x.backend_version||null; this.banner="";
     } catch(e) { this.banner = e.message || "Cannot load Evohome data"; }
     finally { this.refreshing=false;this.draw(); }
   }
@@ -250,7 +253,7 @@ class EvohomeDashboardPanel extends HTMLElement {
   draw() {
     const root=this.shadowRoot;
     const body=this.tab==="overview"?this.overview():this.tab==="rooms"?this.rooms():this.tab==="demand"?this.heatDemand():this.tab==="schedules"?this.schedules():this.tab==="actions"?this.actions():this.tab==="settings"?this.settings():this.errorPage();
-    root.innerHTML='<style>'+css+'</style><div class="frame"><header class="top"><div class="brand"><div class="logo">⌂</div><div><h1>Evohome</h1><div class="caption">Home heating, made clear</div></div></div>'+
+    root.innerHTML='<style>'+css+'</style><div class="frame"><header class="top"><div class="brand"><div class="logo">⌂</div><div><h1>Evohome</h1><div class="caption">Home heating, made clear · HA backend '+esc(this.backendVersion?"v"+this.backendVersion:"version unknown")+' · UI: '+EVOHOME_UI_SOURCE+'</div></div></div>'+
       '<div class="status"><span class="dot '+(this.online?"":"off")+'"></span>'+esc(this.online?"Cloud connected":"Cloud not confirmed")+
       ' · '+esc(this.state?.updated?new Date(this.state.updated).toLocaleTimeString():"Awaiting data")+'</div></header>'+this.nav()+
       (this.banner?'<div class="'+(this.banner.startsWith("Action failed")?"warning":"notice")+'" role="alert">'+esc(this.banner)+'</div>':"")+
@@ -351,6 +354,13 @@ class EvohomeDashboardPanel extends HTMLElement {
 }
 if(!customElements.get("evohome-dashboard-panel")) {
   customElements.define("evohome-dashboard-panel", EvohomeDashboardPanel);
+}
+// The HA sidebar owns this separate element name. Old HACS resources may
+// already have registered evohome-dashboard-panel in the same browser page;
+// a distinct subclass and tag allow the current backend UI to render anyway.
+class EvohomeDashboardHAPanel extends EvohomeDashboardPanel {}
+if(!customElements.get("evohome-dashboard-ha-panel")) {
+  customElements.define("evohome-dashboard-ha-panel", EvohomeDashboardHAPanel);
 }
 
 /* Lovelace embedding: add /hacsfiles/evohome-dashboard-ui/evohome-dashboard-ui.js as a module

@@ -49,10 +49,11 @@ async def _setup_frontend(hass):
     manifest_path = Path(__file__).with_name("manifest.json")
     manifest_text = await hass.async_add_executor_job(manifest_path.read_text, "utf-8")
     frontend_version = json.loads(manifest_text)["version"]
+    hass.data[f"{DOMAIN}_backend_version"] = frontend_version
     await panel_custom.async_register_panel(
         hass,
         frontend_url_path=PANEL_PATH,
-        webcomponent_name="evohome-dashboard-panel",
+        webcomponent_name="evohome-dashboard-ha-panel",
         module_url=f"/api/{DOMAIN}/dashboard.js?v={frontend_version}",
         sidebar_title="Evohome",
         sidebar_icon="mdi:home-thermometer",

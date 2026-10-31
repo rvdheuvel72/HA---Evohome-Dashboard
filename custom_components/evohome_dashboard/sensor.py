@@ -1,6 +1,9 @@
 """Entity-level transparency for every cloud-exposed heating-zone value."""
 from homeassistant.components.sensor import SensorEntity, SensorDeviceClass
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.components.sensor import SensorStateClass
+from datetime import datetime
 from .const import DOMAIN
 
 
@@ -17,6 +20,21 @@ async def async_setup_entry(hass, entry, async_add_entities):
                     for kind in ("current_temperature", "target_temperature",
                                  "override_mode", "override_until", "zone_configuration"):
                         entities.append(EvoModeSensor(hub, sys.id, zone.id, kind))
+    monitor = getattr(hub, "rf_monitor", None)
+    if monitor is not None:
+        entities.extend([RFControllerDemand(monitor), RFBridgeActivity(monitor)])
+        known = set(monitor.ledger.zones) | set(monitor.ledger.zone_names)
+        for idx in sorted(known):
+            entities.extend((RFZoneDemand(monitor, idx), RFZoneMinutes(monitor, idx)))
+        # RF zones are learned after startup; never infer RF index from cloud
+        # zone ordering. Each newly discovered index receives two entities.
+        def on_rf_event(new_idx):
+            if new_idx is not None and new_idx not in known:
+                known.add(new_idx)
+                async_add_entities([RFZoneDemand(monitor, new_idx),
+                                    RFZoneMinutes(monitor, new_idx)])
+
+        entry.async_on_unload(async_dispatcher_connect(hass, monitor.signal, on_rf_event))
     async_add_entities(entities)
 
 
@@ -108,3 +126,110 @@ class EvoModeSensor(CoordinatorEntity, SensorEntity):
                 "note": "Installer RF/binding settings not exposed by Resideo TCC",
             }
         return {}
+
+
+class _RFBase(SensorEntity):
+    """Read-only local RAMSES measurements; independent of Resideo cloud polls."""
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+
+    def __init__(self, monitor, suffix, name):
+        self.monitor = monitor
+        self._attr_unique_id = f"{DOMAIN}_{monitor.entry_id}_rf_{suffix}"
+        self._attr_name = name
+
+    @property
+    def device_info(self):
+        return {"identifiers": {(DOMAIN, f"rf_monitor_{self.monitor.entry_id}")},
+                "name": "RAMSES RF demand monitor", "manufacturer": "Local RF observations"}
+
+    @property
+    def available(self):
+        return self.monitor.connected
+
+    async def async_added_to_hass(self):
+        self.async_on_remove(async_dispatcher_connect(
+            self.hass, self.monitor.signal, lambda _: self.async_write_ha_state()
+        ))
+
+
+class RFControllerDemand(_RFBase):
+    _attr_native_unit_of_measurement = "%"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, monitor):
+        super().__init__(monitor, "controller_0008", "Controller RF demand (0008)")
+
+    @property
+    def native_value(self):
+        return self.monitor.ledger.snapshot()["controller_0008_pct"]
+
+    @property
+    def extra_state_attributes(self):
+        return {"last_seen": self.monitor.ledger.snapshot()["controller_0008_last_seen"],
+                "note": "Observed 0008: not measured gas or proof the boiler fired"}
+
+
+class RFBridgeActivity(_RFBase):
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+
+    def __init__(self, monitor):
+        super().__init__(monitor, "bridge_last_seen", "OpenTherm bridge RF last seen")
+
+    @property
+    def native_value(self):
+        value = self.monitor.ledger.snapshot()["bridge_last_seen"]
+        return datetime.fromisoformat(value) if value else None
+
+
+class _RFZoneBase(_RFBase):
+    def __init__(self, monitor, index, suffix, label):
+        self.index = index
+        room = monitor.ledger.zone_names.get(index, f"RF zone {index:02X}")
+        super().__init__(monitor, f"zone_{index:02x}_{suffix}", f"{room} {label}")
+
+    def zone(self):
+        for zone in self.monitor.ledger.snapshot()["zones"]:
+            if zone["index"] == f"{self.index:02X}":
+                return zone
+        return None
+
+
+class RFZoneDemand(_RFZoneBase):
+    _attr_native_unit_of_measurement = "%"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, monitor, index):
+        super().__init__(monitor, index, "demand", "heat demand")
+
+    @property
+    def native_value(self):
+        zone = self.zone()
+        return zone["demand_pct"] if zone else None
+
+    @property
+    def extra_state_attributes(self):
+        zone = self.zone()
+        if zone is None:
+            return {"zone_index": f"{self.index:02X}", "mapping_verified": False}
+        return {
+            "zone_index": zone["index"], "mapping_verified": zone["mapped"],
+            "observation_state": zone["state"], "last_seen": zone["last_seen"],
+            "today_request_minutes_est": zone["today_minutes"],
+            "today_demand_weighted_minutes_est": zone["today_weighted_minutes"],
+            "sample_count": zone["samples"], "trv_sources": zone["devices"],
+        }
+
+
+class RFZoneMinutes(_RFZoneBase):
+    _attr_native_unit_of_measurement = "min"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, monitor, index):
+        super().__init__(monitor, index, "minutes", "estimated heat request today")
+
+    @property
+    def native_value(self):
+        zone = self.zone()
+        return zone["today_minutes"] if zone else 0

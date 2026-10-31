@@ -49,9 +49,12 @@ def cloud_zones(snapshot: object) -> list[dict[str, str]]:
                 if not isinstance(zone, dict):
                     continue
                 sid, zid, name = system.get("id"), zone.get("id"), zone.get("name")
-                if (isinstance(sid, str) and isinstance(zid, str)
-                        and isinstance(name, str) and name.strip()):
-                    result.append({"system_id": sid, "zone_id": zid, "name": name.strip()})
+                if (all(isinstance(value, (str, int)) and not isinstance(value, bool)
+                        for value in (sid, zid)) and isinstance(name, str) and name.strip()):
+                    sid, zid = str(sid), str(zid)
+                    if 1 <= len(sid) <= 64 and 1 <= len(zid) <= 64:
+                        result.append({"system_id": sid, "zone_id": zid,
+                                       "name": name.strip()})
     return result
 
 

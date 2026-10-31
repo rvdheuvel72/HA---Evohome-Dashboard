@@ -111,6 +111,26 @@ class CloudRoomLinkTests(unittest.TestCase):
         self.assertEqual(names[0], "Woonkamer")
         self.assertEqual(info[0]["source"], "selected")
 
+    def test_numeric_cloud_zone_ids_are_normalized_to_stable_strings(self):
+        numeric = {"locations": [{"systems": [{
+            "id": 12345, "zones": [{"id": 67890, "name": "Woonkamer"}],
+        }]}]}
+        rows = links.cloud_zones(numeric)
+        self.assertEqual(rows[0]["system_id"], "12345")
+        self.assertEqual(rows[0]["zone_id"], "67890")
+        saved = links.set_link({}, "00", "12345", "67890", numeric)
+        self.assertEqual(
+            links.resolve_names(numeric, saved, {}, {})[0][0],
+            "Woonkamer"
+        )
+
+    def test_configure_does_not_erase_separately_saved_cloud_links(self):
+        # Integration options form intentionally preserves options which its
+        # fields do not display. The WebSocket persists these links separately.
+        form = (COMP / "config_flow.py").read_text()
+        self.assertIn("**self.config_entry.options, **user_input", form)
+        self.assertIn("CONF_RF_ZONE_LINKS: links", (COMP / "websocket.py").read_text())
+
     def test_reject_missing_or_duplicate_cloud_room_links(self):
         with self.assertRaisesRegex(ValueError, "not a configured"):
             links.set_link({}, "00", "system-1", "does-not-exist", DATA)

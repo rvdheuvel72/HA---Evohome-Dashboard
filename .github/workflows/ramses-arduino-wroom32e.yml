@@ -1,6 +1,7 @@
 name: Build RAMSES Arduino WROOM-32E
 on:
   push:
+    branches: [main]
     paths:
       - "firmware/arduino-wroom32e/**"
       - ".github/workflows/publish-ramses-arduino-v0.4-beta.yml"
@@ -22,9 +23,71 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: read
+  issues: read
 
 jobs:
+  review-preflight:
+    name: Initial Codex P1/P2 review
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Reject PR sources outside this repository
+        if: github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
+        env:
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
+        run: test "$HEAD_REPO" = "$BASE_REPO"
+      - name: Load trusted verifier from protected base branch
+        if: github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Require authenticated exact-head Codex review before CI
+        if: github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Inline gate uses only stable helpers already present on main. PR
+          # source code cannot alter it or bypass P1/P2 before the first merge.
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+          import time
+          from pathlib import Path
+          sys.path.insert(0, 'scripts')
+          from check_codex_review import blockers, pages, request, review_ready
+
+          event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
+          number = event['pull_request']['number']
+          sha = event['pull_request']['head']['sha']
+          repo = os.environ['GITHUB_REPOSITORY']
+          owner, name = repo.split('/', 1)
+          token = os.environ['GITHUB_TOKEN']
+          until = time.monotonic() + 900
+          while True:
+              pr = request(token, f'/repos/{repo}/pulls/{number}')
+              if pr['head']['sha'] != sha or pr['state'] != 'open':
+                  raise SystemExit('PR head changed or PR closed')
+              findings = blockers(token, owner, name, number, sha)
+              if findings:
+                  raise SystemExit('Blocking Codex P1/P2: ' + '; '.join(findings[:6]))
+              reviews = pages(token, f'/repos/{repo}/pulls/{number}/reviews')
+              comments = pages(token, f'/repos/{repo}/issues/{number}/comments')
+              if review_ready(reviews, comments, sha):
+                  print('Initial exact-head Codex review passed; costly CI may start')
+                  break
+              if time.monotonic() + 15 >= until:
+                  raise SystemExit('Initial exact-head Codex review missing; CI blocked')
+              time.sleep(15)
+          PY
+
   compile:
+    needs: [review-preflight]
     runs-on: [self-hosted, Linux, X64]
     steps:
       - uses: actions/checkout@v7

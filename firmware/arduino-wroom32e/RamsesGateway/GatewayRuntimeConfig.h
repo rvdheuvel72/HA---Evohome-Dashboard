@@ -233,8 +233,17 @@ class Store {
       current=defaults();pending=false;
     }
   }
+  // A byte-identical, already confirmed configuration needs no new NVS
+  // transaction. Pending updates must still run the full rollback protocol.
+  bool unchanged(const Settings& candidate,uint16_t band) const {
+    if(pending || !validate(candidate,band))return false;
+    Settings sealedCandidate=candidate;
+    seal(sealedCandidate);
+    return memcmp(&current,&sealedCandidate,sizeof(Settings))==0;
+  }
   bool stage(const Settings& candidate,uint16_t band){
     if(!validate(candidate,band))return false;
+    if(unchanged(candidate,band))return true;
     Settings toSave=candidate;seal(toSave);
     Preferences p;
     if(!p.begin("gw-settings",false))return false;

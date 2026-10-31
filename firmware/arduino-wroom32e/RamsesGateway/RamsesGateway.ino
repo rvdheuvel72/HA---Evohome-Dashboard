@@ -26,6 +26,7 @@
 #include "GatewayDiscovery.h"
 #include "GatewayHostname.h"
 #include <esp_system.h>
+#include <esp_heap_caps.h>
 
 #if __has_include("GatewaySecrets.h")
 #include "GatewaySecrets.h"
@@ -155,6 +156,8 @@ volatile uint32_t radioRxRecalibrations = 0;
 volatile uint32_t radioRxRecalibrationFailures = 0;
 // No RAMSES sync is not grounds for resetting a previously detected radio.
 volatile uint32_t radioSilenceWarnings=0;
+// Sampled within the RX task; atomic aligned 32-bit snapshot for HTTP.
+volatile uint32_t radioTaskStackMinFreeBytes=0;
 struct LoopLatency {
   uint32_t last_ms=0, max_ms=0, slow_calls=0;
   void observe(uint32_t elapsed) {
@@ -687,6 +690,12 @@ void radioTask(void*) {
       lastRxDebugLogMs=now;
     }
     if(!rxDebugEnabled)lastRxDebugLogMs=now;
+    static uint32_t lastStackSampleMs=0;
+    if(now-lastStackSampleMs>=15000u){
+      // ESP-IDF returns minimum free task stack in bytes, unlike vanilla FreeRTOS.
+      radioTaskStackMinFreeBytes=static_cast<uint32_t>(uxTaskGetStackHighWaterMark(nullptr));
+      lastStackSampleMs=now;
+    }
     vTaskDelay(pdMS_TO_TICKS(1));
   }
 }
@@ -1243,6 +1252,12 @@ void httpConfigSave(){
     web.send(400,"application/json","{\"error\":\"invalid_settings_or_rf_band\"}");
     return;
   }
+  if(configuration.unchanged(staged,GW_CC1101_MODULE_BAND)) {
+    // Do not restart Wi-Fi/MQTT or rewrite flash for a no-op settings save.
+    web.sendHeader("Cache-Control","no-store");
+    web.send(200,"application/json","{\"saved\":true,\"unchanged\":true,\"restart_in_seconds\":0}");
+    return;
+  }
   if(!configuration.stage(staged,GW_CC1101_MODULE_BAND)){
     web.send(500,"application/json","{\"error\":\"nvs_save_failed\"}");
     return;
@@ -1255,10 +1270,10 @@ void httpConfigSave(){
 
 void httpStatus() {
   if (!authorized()) return;
-  char json[1550];
+  char json[1850];
   const String ip = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "";
   const String apIp = recoveryApReady ? WiFi.softAPIP().toString() : "";
-  snprintf(json, sizeof(json),
+  const int jsonLength=snprintf(json, sizeof(json),
            "{\"version\":\"%s\",\"board\":\"ESP32-WROOM-32E\",\"mode\":\"%s\","
            "\"radio_detected\":%s,\"radio_verified\":%s,\"cc1101_part\":%u,\"cc1101_version\":%u,"
            "\"cc1101_init_stage\":\"%s\",\"cc1101_boot_marcstate\":%u,\"cc1101_rx_at_boot\":%s,"
@@ -1273,7 +1288,7 @@ void httpStatus() {
            "\"mqtt_loop_max_ms\":%lu,\"mqtt_loop_slow_calls\":%lu,"
            "\"web_asset_last_ms\":%lu,\"web_asset_max_ms\":%lu,"
            "\"last_frame_uptime_ms\":%lu,\"last_rssi\":%u,"
-           "\"uptime_ms\":%lu,\"free_heap\":%lu,\"gateway_id\":\"%s\","
+           "\"uptime_ms\":%lu,\"free_heap\":%lu,\"min_free_heap\":%lu,\"largest_free_heap_block\":%lu,\"radio_task_stack_min_free_bytes\":%lu,\"gateway_id\":\"%s\","
            "\"ip\":\"%s\",\"ap_ip\":\"%s\",\"ap_ssid\":\"%s\",\"reset_reason\":\"%s\"}",
            FW_VERSION,
            otGateway.transmitEnabled() ? "read_only_requests" : "receive_only",
@@ -1310,9 +1325,16 @@ void httpStatus() {
            static_cast<unsigned long>(webAssetMaxMs),
            static_cast<unsigned long>(lastFrameMs), lastRssi,
            static_cast<unsigned long>(millis()),
-           static_cast<unsigned long>(ESP.getFreeHeap()), deviceId,
+           static_cast<unsigned long>(ESP.getFreeHeap()),
+           static_cast<unsigned long>(ESP.getMinFreeHeap()),
+           static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)),
+           static_cast<unsigned long>(radioTaskStackMinFreeBytes), deviceId,
            ip.c_str(), apIp.c_str(), recoveryApReady ? recoveryApSsid : "",
            resetReason());
+  if(jsonLength<0 || static_cast<size_t>(jsonLength)>=sizeof(json)){
+    web.send(500,"application/json","{\"error\":\"status_json_overflow\"}");
+    return;
+  }
   web.sendHeader("Cache-Control", "no-store");
   web.send(200, "application/json", json);
 }

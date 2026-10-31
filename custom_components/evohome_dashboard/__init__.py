@@ -1,6 +1,7 @@
 """Evohome Dashboard: cloud-native Evohome integration and touchscreen panel."""
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
@@ -39,11 +40,14 @@ async def _setup_frontend(hass):
         ])
         register_commands(hass)
         hass.data[f"{DOMAIN}_assets_loaded"] = True
+    manifest_path = Path(__file__).with_name("manifest.json")
+    manifest_text = await hass.async_add_executor_job(manifest_path.read_text, "utf-8")
+    frontend_version = json.loads(manifest_text)["version"]
     await panel_custom.async_register_panel(
         hass,
         frontend_url_path=PANEL_PATH,
         webcomponent_name="evohome-dashboard-panel",
-        module_url=f"/api/{DOMAIN}/dashboard.js?v=0.3.0",
+        module_url=f"/api/{DOMAIN}/dashboard.js?v={frontend_version}",
         sidebar_title="Evohome",
         sidebar_icon="mdi:home-thermometer",
         require_admin=True,

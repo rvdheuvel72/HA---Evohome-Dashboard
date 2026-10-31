@@ -32,6 +32,7 @@ class FrontendVersionContractTest(unittest.TestCase):
         self.assertIn('manifest_path = Path(__file__).with_name("manifest.json")', source)
         self.assertIn('frontend_version = json.loads(manifest_text)["version"]', source)
         self.assertIn('module_url=f"/api/{DOMAIN}/dashboard.js?v={frontend_version}"', source)
+        self.assertIn('webcomponent_name="evohome-dashboard-ha-panel"', source)
         self.assertIsNone(re.search(r'module_url=.*dashboard\.js\?v=\d', source))
 
 

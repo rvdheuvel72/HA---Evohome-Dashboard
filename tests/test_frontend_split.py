@@ -31,10 +31,13 @@ class FrontendSplitTests(unittest.TestCase):
         self.assertIn("if (externalCompatible)", loader)
         self.assertIn('new URL(import.meta.url).searchParams.get("v")', loader)
         self.assertIn("REQUIRED_FEATURE", loader)
+        self.assertIn("backend-version-label-v1", loader)
+        self.assertIn("REQUIRED_FEATURES.every", loader)
         ui = (ROOT / "frontend-package/dist/evohome-dashboard-ui.js").read_text()
         marker = "/* EVOHOME_UI_FEATURE: heating-demand-v1 */"
         self.assertIn(marker, loader)
         self.assertIn(marker, ui)
+        self.assertIn("backend-version-label-v1", ui)
         self.assertIn('["demand","Heating demand"]', ui)
         bundled = (COMP / "frontend" / "dashboard-legacy.js").read_text()
         self.assertIn('["demand","Heating demand"]', bundled)

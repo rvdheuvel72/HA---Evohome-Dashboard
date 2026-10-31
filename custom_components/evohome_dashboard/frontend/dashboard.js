@@ -3,7 +3,10 @@
  * first and hide features that exist in the bundled integration frontend.
  */
 const FRONTEND_URL = "/hacsfiles/evohome-dashboard-ui/evohome-dashboard-ui.js";
-const REQUIRED_FEATURE = "/* EVOHOME_UI_FEATURE: heating-demand-v1 */";
+const REQUIRED_FEATURES = [
+  "/* EVOHOME_UI_FEATURE: heating-demand-v1 */",
+  "/* EVOHOME_UI_FEATURE: backend-version-label-v1 */",
+];
 const backendVersion = new URL(import.meta.url).searchParams.get("v") || "local";
 const BUNDLED_URL = "./dashboard-legacy.js?v=" + encodeURIComponent(backendVersion);
 
@@ -13,7 +16,8 @@ try {
   // A 404, an old HACS module or an HTML error page means use the bundled UI.
   const response = await fetch(FRONTEND_URL, {cache: "no-store"});
   if (response.ok) {
-    externalCompatible = (await response.text()).includes(REQUIRED_FEATURE);
+    const source = await response.text();
+    externalCompatible = REQUIRED_FEATURES.every(marker => source.includes(marker));
   }
 } catch {
   // The standalone HACS frontend is optional.

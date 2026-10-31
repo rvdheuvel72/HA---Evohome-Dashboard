@@ -106,6 +106,7 @@ jobs:
           node --check custom_components/evohome_dashboard/frontend/dashboard.js
           node --check custom_components/evohome_dashboard/frontend/dashboard-legacy.js
           node --check frontend-package/dist/evohome-dashboard-ui.js
+          node tests/test_ui_fallback_preloaded.js
       - name: Execute pure-function tests
         shell: bash
         run: |

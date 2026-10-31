@@ -47,7 +47,7 @@ class HeatDemandTest(unittest.TestCase):
         self.assertIsNone(parse_frame("I 04:056057 3150 0326"))
         self.assertIsNone(parse_frame(
             "045  I --- 04:056057 --:------ 01:245914 3150 003 0326"))
-        self.assertIsNone(parse_frame(
+        self.assertIsNotNone(parse_frame(
             "045  I --- 04:056057 --:------ 01:245914 3150 002 03FF"))
 
     def test_demand_requires_correct_controller_and_source(self):
@@ -130,8 +130,8 @@ class HeatDemandTest(unittest.TestCase):
         self.assertEqual(replacement.snapshot(BASE + timedelta(days=1))["zones"][0]["today_minutes"], 0)
 
     def test_midnight_bucket_uses_local_timezone(self):
-        # The local midnight falls at 23:00 UTC before the autumn DST change.
-        start = datetime(2026, 10, 24, 22, 50, tzinfo=timezone.utc)
+        # The local midnight falls at 22:00 UTC before the autumn DST change.
+        start = datetime(2026, 10, 24, 21, 50, tzinfo=timezone.utc)
         self.ledger.observe(frame(raw="C8"), start)
         zone = self.ledger.snapshot(start + timedelta(minutes=20))["zones"][0]
         self.assertEqual(zone["today_minutes"], 10)

@@ -51,6 +51,7 @@ class EvohomeHub(DataUpdateCoordinator[dict]):
         )
         self.client = EvohomeClient(token_manager)
         self.entry_id = entry_id
+        self.system_device_ids = {}  # HA registry IDs, scoped to this config entry
         self._write_lock = asyncio.Lock()
         self._read_lock = asyncio.Lock()
         self._errors = deque(maxlen=MAX_ERRORS)

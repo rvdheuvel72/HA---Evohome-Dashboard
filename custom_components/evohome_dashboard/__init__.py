@@ -17,6 +17,7 @@ from .const import (
 )
 from .heat_demand import valid_zone_names
 from .hub import EvohomeHub
+from .device_hierarchy import register_system_devices
 from .websocket import register_commands
 
 _LOGGER = logging.getLogger(__name__)
@@ -72,6 +73,8 @@ async def async_setup_entry(hass, entry):
     )
     await hub.initialize()
     await hub.async_config_entry_first_refresh()
+    # Register controller devices before zone entities need via_device_id.
+    hub.system_device_ids = register_system_devices(hass, entry.entry_id, hub.client)
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = hub
     hub.rf_monitor = None
     try:

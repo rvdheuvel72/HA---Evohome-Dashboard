@@ -22,6 +22,6 @@ loader = (target / "frontend/dashboard.js").read_text()
 assert "/hacsfiles/evohome-dashboard-ui/evohome-dashboard-ui.js" in loader
 js = (root / "frontend-package/dist/evohome-dashboard-ui.js").read_text()
 assert (root / "frontend-package/hacs.json").is_file()
-for tab in ("overview", "rooms", "schedules", "actions", "settings", "errors"):
+for tab in ("overview", "rooms", "demand", "schedules", "actions", "settings", "errors"):
     assert f'["{tab}"' in js
 print("Evohome Phase 1 packaging contract OK")

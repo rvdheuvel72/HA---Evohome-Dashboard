@@ -8,6 +8,7 @@ import logging
 from datetime import timedelta
 
 from homeassistant.components import mqtt
+from homeassistant.core import callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.storage import Store
@@ -29,6 +30,7 @@ class RfDemandMonitor:
         self._store = Store(hass, 1, f"evohome_dashboard_rf_demand_{entry_id}", private=True)
         self._unsubscribe = None
         self._stop_tick = None
+        self._checkpoint_pending = False
         self.connected = False
         self.signal = f"evohome_dashboard_rf_demand_{entry_id}"
 
@@ -52,18 +54,36 @@ class RfDemandMonitor:
             self.hass, self._on_tick, timedelta(minutes=1)
         )
 
+    @callback
     def _on_message(self, message):
         accepted, newly_seen_zone = self.ledger.observe_mqtt(message.payload)
         if not accepted:
             return
         # Store delay batches flash/disk writes, Home Assistant history still
         # records individual observed zone demand changes as sensor states.
-        self._store.async_delay_save(self.ledger.daily_storage, 300)
+        self._queue_checkpoint()
         async_dispatcher_send(self.hass, self.signal, newly_seen_zone)
 
+    @callback
     def _on_tick(self, _):
         self.ledger.snapshot()
+        if self.ledger.zones:
+            self._queue_checkpoint()
         async_dispatcher_send(self.hass, self.signal, None)
+
+    @callback
+    def _queue_checkpoint(self):
+        # HA Store is debounce-based: scheduling on *every* packet can defer
+        # persistence indefinitely. Keep the first 5-minute deadline fixed.
+        if self._checkpoint_pending:
+            return
+        self._checkpoint_pending = True
+        self._store.async_delay_save(self._checkpoint_data, 300)
+
+    @callback
+    def _checkpoint_data(self):
+        self._checkpoint_pending = False
+        return self.ledger.daily_storage()
 
     def snapshot(self):
         result = self.ledger.snapshot()

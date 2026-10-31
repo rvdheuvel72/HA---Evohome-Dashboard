@@ -38,7 +38,7 @@ examples](docs/HEATING_DEMAND.md).
 
 A new, independent and user-friendly Evohome heating integration with a responsive touchscreen-style **Evohome** page in the Home Assistant sidebar.
 
-**Current release:** Phase 3 / v0.3.0 — independent HACS frontend packaging — source and CI validation; **not yet validated on a live Evohome controller**.
+**Current HA integration version:** v0.3.5 (stable HACS release on successful main-branch CI). The RF demand feature is **not yet validated against live TRV demand packets**.
 
 This project uses the Apache-2.0 licensed [evohome-async](https://github.com/zxdavb/evohome-async) Python transport library as a dependency; it does not include or reuse `colegates/evohome-control` implementation code.
 

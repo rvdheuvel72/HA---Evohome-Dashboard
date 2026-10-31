@@ -20,6 +20,11 @@ of the new stable `v0.3.5` release to start tracking semantic versions.
 Future stable releases should then appear in the usual HACS update entity
 after its next metadata check. See [HA release notes](docs/HA_CHANGELOG.md).
 
+RF room names now come from the cloud Rooms list. The Heating demand tab
+provides a cloud room dropdown for each observed RF zone and can match
+controller `0004` zone-name packets automatically when the cloud name is a
+unique exact match. RF numbering is **not** guessed from the cloud list order.
+
 
 ## Passive room heating-demand monitoring (v0.3.2)
 
@@ -38,7 +43,7 @@ examples](docs/HEATING_DEMAND.md).
 
 A new, independent and user-friendly Evohome heating integration with a responsive touchscreen-style **Evohome** page in the Home Assistant sidebar.
 
-**Current HA integration version:** v0.3.5 (stable HACS release on successful main-branch CI). The RF demand feature is **not yet validated against live TRV demand packets**.
+**Current HA integration version:** v0.3.6 (stable HACS release after successful main-branch CI). The RF demand feature is **not yet validated against live TRV demand packets**.
 
 This project uses the Apache-2.0 licensed [evohome-async](https://github.com/zxdavb/evohome-async) Python transport library as a dependency; it does not include or reuse `colegates/evohome-control` implementation code.
 

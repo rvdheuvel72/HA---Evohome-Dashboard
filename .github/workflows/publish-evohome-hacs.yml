@@ -1,0 +1,127 @@
+name: Publish stable Evohome Dashboard HACS integration
+
+# Unlike ESP32 pre-release publishing, HACS tracks stable GitHub Releases.
+# Never publish on a PR or on a failed/unreviewed/self-hosted CI run.
+on:
+  workflow_run:
+    workflows: ["Evohome Phase 1 self-hosted validation"]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: read
+  issues: read
+  checks: read
+  actions: read
+
+concurrency:
+  group: evohome-hacs-stable-release
+  cancel-in-progress: false
+
+jobs:
+  publish-ha:
+    name: Publish reviewed, CI-green HA SemVer release
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exactly the CI-verified main commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+
+      - name: Verify unchanged integration if main advanced after CI
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')"
+          if [ "$(git rev-parse HEAD)" != "$VERIFIED_SHA" ]; then
+            echo "::error::Checkout no longer matches the validated commit."
+            exit 1
+          fi
+          if [ "$current" != "$VERIFIED_SHA" ]; then
+            # Allow a later firmware/docs push, never a later integration edit.
+            status="$(gh api "repos/$GITHUB_REPOSITORY/compare/$VERIFIED_SHA...$current" --jq '.status')"
+            if [ "$status" != "ahead" ]; then
+              echo "::error::Validated release SHA is not an ancestor of current main."
+              exit 1
+            fi
+            git fetch --no-tags --depth=1 origin "$current"
+            python3 scripts/check_ha_release_source.py \
+              --verified "$VERIFIED_SHA" --main "$current"
+          fi
+
+      - name: Require a merged exact-head reviewed PR (no quota waiver)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/check_ha_release_readiness.py
+
+      - name: Evaluate HA manifest version against stable releases
+        id: plan
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            | jq -s 'add' > "$RUNNER_TEMP/github-releases.json"
+          python3 scripts/plan_ha_release.py \
+            --releases-json "$RUNNER_TEMP/github-releases.json" \
+            --github-output "$GITHUB_OUTPUT" \
+            --release-notes "$RUNNER_TEMP/ha-release-notes.md"
+
+      - name: Refuse to reuse a pre-existing unpublished tag
+        if: steps.plan.outputs.action == 'publish'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HA_TAG: ${{ steps.plan.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$HA_TAG" \
+            > "$RUNNER_TEMP/tag-references.json"
+          HA_TAG="$HA_TAG" python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          refs = json.loads(
+              (Path(os.environ["RUNNER_TEMP"]) / "tag-references.json").read_text()
+          )
+          if not isinstance(refs, list):
+              raise SystemExit("Cannot verify existing Git tags")
+          if any(r.get("ref") == "refs/tags/" + os.environ["HA_TAG"] for r in refs):
+              raise SystemExit("Stable HA tag already exists without a release; refuse to retarget")
+          PY
+
+      - name: Publish stable HA release for automatic HACS discovery
+        if: steps.plan.outputs.action == 'publish'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HA_TAG: ${{ steps.plan.outputs.tag }}
+          HA_VERSION: ${{ steps.plan.outputs.version }}
+          VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "$HA_TAG" \
+            --target "$VERIFIED_SHA" \
+            --title "Evohome Dashboard v$HA_VERSION (Home Assistant)" \
+            --notes-file "$RUNNER_TEMP/ha-release-notes.md" \
+            --latest
+          echo "Published HA integration $HA_TAG. ESP32 beta releases were not modified."
+
+      - name: Already published this HA version
+        if: steps.plan.outputs.action == 'already_published'
+        run: echo "Current HA SemVer is already published; no duplicate release."

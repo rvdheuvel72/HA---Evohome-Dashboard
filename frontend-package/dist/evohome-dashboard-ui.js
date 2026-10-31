@@ -1,4 +1,5 @@
-/* Evohome Dashboard UI v0.1.0 — standalone HACS dashboard module (MIT license). */
+/* Evohome Dashboard UI — standalone HACS dashboard module (MIT license). */
+/* EVOHOME_UI_FEATURE: heating-demand-v1 */
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const modes = {auto:"Auto",auto_with_eco:"Eco",away:"Away",day_off:"Day Off",custom:"Custom",heating_off:"Heating Off",auto_with_reset:"Auto Reset"};
 const DAY_NAMES = ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"];

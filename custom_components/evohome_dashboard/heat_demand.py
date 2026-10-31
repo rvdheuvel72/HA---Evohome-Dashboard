@@ -174,7 +174,12 @@ class HeatDemandLedger:
             if zone_idx >= MAX_ZONES or pct is None:
                 return False
             z = self.zones.setdefault(zone_idx, ZoneState())
-            if z.last_seen is not None and at < z.last_seen:
+            # Snapshots advance the accounting cursor. A delayed RF report
+            # must never retroactively replace already-counted demand time.
+            # Reject it explicitly rather than silently overestimating.
+            if ((z.last_seen is not None and at < z.last_seen)
+                    or (z.tick is not None and at < z.tick)):
+                self.ignored += 1
                 return False
             self._advance(z, at)
             if src not in z.devices and len(z.devices) >= MAX_DEVICES_PER_ZONE:

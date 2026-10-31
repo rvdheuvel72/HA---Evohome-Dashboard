@@ -1,5 +1,26 @@
 # Evohome Dashboard for Home Assistant
 
+## Automatic HACS update notifications (from v0.3.5)
+
+This is a **HACS integration**, unlike the separately installed Hyundai
+Battery Insight **Home Assistant add-on**. Both now require a version bump for
+runtime changes. Evohome also publishes a stable GitHub Release with the
+**same version** as `custom_components/evohome_dashboard/manifest.json`
+**automatically after all required checks pass on `main`**.
+
+HACS uses these releases for update notifications. Only the stable
+`vX.Y.Z` tags belong to the HA integration; `ramses-arduino-v...`
+releases are independent ESP32 firmware betas. Updates are *offered* through
+HACS/Home Assistant, not silently installed; the user still selects Install
+and restarts HA for Python backend changes.
+
+**One-time migration caveat:** If this repository was previously installed
+from a commit rather than a release, HACS may require one final **Redownload**
+of the new stable `v0.3.5` release to start tracking semantic versions.
+Future stable releases should then appear in the usual HACS update entity
+after its next metadata check. See [HA release notes](docs/HA_CHANGELOG.md).
+
+
 ## Passive room heating-demand monitoring (v0.3.2)
 
 Evohome Dashboard can now listen to the existing RAMSES ESP32 gateway's MQTT

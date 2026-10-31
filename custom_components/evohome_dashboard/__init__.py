@@ -7,6 +7,7 @@ from pathlib import Path
 
 from homeassistant.components import frontend, panel_custom
 from homeassistant.components.http import StaticPathConfig
+from homeassistant.helpers import device_registry as dr
 from homeassistant.const import CONF_PASSWORD, CONF_SCAN_INTERVAL, CONF_USERNAME
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .auth import StoredTokenManager, token_cache_key
@@ -72,6 +73,20 @@ async def async_setup_entry(hass, entry):
     )
     await hub.initialize()
     await hub.async_config_entry_first_refresh()
+    # Create the parent controller device first, before platforms register
+    # zone children. HA 2026.8+ requires registry IDs for via_device_id.
+    registry = dr.async_get(hass)
+    for location in hub.client.locations:
+        for gateway in location.gateways:
+            for system in gateway.systems:
+                parent = registry.async_get_or_create(
+                    config_entry_id=entry.entry_id,
+                    identifiers={(DOMAIN, f"system_{system.id}")},
+                    name="Evohome heating controller",
+                    manufacturer="Resideo",
+                    model=str(system.model),
+                )
+                hub.system_device_ids[system.id] = parent.id
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = hub
     hub.rf_monitor = None
     try:

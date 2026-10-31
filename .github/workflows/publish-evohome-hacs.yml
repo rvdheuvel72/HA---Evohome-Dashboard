@@ -35,7 +35,7 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
           persist-credentials: false
 
-      - name: Confirm source is still current main
+      - name: Verify unchanged integration if main advanced after CI
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
@@ -43,9 +43,20 @@ jobs:
         run: |
           set -euo pipefail
           current="$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')"
-          if [ "$current" != "$VERIFIED_SHA" ] || [ "$(git rev-parse HEAD)" != "$VERIFIED_SHA" ]; then
-            echo "::error::Main moved after CI; stale release will not be published."
+          if [ "$(git rev-parse HEAD)" != "$VERIFIED_SHA" ]; then
+            echo "::error::Checkout no longer matches the validated commit."
             exit 1
+          fi
+          if [ "$current" != "$VERIFIED_SHA" ]; then
+            # Allow a later firmware/docs push, never a later integration edit.
+            status="$(gh api "repos/$GITHUB_REPOSITORY/compare/$VERIFIED_SHA...$current" --jq '.status')"
+            if [ "$status" != "ahead" ]; then
+              echo "::error::Validated release SHA is not an ancestor of current main."
+              exit 1
+            fi
+            git fetch --no-tags --depth=1 origin "$current"
+            python3 scripts/check_ha_release_source.py \
+              --verified "$VERIFIED_SHA" --main "$current"
           fi
 
       - name: Require a merged exact-head reviewed PR (no quota waiver)

@@ -5,9 +5,11 @@ Uses the existing gateway /rx topic; never publishes MQTT or sends RF commands.
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 
 from homeassistant.components import mqtt
 from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.storage import Store
 
 from .heat_demand import HeatDemandLedger
@@ -26,6 +28,7 @@ class RfDemandMonitor:
         )
         self._store = Store(hass, 1, f"evohome_dashboard_rf_demand_{entry_id}", private=True)
         self._unsubscribe = None
+        self._stop_tick = None
         self.connected = False
         self.signal = f"evohome_dashboard_rf_demand_{entry_id}"
 
@@ -44,6 +47,10 @@ class RfDemandMonitor:
             self.connected = False
             return
         self.connected = True
+        # Refresh expiry/estimated minutes even when no RF frame arrives.
+        self._stop_tick = async_track_time_interval(
+            self.hass, self._on_tick, timedelta(minutes=1)
+        )
 
     def _on_message(self, message):
         accepted, newly_seen_zone = self.ledger.observe_mqtt(message.payload)
@@ -54,6 +61,10 @@ class RfDemandMonitor:
         self._store.async_delay_save(self.ledger.daily_storage, 300)
         async_dispatcher_send(self.hass, self.signal, newly_seen_zone)
 
+    def _on_tick(self, _):
+        self.ledger.snapshot()
+        async_dispatcher_send(self.hass, self.signal, None)
+
     def snapshot(self):
         result = self.ledger.snapshot()
         result["mqtt_connected"] = self.connected
@@ -61,6 +72,9 @@ class RfDemandMonitor:
         return result
 
     async def async_stop(self):
+        if self._stop_tick is not None:
+            self._stop_tick()
+            self._stop_tick = None
         if self._unsubscribe is not None:
             self._unsubscribe()
             self._unsubscribe = None

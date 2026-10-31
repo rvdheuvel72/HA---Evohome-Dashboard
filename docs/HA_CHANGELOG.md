@@ -9,7 +9,7 @@ ESP32/RAMSES Arduino firmware has separate beta release tags and changelogs.
   CI-validated `main` changes now automatically publish a stable GitHub
   Release tagged with the version of the HA integration manifest.
 - Prevent integration runtime changes from merging without an increased
-  \`custom_components/evohome_dashboard/manifest.json\` semantic version.
+  `custom_components/evohome_dashboard/manifest.json` semantic version.
   Matches the release-version discipline used in Hyundai Battery Insight.
 - Keep ESP32 firmware prerelease tags independent; the HA release only
   includes files from this repository's reviewed merge commit.
@@ -17,7 +17,7 @@ ESP32/RAMSES Arduino firmware has separate beta release tags and changelogs.
   even when an older independent HACS UI module was registered, and the
   dashboard shows the installed HA backend version and UI source.
 - **Upgrading:** existing installations that previously tracked a commit
-  may require one final manual switch to stable version \`v0.3.5\` in HACS.
+  may require one final manual switch to stable version `v0.3.5` in HACS.
   Subsequent stable releases are expected to generate ordinary update
   notifications. Home Assistant Core restart is required after installing
   Python integration updates.
@@ -30,7 +30,7 @@ ESP32/RAMSES Arduino firmware has separate beta release tags and changelogs.
 
 ## 0.3.3
 
-- Migrate deprecated \`via_device\` links to registry-backed \`via_device_id\`.
+- Migrate deprecated `via_device` links to registry-backed `via_device_id`.
 - Retain tested evohome-async 2.1.0 and Node 24 until their major upgrades
   complete compatibility validation.
 

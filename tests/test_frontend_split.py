@@ -25,8 +25,19 @@ class FrontendSplitTests(unittest.TestCase):
             "/hacsfiles/evohome-dashboard-ui/evohome-dashboard-ui.js",
             loader,
         )
-        self.assertIn('await import("./dashboard-legacy.js")', loader)
+        self.assertIn("await import(BUNDLED_URL)", loader)
         self.assertIn("await import(FRONTEND_URL)", loader)
+        self.assertIn('fetch(FRONTEND_URL, {cache: "no-store"})', loader)
+        self.assertIn("if (externalCompatible)", loader)
+        self.assertIn('new URL(import.meta.url).searchParams.get("v")', loader)
+        self.assertIn("REQUIRED_FEATURE", loader)
+        ui = (ROOT / "frontend-package/dist/evohome-dashboard-ui.js").read_text()
+        marker = "/* EVOHOME_UI_FEATURE: heating-demand-v1 */"
+        self.assertIn(marker, loader)
+        self.assertIn(marker, ui)
+        self.assertIn('["demand","Heating demand"]', ui)
+        bundled = (COMP / "frontend" / "dashboard-legacy.js").read_text()
+        self.assertIn('["demand","Heating demand"]', bundled)
 
     def test_frontend_assets_registered_once_without_restart(self):
         init = (COMP / "__init__.py").read_text(encoding="utf-8")
@@ -55,7 +66,7 @@ class FrontendSplitTests(unittest.TestCase):
 
     def test_independent_versions(self):
         back = json.loads((COMP / "manifest.json").read_text())
-        self.assertEqual(back["version"], "0.3.3")
+        self.assertEqual(back["version"], "0.3.4")
         self.assertEqual(back["requirements"], ["evohome-async==2.1.0"])
 
 

@@ -3,6 +3,7 @@ from homeassistant.components.sensor import SensorEntity, SensorDeviceClass
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.components.sensor import SensorStateClass
+from homeassistant.core import callback
 from datetime import datetime
 from .const import DOMAIN
 
@@ -28,6 +29,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
             entities.extend((RFZoneDemand(monitor, idx), RFZoneMinutes(monitor, idx)))
         # RF zones are learned after startup; never infer RF index from cloud
         # zone ordering. Each newly discovered index receives two entities.
+        @callback
         def on_rf_event(new_idx):
             if new_idx is not None and new_idx not in known:
                 known.add(new_idx)
@@ -149,8 +151,14 @@ class _RFBase(SensorEntity):
         return self.monitor.connected
 
     async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+
+        @callback
+        def on_update(_):
+            self.async_write_ha_state()
+
         self.async_on_remove(async_dispatcher_connect(
-            self.hass, self.monitor.signal, lambda _: self.async_write_ha_state()
+            self.hass, self.monitor.signal, on_update
         ))
 
 
@@ -212,9 +220,9 @@ class RFZoneDemand(_RFZoneBase):
     def extra_state_attributes(self):
         zone = self.zone()
         if zone is None:
-            return {"zone_index": f"{self.index:02X}", "mapping_verified": False}
+            return {"zone_index": f"{self.index:02X}", "mapping_explicit": False}
         return {
-            "zone_index": zone["index"], "mapping_verified": zone["mapped"],
+            "zone_index": zone["index"], "mapping_explicit": zone["mapped"],
             "observation_state": zone["state"], "last_seen": zone["last_seen"],
             "today_request_minutes_est": zone["today_minutes"],
             "today_demand_weighted_minutes_est": zone["today_weighted_minutes"],

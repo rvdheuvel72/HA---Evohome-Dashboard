@@ -43,7 +43,7 @@ class EvoZone(CoordinatorEntity, ClimateEntity):
     def device_info(self):
         return {
             "identifiers": {(DOMAIN, f"zone_{self._zone_id}")},
-            "via_device": (DOMAIN, f"system_{self._system_id}"),
+            "via_device_id": self.coordinator.system_device_ids[self._system_id],
             "name": self._zone.name,
             "manufacturer": "Resideo",
             "model": str(self._zone.model),

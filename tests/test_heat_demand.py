@@ -69,6 +69,19 @@ class HeatDemandTest(unittest.TestCase):
         self.assertEqual(zone["today_weighted_minutes"], 5.0)
         self.assertEqual(len(zone["devices"]), 2)
 
+    def test_delayed_report_cannot_rewrite_already_integrated_time(self):
+        self.ledger.observe(frame(raw="C8"), BASE)
+        self.ledger.snapshot(BASE + timedelta(minutes=10))
+        # A network-delayed zero report at minute five is older than the
+        # current accounting cursor, and cannot retroactively change totals.
+        self.assertFalse(self.ledger.observe(
+            frame(raw="00"), BASE + timedelta(minutes=5)
+        ))
+        zone = self.ledger.snapshot(BASE + timedelta(minutes=10))["zones"][0]
+        self.assertEqual(zone["today_minutes"], 10)
+        self.assertEqual(zone["demand_pct"], 100)
+        self.assertEqual(self.ledger.ignored, 1)
+
     def test_stale_does_not_mean_off_and_capped_duration(self):
         self.ledger.observe(frame(raw="C8"), BASE)
         zone = self.ledger.snapshot(BASE + timedelta(minutes=40))["zones"][0]

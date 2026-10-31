@@ -13,16 +13,21 @@ from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.storage import Store
 
 from .heat_demand import HeatDemandLedger
+from .room_links import resolve_names, valid_links
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class RfDemandMonitor:
     def __init__(self, hass, entry_id: str, controller_id: str,
-                 topic: str, zone_names: dict[int, str]):
+                 topic: str, zone_names: dict[int, str], *, cloud_state=None,
+                 cloud_links=None):
         self.hass = hass
         self.entry_id = entry_id
         self.topic = topic
+        self._manual_zone_names = dict(zone_names)
+        self._cloud_state = cloud_state or (lambda: {})
+        self._cloud_links = valid_links(cloud_links)
         self.ledger = HeatDemandLedger(
             controller_id, zone_names=zone_names, time_zone=hass.config.time_zone
         )
@@ -36,6 +41,7 @@ class RfDemandMonitor:
     async def async_start(self):
         saved = await self._store.async_load()
         self.ledger.restore_daily(saved)
+        self.refresh_names()
         try:
             # Optional MQTT requirements are installed by HA after_dependencies.
             # Import lazily so cloud-only module/runtime imports never need paho.
@@ -59,6 +65,8 @@ class RfDemandMonitor:
     @callback
     def _on_message(self, message):
         accepted, newly_seen_zone = self.ledger.observe_mqtt(message.payload)
+        if accepted:
+            self.refresh_names()
         if not accepted:
             return
         # Store delay batches flash/disk writes, Home Assistant history still
@@ -87,7 +95,22 @@ class RfDemandMonitor:
         self._checkpoint_pending = False
         return self.ledger.daily_storage()
 
+    def refresh_names(self, cloud_snapshot=None):
+        names, mapping = resolve_names(
+            self._cloud_state() if cloud_snapshot is None else cloud_snapshot,
+            self._cloud_links, self._manual_zone_names, self.ledger.radio_names,
+        )
+        changed = (names != self.ledger.zone_names or
+                   mapping != self.ledger.mapping_metadata)
+        self.ledger.zone_names = names
+        self.ledger.mapping_metadata = mapping
+        if changed:
+            # Update already-created HA sensors when cloud names change or a
+            # controller 0004 name arrives, without changing entity unique IDs.
+            async_dispatcher_send(self.hass, self.signal, None)
+
     def snapshot(self):
+        self.refresh_names()
         result = self.ledger.snapshot()
         result["mqtt_connected"] = self.connected
         result["topic"] = self.topic

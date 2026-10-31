@@ -34,17 +34,26 @@ order of zones returned by the Resideo cloud API.
    \`RAMSES/GATEWAY/18:447669/rx\`). The default wildcard
    \`RAMSES/GATEWAY/+/rx\` is also supported, with every packet still checked
    for the configured controller address.
-4. Initially leave \`rf_zone_names\` as \`{}\`. Allow packets to arrive, then
-   inspect **Heating demand** for detected RF zone indices and source TRV IDs.
-   Explicitly map verified zone indices to real rooms, e.g.:
+4. Initially leave `rf_zone_names` as `{}`. Open **Heating demand**.
+   The dashboard reads the **Rooms** list from the existing Resideo cloud
+   snapshot and displays those names (for example Woonkamer, Darius,
+   Benjamin, Kantoor) in a dropdown beside each observed RF zone.
+   Select the existing cloud room and click **Save room link**.
+   This saves stable cloud system/zone IDs in HA integration options;
+   no JSON entry, duplicate names, or room-name retyping is required.
+   The integration reloads and displays the linked room name in RF entities.
 
-   \`\`\`json
-   {"00": "Living room", "03": "Bedroom 1"}
-   \`\`\`
+   If a controller `0004` zone-name message is received, the integration
+   can auto-match its **RF index** to a **unique, exact** cloud room name.
+   The controller may not transmit `0004` spontaneously; if it has not
+   been observed, an explicit dropdown selection is required.
+   **Never infer RF zone numbers from the cloud Rooms list order.**
+   Confirm the physical device by changing one room's target temperature
+   and inspecting the resulting source valve IDs.
 
-   **These zone numbers are illustrative and must be verified against your
-   real installation.** Reopen integration options and save the mapping;
-   Home Assistant reloads the integration.
+   Old `rf_zone_names` JSON values remain supported for backwards
+   compatibility. A selected cloud zone link takes precedence and follows
+   future cloud room-name changes automatically.
 
 5. Check the **Heating demand** tab in the Evohome sidebar or the new Home
    Assistant RF sensors and their History graphs. Starting with backend

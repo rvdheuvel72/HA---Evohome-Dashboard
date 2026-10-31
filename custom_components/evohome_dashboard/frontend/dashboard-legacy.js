@@ -56,7 +56,7 @@ class EvohomeDashboardPanel extends HTMLElement {
     super();
     this.attachShadow({mode:"open"});
     this.tab = "overview"; this.entry = null; this.entries = [];
-    this.state = null; this.online = false; this.errors = 0; this.rfDemand = null; this.backendVersion = null;
+    this.state = null; this.online = false; this.errors = 0; this.rfDemand = null; this.backendVersion = null; this.pendingRfLinks = {};
     this.banner = ""; this.loading = false; this.modal = null;
     this.schedule = null; this.scheduleSystem = ""; this.scheduleZone = "";
     this.activeDay = "monday"; this.timer = null; this.refreshing = false;
@@ -106,8 +106,8 @@ class EvohomeDashboardPanel extends HTMLElement {
   findZone(system,zone) { return this.zones().find(z=>z.system_id===system && z.id===zone); }
   async command(type,data,notice="Request completed") {
     this.loading=true;this.draw();
-    try { await this.ws(type,data); this.banner=""; await this.fetchStatus(); this.banner=notice; }
-    catch(e) { this.banner="Action failed: "+(e.message||"See Error Log"); }
+    try { await this.ws(type,data); this.banner=""; await this.fetchStatus(); this.banner=notice; return true; }
+    catch(e) { this.banner="Action failed: "+(e.message||"See Error Log"); return false; }
     finally { this.loading=false;this.modal=null;this.draw(); }
   }
   renderZones(zones) {
@@ -139,16 +139,46 @@ class EvohomeDashboardPanel extends HTMLElement {
     const data=this.rfDemand;
     if (!data?.enabled) {
       return '<h2>Heating demand</h2><div class="card wide"><p>Passive RF heat-demand monitoring is not configured.</p>'+
-        '<p class="muted" style="margin-top:12px">In Settings &rarr; Devices &amp; services &rarr; Evohome Dashboard &rarr; Configure, enter the controller ID (01:xxxxxx), gateway MQTT topic and a JSON mapping such as {"03":"Living room"}.</p>'+
+        '<p class="muted" style="margin-top:12px">Configure the RF controller ID (01:xxxxxx) and MQTT gateway topic in the Evohome integration options. Once RF packets arrive, link rooms directly here using the cloud room dropdowns—no JSON needed.</p>'+
         '<p class="caption">Cloud room temperatures alone cannot establish radiator or boiler demand.</p></div>';
     }
     const zones=data.zones||[];
+    const cloudRooms=this.zones();
+    const roomNameCounts={};
+    cloudRooms.forEach(r=>{const key=r.name?.toLocaleLowerCase()||"";roomNameCounts[key]=(roomNameCounts[key]||0)+1;});
+    const systemLocations={};
+    this.systems().forEach(s=>{systemLocations[s.id]=s.location_name||"Location unknown";});
+
     const time=v=>v?new Date(v).toLocaleString():"Not observed";
     const shown=v=>v==null?"Unknown":Number(v).toFixed(1)+"%";
     const status=data.mqtt_connected?"Listening for RF packets":"MQTT unavailable — verify broker and reload integration";
     const cards=zones.map(z=>{
       const state=z.state==="unknown_stale"?"Stale / unknown":z.state==="requesting"?"Requesting heat":"Idle";
       const names=(z.devices||[]).map(d=>esc(d.id)+" ("+shown(d.demand_pct)+")").join(", ");
+      const cloudRef=z.mapping||{};
+      const savedValue=cloudRef.system_id&&cloudRef.zone_id ? cloudRef.system_id+"|"+cloudRef.zone_id : "";
+      const currentValue=Object.prototype.hasOwnProperty.call(this.pendingRfLinks||{},z.index)
+        ? this.pendingRfLinks[z.index] : savedValue;
+      const roomOptions=cloudRooms.map(room=>{
+        const key=room.system_id+"|"+room.id;
+        const duplicate=(roomNameCounts[room.name?.toLocaleLowerCase()||""]||0)>1;
+        const label=duplicate
+          ? room.name+" — "+(systemLocations[room.system_id]||"Unknown location")+
+            " / system "+room.system_id+" / zone "+room.id
+          : room.name;
+        return '<option value="'+esc(key)+'" '+(key===currentValue?"selected":"")+'>'+esc(label)+'</option>';
+      }).join("");
+      const linkHint=cloudRef.source==="rf_0004"?"Auto-matched using a controller RF zone-name report":
+        cloudRef.source==="selected"?"Linked to an existing Evohome cloud room":
+        cloudRef.source==="ambiguous"?"Duplicate cloud room name; select the correct room":
+        cloudRef.source==="missing_cloud_zone"?"Previously linked room is no longer available":
+        cloudRef.source==="manual"?"Using previous manual name mapping":"Not linked to a cloud room";
+      const roomPicker='<div class="field" style="margin-top:12px"><label>Cloud room</label>'+
+        '<select data-rf-index="'+esc(z.index)+'" aria-label="Cloud room for RF zone '+esc(z.index)+'">'+
+        '<option value="">— No link —</option>'+roomOptions+'</select></div>'+
+        '<button class="btn small" data-action="link-rf-zone" data-index="'+esc(z.index)+'" style="margin-top:10px">Save room link</button>'+
+        '<p class="caption">'+esc(linkHint)+(z.rf_reported_name?" · Controller name: "+esc(z.rf_reported_name):"")+'</p>';
+
       return '<section class="card third"><div class="zonehead"><h3>'+esc(z.name)+'</h3><span class="pill">'+esc(z.index)+'</span></div>'+
         '<div class="temp">'+esc(shown(z.demand_pct))+'</div>'+
         '<p class="muted">'+esc(state)+'</p>'+
@@ -156,12 +186,13 @@ class EvohomeDashboardPanel extends HTMLElement {
         '<div class="setting"><span>Demand-weighted time</span><b>'+esc(z.today_weighted_minutes)+' min</b></div>'+
         '<p class="caption">Last RF report: '+esc(time(z.last_seen))+'</p>'+
         '<p class="caption">Actuators: '+(names||"No RF packets yet")+'</p>'+
+        roomPicker+
         (!z.mapped?'<p class="caption">Room name not mapped — RF index only.</p>':"")+
         '</section>';
     }).join("");
     const recent=(data.recent||[]).slice(0,20).map(event=>{
-      const label=event.kind==="zone_demand"?"Zone "+esc(event.zone)+" / "+esc(event.source):"Controller 0008";
-      return '<div class="event"><span>'+esc(time(event.time))+' — '+label+'</span><b>'+esc(shown(event.demand_pct))+'</b></div>';
+      const label=event.kind==="zone_demand"?"Zone "+esc(event.zone)+" / "+esc(event.source):event.kind==="rf_zone_name"?"RF zone "+esc(event.zone)+" name reported: "+esc(event.name):"Controller 0008";
+      return '<div class="event"><span>'+esc(time(event.time))+' — '+label+'</span><b>'+(event.kind==="rf_zone_name"?"Name observed":esc(shown(event.demand_pct)))+'</b></div>';
     }).join("");
     return '<div class="section"><div><h2>Heating demand</h2><p class="muted">Passive RAMSES-II observations. Not measured gas consumption or proof of boiler firing.</p></div></div>'+
       '<div class="layout"><section class="card third"><h3>RF monitor</h3><p class="muted">'+esc(status)+'</p><p class="caption">Controller '+esc(data.controller_id)+'</p>'+
@@ -263,6 +294,21 @@ class EvohomeDashboardPanel extends HTMLElement {
     const node=event.target.closest("[data-action]");if(!node || this.loading)return;
     const action=node.dataset.action;
     if(action==="tab"){this.tab=node.dataset.tab;this.draw();if(this.tab==="errors")this.loadErrors();return;}
+    if(action==="link-rf-zone"){
+      const index=node.dataset.index;
+      const selector=this.shadowRoot.querySelector('select[data-rf-index="'+index+'"]');
+      const selected=Object.prototype.hasOwnProperty.call(this.pendingRfLinks||{},index)
+        ? this.pendingRfLinks[index] : (selector?.value||"");
+      const [system_id,zone_id]=selected?selected.split("|"):["",""];
+      const success=await this.command("rf_zone_link",{index,system_id,zone_id},
+        selected?"RF room linked to Evohome cloud zone":"RF room link removed");
+      if(success){
+        delete this.pendingRfLinks[index];
+        this.draw();
+      }
+      return;
+    }
+
     if(action==="refresh"){await this.command("refresh",{},"Cloud data refreshed");return;}
     if(action==="load-errors"){this.loadErrors();return;}
     if(action==="edit-zone"){this.modal={system:node.dataset.system,zone:node.dataset.zone};this.draw();return;}
@@ -333,6 +379,10 @@ class EvohomeDashboardPanel extends HTMLElement {
   }
   async onChange(event) {
     const node=event.target;
+    if(node.dataset.rfIndex!=null){
+      this.pendingRfLinks[node.dataset.rfIndex]=node.value;
+      return;
+    }
     if(node.id==="schedule-zone"){
       const [system,zone]=node.value.split("|");this.scheduleSystem=system||"";this.scheduleZone=zone||"";
       this.schedule=null;this.draw();

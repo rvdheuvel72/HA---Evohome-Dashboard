@@ -1,5 +1,20 @@
 # Evohome Dashboard for Home Assistant
 
+## Passive room heating-demand monitoring (v0.3.2)
+
+Evohome Dashboard can now listen to the existing RAMSES ESP32 gateway's MQTT
+`/rx` packets and expose **observed heat demand per RF zone**, bounded
+request duration, controller `0008` indications and R8810A RF activity.
+The feature is **read-only**, optional, and does not modify the gateway,
+thermostats, OpenTherm or gas usage.
+
+Configure the real Evohome controller ID, gateway RX topic, and explicitly
+verified RF zone-to-room names in the integration options. Unknown/missing
+packets are not interpreted as zero demand. Demand-weighted duration is
+**not** room gas consumption. See [configuration, accuracy limitations and
+examples](docs/HEATING_DEMAND.md).
+
+
 A new, independent and user-friendly Evohome heating integration with a responsive touchscreen-style **Evohome** page in the Home Assistant sidebar.
 
 **Current release:** Phase 3 / v0.3.0 — independent HACS frontend packaging — source and CI validation; **not yet validated on a live Evohome controller**.

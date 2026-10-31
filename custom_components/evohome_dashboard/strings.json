@@ -22,11 +22,19 @@
   "options": {
     "step": {
       "init": {
-        "title": "Polling settings",
+        "title": "Polling and passive RF demand",
         "data": {
-          "scan_interval": "Temperature refresh (seconds)"
+          "scan_interval": "Temperature refresh (seconds)",
+          "rf_controller_id": "Evohome RF controller ID (01:xxxxxx, leave empty to disable)",
+          "rf_mqtt_topic": "Gateway MQTT RX topic",
+          "rf_zone_names": "Verified room mapping JSON (for example {\"03\":\"Living room\"})"
         }
       }
+    },
+    "error": {
+      "invalid_controller_id": "Expected a controller device address such as 01:245914.",
+      "invalid_mqtt_topic": "Expected a valid MQTT RX topic ending in /rx.",
+      "invalid_zone_mapping": "Expected a JSON object with RF zone keys 00 to 0B and nonempty room names."
     }
   }
 }

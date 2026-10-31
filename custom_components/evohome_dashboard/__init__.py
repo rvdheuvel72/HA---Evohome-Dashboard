@@ -10,7 +10,12 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.const import CONF_PASSWORD, CONF_SCAN_INTERVAL, CONF_USERNAME
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .auth import StoredTokenManager, token_cache_key
-from .const import DEFAULT_INTERVAL, DOMAIN, PANEL_PATH
+from .const import (
+    DEFAULT_INTERVAL, DOMAIN, PANEL_PATH,
+    CONF_RF_CONTROLLER_ID, CONF_RF_MQTT_TOPIC, CONF_RF_ZONE_NAMES,
+    DEFAULT_RF_MQTT_TOPIC,
+)
+from .heat_demand import valid_zone_names
 from .hub import EvohomeHub
 from .websocket import register_commands
 
@@ -68,10 +73,23 @@ async def async_setup_entry(hass, entry):
     await hub.initialize()
     await hub.async_config_entry_first_refresh()
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = hub
+    hub.rf_monitor = None
     try:
+        controller_id = entry.options.get(CONF_RF_CONTROLLER_ID, "")
+        if controller_id:
+            # Import optional MQTT requirements only when monitoring is enabled.
+            from .rf_monitor import RfDemandMonitor
+            hub.rf_monitor = RfDemandMonitor(
+                hass, entry.entry_id, controller_id,
+                entry.options.get(CONF_RF_MQTT_TOPIC, DEFAULT_RF_MQTT_TOPIC),
+                valid_zone_names(entry.options.get(CONF_RF_ZONE_NAMES, "{}")),
+            )
+            await hub.rf_monitor.async_start()
         await _setup_frontend(hass)
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     except Exception:
+        if hub.rf_monitor is not None:
+            await hub.rf_monitor.async_stop()
         hass.data[DOMAIN].pop(entry.entry_id, None)
         raise
     entry.async_on_unload(entry.add_update_listener(_options_updated))
@@ -85,6 +103,9 @@ async def _options_updated(hass, entry):
 async def async_unload_entry(hass, entry):
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
+        hub = hass.data[DOMAIN].get(entry.entry_id)
+        if hub is not None and hub.rf_monitor is not None:
+            await hub.rf_monitor.async_stop()
         hass.data[DOMAIN].pop(entry.entry_id, None)
         if not hass.data[DOMAIN] and hass.data.get(f"{DOMAIN}_ui_loaded"):
             frontend.async_remove_panel(hass, PANEL_PATH, warn_if_unknown=False)

@@ -1,7 +1,7 @@
 {
   "domain": "evohome_dashboard",
   "name": "Evohome Dashboard",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "config_flow": true,
   "documentation": "https://github.com/rvdheuvel72/HA---Evohome-Dashboard",
   "issue_tracker": "https://github.com/rvdheuvel72/HA---Evohome-Dashboard/issues",
@@ -11,5 +11,8 @@
   ],
   "loggers": [
     "evohomeasync2"
+  ],
+  "after_dependencies": [
+    "mqtt"
   ]
 }

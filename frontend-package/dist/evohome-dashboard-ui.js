@@ -55,7 +55,7 @@ class EvohomeDashboardPanel extends HTMLElement {
     super();
     this.attachShadow({mode:"open"});
     this.tab = "overview"; this.entry = null; this.entries = [];
-    this.state = null; this.online = false; this.errors = 0;
+    this.state = null; this.online = false; this.errors = 0; this.rfDemand = null;
     this.banner = ""; this.loading = false; this.modal = null;
     this.schedule = null; this.scheduleSystem = ""; this.scheduleZone = "";
     this.activeDay = "monday"; this.timer = null; this.refreshing = false;
@@ -94,7 +94,7 @@ class EvohomeDashboardPanel extends HTMLElement {
     this.refreshing=true;
     try {
       const x = await this.ws("status");
-      this.state=x.state; this.online=x.online; this.errors=x.errors; this.banner="";
+      this.state=x.state; this.online=x.online; this.errors=x.errors; this.rfDemand=x.heat_demand||null; this.banner="";
     } catch(e) { this.banner = e.message || "Cannot load Evohome data"; }
     finally { this.refreshing=false;this.draw(); }
   }
@@ -121,7 +121,7 @@ class EvohomeDashboardPanel extends HTMLElement {
     }).join("");
   }
   nav() {
-    const items=[["overview","Overview"],["rooms","Rooms"],["schedules","Schedules"],["actions","Quick actions"],["settings","Settings"],["errors","Error log"]];
+    const items=[["overview","Overview"],["rooms","Rooms"],["demand","Heating demand"],["schedules","Schedules"],["actions","Quick actions"],["settings","Settings"],["errors","Error log"]];
     return '<nav class="nav" aria-label="Evohome navigation">'+items.map(a=>'<button data-action="tab" data-tab="'+a[0]+'" class="'+(this.tab===a[0]?"active":"")+'">'+a[1]+'</button>').join("")+'</nav>';
   }
   overview() {
@@ -133,6 +133,47 @@ class EvohomeDashboardPanel extends HTMLElement {
        '<div class="card third"><div class="caption">Attention needed</div><div class="temp">'+faults+'</div><div class="muted">Reported device faults</div></div>'+
        '<div class="wide section"><h2>Rooms</h2><button class="btn small" data-action="tab" data-tab="rooms">See all</button></div>'+
        this.renderZones(zones)+'</div>';
+  }
+  heatDemand() {
+    const data=this.rfDemand;
+    if (!data?.enabled) {
+      return '<h2>Heating demand</h2><div class="card wide"><p>Passive RF heat-demand monitoring is not configured.</p>'+
+        '<p class="muted" style="margin-top:12px">In Settings &rarr; Devices &amp; services &rarr; Evohome Dashboard &rarr; Configure, enter the controller ID (01:xxxxxx), gateway MQTT topic and a JSON mapping such as {"03":"Living room"}.</p>'+
+        '<p class="caption">Cloud room temperatures alone cannot establish radiator or boiler demand.</p></div>';
+    }
+    const zones=data.zones||[];
+    const time=v=>v?new Date(v).toLocaleString():"Not observed";
+    const shown=v=>v==null?"Unknown":Number(v).toFixed(1)+"%";
+    const status=data.mqtt_connected?"Listening for RF packets":"MQTT unavailable — verify broker and reload integration";
+    const cards=zones.map(z=>{
+      const state=z.state==="unknown_stale"?"Stale / unknown":z.state==="requesting"?"Requesting heat":"Idle";
+      const names=(z.devices||[]).map(d=>esc(d.id)+" ("+shown(d.demand_pct)+")").join(", ");
+      return '<section class="card third"><div class="zonehead"><h3>'+esc(z.name)+'</h3><span class="pill">'+esc(z.index)+'</span></div>'+
+        '<div class="temp">'+esc(shown(z.demand_pct))+'</div>'+
+        '<p class="muted">'+esc(state)+'</p>'+
+        '<div class="setting"><span>Estimated request time today</span><b>'+esc(z.today_minutes)+' min</b></div>'+
+        '<div class="setting"><span>Demand-weighted time</span><b>'+esc(z.today_weighted_minutes)+' min</b></div>'+
+        '<p class="caption">Last RF report: '+esc(time(z.last_seen))+'</p>'+
+        '<p class="caption">Actuators: '+(names||"No RF packets yet")+'</p>'+
+        (!z.mapped?'<p class="caption">Room name not mapped — RF index only.</p>':"")+
+        '</section>';
+    }).join("");
+    const recent=(data.recent||[]).slice(0,20).map(event=>{
+      const label=event.kind==="zone_demand"?"Zone "+esc(event.zone)+" / "+esc(event.source):"Controller 0008";
+      return '<div class="event"><span>'+esc(time(event.time))+' — '+label+'</span><b>'+esc(shown(event.demand_pct))+'</b></div>';
+    }).join("");
+    return '<div class="section"><div><h2>Heating demand</h2><p class="muted">Passive RAMSES-II observations. Not measured gas consumption or proof of boiler firing.</p></div></div>'+
+      '<div class="layout"><section class="card third"><h3>RF monitor</h3><p class="muted">'+esc(status)+'</p><p class="caption">Controller '+esc(data.controller_id)+'</p>'+
+      '<p class="caption">Received '+esc(data.received)+' relevant/valid RF packet candidates</p></section>'+
+      '<section class="card third"><h3>Controller 0008 demand</h3><div class="temp">'+esc(shown(data.controller_0008_pct))+'</div>'+
+      '<p class="caption">Last seen: '+esc(time(data.controller_0008_last_seen))+'</p><p class="caption">Control signal, not actual gas use.</p></section>'+
+      '<section class="card third"><h3>R8810A traffic</h3><p>'+esc(time(data.bridge_last_seen))+'</p>'+
+      '<p class="caption">'+esc(data.bridge_frames)+' observed 3220/3EF0 exchanges; traffic does not prove a CH burner-on event.</p></section>'+
+      '<div class="wide section"><h2>Rooms</h2><span class="caption">Demand messages expire after 25 minutes without a new packet.</span></div>'+
+      (cards||'<div class="card wide empty">No valve demand packets received yet. Check CC1101 coverage and RF/controller settings.</div>')+
+      '<section class="card wide"><h3>Recent demand reports</h3>'+
+      (recent||'<p class="muted">No reports recorded yet.</p>')+'</section>'+
+      '<p class="caption wide">Duration uses sample-and-hold between received packets, is capped by freshness and excludes unknown gaps. Per-room gas m³ cannot be measured from these messages.</p></div>';
   }
   rooms() {
     return '<div class="section"><div><h2>Room control</h2><p class="muted">Measured temperature and your target, with clear overrides.</p></div></div>'+
@@ -208,7 +249,7 @@ class EvohomeDashboardPanel extends HTMLElement {
   }
   draw() {
     const root=this.shadowRoot;
-    const body=this.tab==="overview"?this.overview():this.tab==="rooms"?this.rooms():this.tab==="schedules"?this.schedules():this.tab==="actions"?this.actions():this.tab==="settings"?this.settings():this.errorPage();
+    const body=this.tab==="overview"?this.overview():this.tab==="rooms"?this.rooms():this.tab==="demand"?this.heatDemand():this.tab==="schedules"?this.schedules():this.tab==="actions"?this.actions():this.tab==="settings"?this.settings():this.errorPage();
     root.innerHTML='<style>'+css+'</style><div class="frame"><header class="top"><div class="brand"><div class="logo">⌂</div><div><h1>Evohome</h1><div class="caption">Home heating, made clear</div></div></div>'+
       '<div class="status"><span class="dot '+(this.online?"":"off")+'"></span>'+esc(this.online?"Cloud connected":"Cloud not confirmed")+
       ' · '+esc(this.state?.updated?new Date(this.state.updated).toLocaleTimeString():"Awaiting data")+'</div></header>'+this.nav()+

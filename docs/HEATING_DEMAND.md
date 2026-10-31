@@ -109,3 +109,12 @@ and [ramses_rf](https://github.com/ramses-rf/ramses_rf).
   according to the module loaded. A version mismatch therefore remains visible.
 - If the tab appears but says monitoring is disabled, set the RF controller
   address and MQTT topic in the Evohome integration options.
+
+## Preloaded old HACS resources
+
+Home Assistant 0.3.4 uses the integration-owned sidebar element name
+`evohome-dashboard-ha-panel`. This prevents an older independently installed
+Lovelace HACS resource which already registered `evohome-dashboard-panel`
+from blocking the current bundled sidebar UI. The same-name old Lovelace
+`custom:evohome-dashboard-card` can still display old content until its HACS
+resource is updated; the fix specifically guarantees the **Evohome sidebar**.

@@ -97,7 +97,7 @@ jobs:
       - name: Provision Node.js for frontend validation
         uses: actions/setup-node@v7
         with:
-          node-version: '24'
+          node-version: '26'
       - name: Check source syntax
         shell: bash
         run: |
@@ -129,7 +129,7 @@ jobs:
       - name: Provision Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: '24'
+          node-version: '26'
       - name: Validate JavaScript and make frontend-only ZIP
         shell: bash
         run: |

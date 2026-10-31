@@ -20,6 +20,7 @@ FILES = frozenset({
     "docs/HA_CHANGELOG.md",
     "scripts/check_ha_version.py",
     "scripts/check_ha_release_readiness.py",
+    "scripts/check_ha_release_source.py",
     "scripts/check_release_readiness.py",
     "scripts/check_codex_review.py",
     "scripts/plan_ha_release.py",

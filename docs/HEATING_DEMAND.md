@@ -46,10 +46,15 @@ order of zones returned by the Resideo cloud API.
    real installation.** Reopen integration options and save the mapping;
    Home Assistant reloads the integration.
 
-5. Check the **Heating demand** tab in the bundled fallback dashboard, or
-   use the new Home Assistant RF sensors and their History graphs. The separate
-   standalone HACS Dashboard frontend is distributed independently; until its
-   matching UI is published, an older standalone UI may not show the new tab.
+5. Check the **Heating demand** tab in the Evohome sidebar or the new Home
+   Assistant RF sensors and their History graphs. Starting with backend
+   **0.3.4**, the dashboard loader checks whether an independently installed
+   HACS frontend supports `heating-demand-v1` before loading it. When the
+   optional frontend is missing or older, it loads the bundled implementation
+   **with** Heating demand instead of showing an outdated frontend.
+   **Restart Home Assistant Core after the HACS integration backend update,
+   then hard-refresh the browser** so the new panel JavaScript module is used.
+   An HACS download alone does not reload the Python integration.
 
 Once enabled, Home Assistant creates a controller RF-demand sensor, last
 OpenTherm bridge RF activity sensor, and a **demand (%)** and **estimated
@@ -88,3 +93,16 @@ totals can be lost after unexpected power loss.
 
 Protocol references: [RAMSES protocol](https://github.com/ramses-rf/ramses_protocol)
 and [ramses_rf](https://github.com/ramses-rf/ramses_rf).
+
+## If the Heating demand tab is missing
+
+- In HACS, redownload **Evohome Dashboard (Integration)** from `main`.
+- Restart **Home Assistant Core** once (not just HACS).
+- Hard-refresh the browser or open a new private/incognito tab. Browsers
+  keep already-registered custom elements for the duration of an SPA page.
+- If you have a separately installed older HACS **Dashboard** UI, backend
+  0.3.4 automatically uses its own current bundled dashboard instead of that
+  old JavaScript module. This compatibility fallback is deliberately silent
+  about RF data availability: seeing the tab does not prove MQTT capture.
+- If the tab appears but says monitoring is disabled, set the RF controller
+  address and MQTT topic in the Evohome integration options.

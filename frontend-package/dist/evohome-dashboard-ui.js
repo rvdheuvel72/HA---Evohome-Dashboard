@@ -355,6 +355,13 @@ class EvohomeDashboardPanel extends HTMLElement {
 if(!customElements.get("evohome-dashboard-panel")) {
   customElements.define("evohome-dashboard-panel", EvohomeDashboardPanel);
 }
+// The HA sidebar owns this separate element name. Old HACS resources may
+// already have registered evohome-dashboard-panel in the same browser page;
+// a distinct subclass and tag allow the current backend UI to render anyway.
+class EvohomeDashboardHAPanel extends EvohomeDashboardPanel {}
+if(!customElements.get("evohome-dashboard-ha-panel")) {
+  customElements.define("evohome-dashboard-ha-panel", EvohomeDashboardHAPanel);
+}
 
 /* Lovelace embedding: add /hacsfiles/evohome-dashboard-ui/evohome-dashboard-ui.js as a module
  * resource; then create a manual card with type: custom:evohome-dashboard-card.

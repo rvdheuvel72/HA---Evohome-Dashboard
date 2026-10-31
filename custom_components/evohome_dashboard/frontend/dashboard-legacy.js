@@ -191,8 +191,8 @@ class EvohomeDashboardPanel extends HTMLElement {
         '</section>';
     }).join("");
     const recent=(data.recent||[]).slice(0,20).map(event=>{
-      const label=event.kind==="zone_demand"?"Zone "+esc(event.zone)+" / "+esc(event.source):"Controller 0008";
-      return '<div class="event"><span>'+esc(time(event.time))+' — '+label+'</span><b>'+esc(shown(event.demand_pct))+'</b></div>';
+      const label=event.kind==="zone_demand"?"Zone "+esc(event.zone)+" / "+esc(event.source):event.kind==="rf_zone_name"?"RF zone "+esc(event.zone)+" name reported: "+esc(event.name):"Controller 0008";
+      return '<div class="event"><span>'+esc(time(event.time))+' — '+label+'</span><b>'+(event.kind==="rf_zone_name"?"Name observed":esc(shown(event.demand_pct)))+'</b></div>';
     }).join("");
     return '<div class="section"><div><h2>Heating demand</h2><p class="muted">Passive RAMSES-II observations. Not measured gas consumption or proof of boiler firing.</p></div></div>'+
       '<div class="layout"><section class="card third"><h3>RF monitor</h3><p class="muted">'+esc(status)+'</p><p class="caption">Controller '+esc(data.controller_id)+'</p>'+

@@ -104,5 +104,8 @@ and [ramses_rf](https://github.com/ramses-rf/ramses_rf).
   0.3.4 automatically uses its own current bundled dashboard instead of that
   old JavaScript module. This compatibility fallback is deliberately silent
   about RF data availability: seeing the tab does not prove MQTT capture.
+- The dashboard header displays the actual installed **HA backend v0.3.4**
+  (read from the integration manifest) and **UI: Bundled** or **UI: HACS**
+  according to the module loaded. A version mismatch therefore remains visible.
 - If the tab appears but says monitoring is disabled, set the RF controller
   address and MQTT topic in the Evohome integration options.

@@ -51,7 +51,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/github-releases.json"
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            | jq -s 'add' > "$RUNNER_TEMP/github-releases.json"
           python3 scripts/plan_ha_release.py \
             --releases-json "$RUNNER_TEMP/github-releases.json" \
             --github-output "$GITHUB_OUTPUT" \

@@ -63,7 +63,7 @@ class ZoneHeating(CoordinatorEntity, SwitchEntity):
     def device_info(self):
         zone = self.coordinator._zone(self.system_id, self.zone_id)
         return {"identifiers": {(DOMAIN, f"zone_{self.zone_id}")},
-                "via_device": (DOMAIN, f"system_{self.system_id}"),
+                "via_device_id": self.coordinator.system_device_ids[self.system_id],
                 "name": zone.name}
 
     @property

@@ -22,6 +22,7 @@ class MonitorCallbackTests(unittest.TestCase):
         monitor.hass = SimpleNamespace()
         monitor.signal = "test_rf_signal"
         monitor.ledger = Mock()
+        monitor.refresh_names = Mock()
         monitor.ledger.observe_mqtt.return_value = (True, 3)
         monitor.ledger.daily_storage.return_value = {"date": "2026-10-31", "zones": {}}
         monitor._store = Mock()
@@ -31,6 +32,7 @@ class MonitorCallbackTests(unittest.TestCase):
                 monitor._on_message(SimpleNamespace(payload="sample"))
             self.assertEqual(monitor._store.async_delay_save.call_count, 1)
             self.assertEqual(send.call_count, 100)
+            self.assertEqual(monitor.refresh_names.call_count, 100)
             self.assertTrue(monitor._checkpoint_pending)
             self.assertEqual(monitor._checkpoint_data()["date"], "2026-10-31")
             self.assertFalse(monitor._checkpoint_pending)
@@ -42,12 +44,14 @@ class MonitorCallbackTests(unittest.TestCase):
         monitor.hass = SimpleNamespace()
         monitor.signal = "test_rf_signal"
         monitor.ledger = Mock()
+        monitor.refresh_names = Mock()
         monitor.ledger.observe_mqtt.return_value = (False, None)
         monitor._store = Mock()
         monitor._checkpoint_pending = False
         with patch("custom_components.evohome_dashboard.rf_monitor.async_dispatcher_send") as send:
             monitor._on_message(SimpleNamespace(payload="unrelated"))
         monitor._store.async_delay_save.assert_not_called()
+        monitor.refresh_names.assert_not_called()
         send.assert_not_called()
 
 

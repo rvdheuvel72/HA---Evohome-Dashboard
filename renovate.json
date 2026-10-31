@@ -20,6 +20,16 @@
   },
   "packageRules": [
     {
+      "description": "Keep GitHub Actions Node on the tested v24 LTS line; upgrade to v26 only in a dedicated CI-verified toolchain migration.",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchDepNames": [
+        "node"
+      ],
+      "allowedVersions": ">=24 <25"
+    },
+    {
       "description": "Keep GitHub Actions Python toolchain on the HA-verified 3.14 release line; defer 3.15 until Home Assistant wheels and tests pass.",
       "matchManagers": [
         "github-actions"
@@ -52,7 +62,9 @@
       "addLabels": [
         "resideo-transport",
         "manual-api-audit"
-      ]
+      ],
+      "description": "Keep evohome-async on HA 2026.10's tested v2 until the v3.1.0 compatibility branch and HA runtime checks pass; PR #71 tracks this migration.",
+      "allowedVersions": ">=2.1.0 <3.0.0"
     }
   ],
   "customManagers": [

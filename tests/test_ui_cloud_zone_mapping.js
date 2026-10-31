@@ -28,12 +28,16 @@ const root = path.resolve(__dirname, "..");
     assert.ok(Panel, relative + " must register the HA dashboard");
     const panel = Object.create(Panel.prototype);
     panel.loading = false;
+    panel.pendingRfLinks = {};
+    panel.draw = () => {};
+    panel.tab = "demand";
     panel.state = {
       locations: [{systems: [{id:"sys1",zones:[
         {id:"cloud-100",name:"Woonkamer"},
         {id:"cloud-200",name:"Darius"},
         {id:"cloud-300",name:"Benjamin"},
         {id:"cloud-400",name:"Kantoor"},
+        {id:"cloud-500",name:"Woonkamer"},
       ]}]}],
     };
     panel.rfDemand = {
@@ -48,14 +52,26 @@ const root = path.resolve(__dirname, "..");
       recent:[],controller_id:"01:245914",received:3,bridge_frames:0,
     };
     const html = panel.heatDemand();
-    for (const name of ["Woonkamer","Darius","Benjamin","Kantoor"]) {
+    for (const name of ["Darius","Benjamin","Kantoor"]) {
       assert.ok(html.includes(">"+name+"</option>"), "Cloud room missing: "+name);
     }
+    assert.ok(html.includes("Woonkamer — "), "Duplicate room name must be disambiguated");
+    assert.ok(html.includes("zone cloud-100"), "Cloud zone ID must distinguish duplicates");
+    assert.ok(html.includes("zone cloud-500"), "Other zone ID must be visible");
     assert.ok(html.includes('data-action="link-rf-zone"'));
     assert.ok(html.includes('data-rf-index="00"'));
     assert.ok(html.includes('value="sys1|cloud-100"'));
     assert.ok(html.includes("04:215289"));
     assert.ok(!html.includes("RF room mapping must be"), "Should not require JSON");
+    // A background status redraw or saving a different card must not erase
+    // this chosen (but unsaved) cloud room.
+    await panel.onChange({
+      target:{dataset:{rfIndex:"00"},value:"sys1|cloud-100"},
+    });
+    assert.equal(panel.pendingRfLinks["00"], "sys1|cloud-100");
+    const redrawn = panel.heatDemand();
+    assert.ok(redrawn.includes('value="sys1|cloud-100" selected'));
+
 
     let sent;
     panel.shadowRoot = {
@@ -64,7 +80,7 @@ const root = path.resolve(__dirname, "..");
         return {value:"sys1|cloud-100"};
       },
     };
-    panel.command = async (type, data) => { sent = {type, data}; };
+    panel.command = async (type, data) => { sent = {type, data}; return true; };
     await panel.onClick({
       target:{closest(){return {dataset:{action:"link-rf-zone",index:"00"}};}},
     });
@@ -72,6 +88,7 @@ const root = path.resolve(__dirname, "..");
     assert.equal(sent.data.index, "00");
     assert.equal(sent.data.system_id, "sys1");
     assert.equal(sent.data.zone_id, "cloud-100");
+    assert.ok(!("00" in panel.pendingRfLinks), "Successful save should clear pending value");
   }
   console.log("Cloud room names appear in UI; selected stable zone IDs are sent to HA");
 })().catch(err => {console.error(err);process.exitCode=1;});

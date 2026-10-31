@@ -25,7 +25,7 @@ class RfFeatureContracts(unittest.TestCase):
         self.assertIn("valid_controller_id(controller)", flow)
         self.assertIn("valid_zone_names(names)", flow)
         self.assertIn("await hub.rf_monitor.async_stop()", init)
-        self.assertIn("if controller_id:\\n            # Import optional MQTT", init)
+        self.assertIn("if controller_id:\n            # Import optional MQTT", init)
         manifest = json.loads((HA / "manifest.json").read_text())
         self.assertEqual(manifest.get("after_dependencies"), ["mqtt"])
 
@@ -36,8 +36,8 @@ class RfFeatureContracts(unittest.TestCase):
         self.assertIn("class RFZoneMinutes(", sensor)
         self.assertIn('"heat_demand": (hub.rf_monitor.snapshot()', websocket)
         self.assertIn("from homeassistant.core import callback", sensor)
-        self.assertIn("@callback\\n        def on_rf_event", sensor)
-        self.assertIn("@callback\\n        def on_update", sensor)
+        self.assertIn("@callback\n        def on_rf_event", sensor)
+        self.assertIn("@callback\n        def on_update", sensor)
         for path in (HA / "frontend" / "dashboard-legacy.js",
                      ROOT / "frontend-package" / "dist" / "evohome-dashboard-ui.js"):
             contents = path.read_text()

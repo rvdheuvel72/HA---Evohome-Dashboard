@@ -56,7 +56,7 @@ class EvohomeDashboardPanel extends HTMLElement {
     super();
     this.attachShadow({mode:"open"});
     this.tab = "overview"; this.entry = null; this.entries = [];
-    this.state = null; this.online = false; this.errors = 0; this.rfDemand = null; this.backendVersion = null;
+    this.state = null; this.online = false; this.errors = 0; this.rfDemand = null; this.backendVersion = null; this.pendingRfLinks = {};
     this.banner = ""; this.loading = false; this.modal = null;
     this.schedule = null; this.scheduleSystem = ""; this.scheduleZone = "";
     this.activeDay = "monday"; this.timer = null; this.refreshing = false;
@@ -106,8 +106,8 @@ class EvohomeDashboardPanel extends HTMLElement {
   findZone(system,zone) { return this.zones().find(z=>z.system_id===system && z.id===zone); }
   async command(type,data,notice="Request completed") {
     this.loading=true;this.draw();
-    try { await this.ws(type,data); this.banner=""; await this.fetchStatus(); this.banner=notice; }
-    catch(e) { this.banner="Action failed: "+(e.message||"See Error Log"); }
+    try { await this.ws(type,data); this.banner=""; await this.fetchStatus(); this.banner=notice; return true; }
+    catch(e) { this.banner="Action failed: "+(e.message||"See Error Log"); return false; }
     finally { this.loading=false;this.modal=null;this.draw(); }
   }
   renderZones(zones) {
@@ -144,6 +144,11 @@ class EvohomeDashboardPanel extends HTMLElement {
     }
     const zones=data.zones||[];
     const cloudRooms=this.zones();
+    const roomNameCounts={};
+    cloudRooms.forEach(r=>{const key=r.name?.toLocaleLowerCase()||"";roomNameCounts[key]=(roomNameCounts[key]||0)+1;});
+    const systemLocations={};
+    this.systems().forEach(s=>{systemLocations[s.id]=s.location_name||"Location unknown";});
+
     const time=v=>v?new Date(v).toLocaleString():"Not observed";
     const shown=v=>v==null?"Unknown":Number(v).toFixed(1)+"%";
     const status=data.mqtt_connected?"Listening for RF packets":"MQTT unavailable — verify broker and reload integration";
@@ -151,10 +156,17 @@ class EvohomeDashboardPanel extends HTMLElement {
       const state=z.state==="unknown_stale"?"Stale / unknown":z.state==="requesting"?"Requesting heat":"Idle";
       const names=(z.devices||[]).map(d=>esc(d.id)+" ("+shown(d.demand_pct)+")").join(", ");
       const cloudRef=z.mapping||{};
-      const currentValue=cloudRef.system_id&&cloudRef.zone_id ? cloudRef.system_id+"|"+cloudRef.zone_id : "";
+      const savedValue=cloudRef.system_id&&cloudRef.zone_id ? cloudRef.system_id+"|"+cloudRef.zone_id : "";
+      const currentValue=Object.prototype.hasOwnProperty.call(this.pendingRfLinks||{},z.index)
+        ? this.pendingRfLinks[z.index] : savedValue;
       const roomOptions=cloudRooms.map(room=>{
         const key=room.system_id+"|"+room.id;
-        return '<option value="'+esc(key)+'" '+(key===currentValue?"selected":"")+'>'+esc(room.name)+'</option>';
+        const duplicate=(roomNameCounts[room.name?.toLocaleLowerCase()||""]||0)>1;
+        const label=duplicate
+          ? room.name+" — "+(systemLocations[room.system_id]||"Unknown location")+
+            " / system "+room.system_id+" / zone "+room.id
+          : room.name;
+        return '<option value="'+esc(key)+'" '+(key===currentValue?"selected":"")+'>'+esc(label)+'</option>';
       }).join("");
       const linkHint=cloudRef.source==="rf_0004"?"Auto-matched using a controller RF zone-name report":
         cloudRef.source==="selected"?"Linked to an existing Evohome cloud room":
@@ -285,10 +297,15 @@ class EvohomeDashboardPanel extends HTMLElement {
     if(action==="link-rf-zone"){
       const index=node.dataset.index;
       const selector=this.shadowRoot.querySelector('select[data-rf-index="'+index+'"]');
-      const selected=selector?.value||"";
+      const selected=Object.prototype.hasOwnProperty.call(this.pendingRfLinks||{},index)
+        ? this.pendingRfLinks[index] : (selector?.value||"");
       const [system_id,zone_id]=selected?selected.split("|"):["",""];
-      await this.command("rf_zone_link",{index,system_id,zone_id},
+      const success=await this.command("rf_zone_link",{index,system_id,zone_id},
         selected?"RF room linked to Evohome cloud zone":"RF room link removed");
+      if(success){
+        delete this.pendingRfLinks[index];
+        this.draw();
+      }
       return;
     }
 
@@ -362,6 +379,10 @@ class EvohomeDashboardPanel extends HTMLElement {
   }
   async onChange(event) {
     const node=event.target;
+    if(node.dataset.rfIndex!=null){
+      this.pendingRfLinks[node.dataset.rfIndex]=node.value;
+      return;
+    }
     if(node.id==="schedule-zone"){
       const [system,zone]=node.value.split("|");this.scheduleSystem=system||"";this.scheduleZone=zone||"";
       this.schedule=null;this.draw();

@@ -161,16 +161,27 @@ def extract_3220(tsv: str) -> list[dict]:
         verb, sender, target, hexpayload = m.groups()
         if not hexpayload.startswith("00"):
             continue
+        # The outer RAMSES frame can be valid even when the nested
+        # 32-bit OpenTherm word is not. Mirror OpenThermReadOnly.h:
+        # a zero wrapper byte, reserved bits clear and even parity.
+        ot_word = int(hexpayload[2:10], 16)
+        ot_valid = ((ot_word.bit_count() & 1) == 0 and
+                    (int(hexpayload[2:4], 16) & 0x0F) == 0)
         ot_type = (int(hexpayload[2:4], 16) >> 4) & 7
         data_id = int(hexpayload[4:6], 16)
         if data_id not in IDS:
             continue
+        # Never classify a parity-invalid RF payload as a real negative
+        # OpenTherm acknowledgement; keep it as invalid evidence.
+        reply_type = {4:"read_ack",6:"data_invalid",7:"unknown_data_id"}
+        ot_reply = reply_type.get(ot_type) if ot_valid else None
         result.append({
             "uptime_ms": int(row.get("uptime_ms") or 0),
             "utc_epoch_ms": row.get("utc_epoch_ms"),
             "verb": verb, "source": sender, "destination": target,
             "id": data_id, "ot_type": ot_type,
-            "ot_reply": {4:"read_ack",6:"data_invalid",7:"unknown_data_id"}.get(ot_type),
+            "ot_valid": ot_valid, "ot_reply": ot_reply,
+            "invalid_reason": None if ot_valid else "invalid_opentherm_parity_or_reserved_bits",
             "raw": hexpayload[6:10], "rssi_magnitude": row.get("rssi_magnitude"),
             "hgi": row["message"],
         })
@@ -189,16 +200,34 @@ def annotate_windows(reads: list[dict], decoded: list[dict]) -> None:
         read["natural_rq_candidates"] = []
         if not isinstance(begin, int) or not isinstance(end, int) or end < begin:
             continue
+        # Match *exact* RF addresses learned in the paired-read preflight.
+        # Another Evohome installation may be in radio range.
+        controller = read.get("preflight_controller")
+        bridge = read.get("preflight_bridge")
+        try:
+            controller_addr = f"01:{int(controller):06d}"
+            bridge_addr = f"10:{int(bridge):06d}"
+            if not (1 <= int(controller) < 262143 and
+                    1 <= int(bridge) < 262143):
+                continue
+        except (TypeError, ValueError):
+            continue
         for entry in decoded:
             if entry["id"] != read["id"] or not (begin - 1500 <= entry["uptime_ms"] <= end + 750):
                 continue
-            if entry["verb"] == "RP" and entry["source"].startswith("10:") and entry["destination"].startswith("01:"):
+            if not entry.get("ot_valid", False):
+                continue
+            if (entry["verb"] == "RP" and entry["source"] == bridge_addr
+                    and entry["destination"] == controller_addr
+                    and entry["ot_reply"] in ("read_ack", "data_invalid", "unknown_data_id")):
                 read["matching_rx_candidates"].append({
                     "uptime_ms": entry["uptime_ms"],
                     "approx_since_preflight_ms": entry["uptime_ms"] - begin,
                     "ot_reply": entry["ot_reply"], "hgi": entry["hgi"],
                 })
-            elif entry["verb"] == "RQ" and entry["source"].startswith("01:") and entry["destination"].startswith("10:"):
+            elif (entry["verb"] == "RQ" and entry["source"] == controller_addr
+                    and entry["destination"] == bridge_addr
+                    and entry["ot_type"] == 0):
                 read["natural_rq_candidates"].append(entry["hgi"])
         read["causality"] = "unverified: shared physical Evohome RF identity"
 
@@ -220,7 +249,7 @@ def report_text(report: dict) -> str:
             "## Decoded observed 3220 RF traffic (including natural controller requests)", ""]
     for z in report["decoded_3220"]:
         out.append(f'- +{z["uptime_ms"]} ms {z["verb"]} {z["source"]} → {z["destination"]} '
-                   f'ID{z["id"]} {z["ot_reply"] or "RQ/other"}: `{z["hgi"]}`')
+                   f'ID{z["id"]} {z["ot_reply"] or z.get("invalid_reason") or "RQ/other"}: `{z["hgi"]}`')
     if not report["decoded_3220"]:
         out.append("No qualifying 3220 frames captured; this may reflect RX misses or a full/empty capture.")
     if report.get("error"):
@@ -255,21 +284,28 @@ def run(client, output: Path, replace_capture: bool = False,
     except (GatewayError, RuntimeError, ValueError, KeyError, TypeError) as exc:
         report["error"] = str(exc)
     finally:
+        capture_errors = []
         if capture_started:
             try:
                 client.capture_action("stop")
-            except (GatewayError, RuntimeError) as exc:
-                report["capture_error"] = "stop: " + str(exc)
+            except Exception as exc:
+                # Even malformed/truncated JSON from a successful stop must
+                # NOT suppress capture download or writing the reports.
+                capture_errors.append("stop: " + type(exc).__name__)
             try:
                 final = client.get_json(CAPTURE + "/status")
                 report["capture_full"] = final.get("full")
                 report["capture_count"] = final.get("count")
+            except Exception as exc:
+                capture_errors.append("status: " + type(exc).__name__)
+            try:
                 capture = client.request("GET", CAPTURE + "/download")
                 (output / "capture.tsv").write_text(capture, encoding="utf-8")
                 report["decoded_3220"] = extract_3220(capture)
                 annotate_windows(report["reads"], report["decoded_3220"])
-            except (GatewayError, ValueError, RuntimeError) as exc:
-                report["capture_error"] = "download: " + str(exc)
+            except Exception as exc:
+                capture_errors.append("download: " + type(exc).__name__)
+        report["capture_error"] = "; ".join(capture_errors) or None
         (output / "report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
         (output / "report.md").write_text(report_text(report), encoding="utf-8")
     return report

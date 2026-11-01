@@ -326,17 +326,23 @@ class EvohomeDashboardPanel extends HTMLElement {
       if(action==="gw-trigger" && !confirm("Transmit one experimental OpenTherm ID25 read via the gateway?"))return;
       this.loading=true;this.draw();
       try{
-        if(action==="gw-method-load" || action==="gw-method-save" || action==="gw-status"){
-          const pref=await this.ws("gateway_id25",{
-            host:this.gatewayHost,username:this.gatewayUsername,password:credential,
-            action:action==="gw-method-save"?"method_set":"method_get",method:selectedMethod
-          });
-          this.gatewayMethod=pref.method;
-          this.gatewayMethodLoaded=true;
-          this.gatewayMethodNotice="Gateway setting: "+pref.method+" (persistent)";
-          if(action!=="gw-status"){
-            this.banner=action==="gw-method-save"?"Shared method saved on ESP32":"Shared method loaded from ESP32";
-            return;
+        if(["gw-method-load","gw-method-save","gw-status","gw-trigger"].includes(action)){
+          try{
+            const pref=await this.ws("gateway_id25",{
+              host:this.gatewayHost,username:this.gatewayUsername,password:credential,
+              action:action==="gw-method-save"?"method_set":"method_get",method:selectedMethod
+            });
+            this.gatewayMethod=pref.method;
+            this.gatewayMethodLoaded=true;
+            this.gatewayMethodNotice="Gateway setting: "+pref.method+" (persistent)";
+            if(action==="gw-method-load" || action==="gw-method-save"){
+              this.banner=action==="gw-method-save"?"Shared method saved on ESP32":"Shared method loaded from ESP32";
+              return;
+            }
+          }catch(e){
+            if(action!=="gw-status")throw e;
+            this.gatewayMethodLoaded=false;
+            this.gatewayMethodNotice="Shared setting unavailable: "+(e.message||String(e));
           }
         }
         this.gatewayId25Result=await this.ws("gateway_id25",{

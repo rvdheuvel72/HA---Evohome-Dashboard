@@ -19,6 +19,8 @@ struct Item {
   ramses_bridge_read::State state=ramses_bridge_read::IDLE;
   uint16_t raw=0;
   uint32_t updatedAtMs=0;
+  uint32_t responseLatencyMs=0;
+  ot_tx::Method txMethod=ot_tx::ASYNC_UART;
   ot_tx::Phase txPhase=ot_tx::NOT_STARTED;
   uint16_t txBytes=0,txExpectedBytes=0;
 };
@@ -52,6 +54,8 @@ struct Batch {
        probe.busy())return false;
     Item& item=items[next];
     item.state=probe.state;item.raw=probe.raw;item.updatedAtMs=now;
+    item.responseLatencyMs=probe.responseLatencyMs;
+    item.txMethod=tx.method;
     item.txPhase=tx.phase;
     item.txBytes=tx.written_bytes;
     item.txExpectedBytes=tx.expected_bytes;

@@ -5,6 +5,7 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from .const import DOMAIN, CONF_RF_ZONE_LINKS
 from .room_links import set_link
+from .gateway_diagnostics import gateway_id25
 
 
 def _hub(hass, entry_id):
@@ -21,6 +22,9 @@ def register_commands(hass):
         ("status", {}, "_status"),
         ("errors", {}, "_errors"),
         ("refresh", {}, "_refresh"),
+        ("gateway_id25", {vol.Required("host"): str, vol.Required("username"): str,
+                          vol.Required("password"): str, vol.Required("action"): vol.In(("status", "trigger")),
+                          vol.Optional("method", default="uart"): vol.In(("uart", "fifo"))}, "_gateway_id25"),
         ("rf_zone_link", {vol.Required("index"): str,
                           vol.Required("system_id"): str,
                           vol.Required("zone_id"): str}, "_rf_zone_link"),
@@ -65,6 +69,9 @@ def register_commands(hass):
                                         else {"enabled": False,
                                               "reason": "Configure an RF controller ID in Evohome options"}),
                     }
+                elif _method == "_gateway_id25":
+                    result = await gateway_id25(hass, msg["host"], msg["username"],
+                                                msg["password"], msg["action"], msg["method"])
                 elif _method == "_rf_zone_link":
                     # Select only an *existing* cloud room (stable system/zone
                     # identifiers), never guess cloud ordering from RF index.

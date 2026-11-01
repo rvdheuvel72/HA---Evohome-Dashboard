@@ -43,11 +43,17 @@ examples](docs/HEATING_DEMAND.md).
 
 An independent and user-friendly Evohome heating integration with a responsive touchscreen-style **Evohome** page in the Home Assistant sidebar.
 
-**Current HA integration source version:** v0.3.9 (from `custom_components/evohome_dashboard/manifest.json`). GitHub Releases and HACS availability are separate from the source version; check [HA releases](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases) for the published integration package. The RF demand feature is **not yet validated against live TRV demand packets**.
+**Current HA integration source version:** v0.3.10 (from `custom_components/evohome_dashboard/manifest.json`). GitHub Releases and HACS availability are separate from the source version; check [HA releases](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases) for the published integration package. The RF demand feature is **not yet validated against live TRV demand packets**.
 
 This project uses the Apache-2.0 licensed [evohome-async](https://github.com/zxdavb/evohome-async) Python transport library as a dependency; it does not include or reuse `colegates/evohome-control` implementation code.
 
 ## Gateway Test — OpenTherm ID25 (introduced in v0.3.7; shared method v0.3.8)
+
+From HA v0.3.10 the gateway's bounded JSON rejection reason is displayed
+alongside HTTP 409, rather than a generic status. This distinguishes
+cooldown/not-ready from obsolete per-request selection. The global TX
+selector is provided by ESP32 firmware beta.39 in Gateway Settings → Radio;
+older running firmware will not show this selector, regardless of HA version.
 
 In the administrator-only **Evohome → Gateway test** tab, enter the ESP32 gateway's **private LAN IPv4 address** and gateway **HTTP Basic Auth** username/password. The password is retained only in the current panel session, not stored in Home Assistant settings. Press **Read status** to fetch the gateway's current `/api/v1/opentherm/one-shot` JSON status; read the **shared gateway method** (FIFO by default), optionally change and **Save shared setting**, then **Run ID25 test** and explicitly confirm the experimental RF request. Press **Read status** again to view the result. The shared method setting requires ESP32 gateway firmware v0.4.0-beta.38 or later. The test requires gateway firmware exposing this endpoint, network connectivity from Home Assistant to ESP32 port 80, and a configured strong gateway password (at least 12 characters for triggering). Do **not** enter a URL or an Internet-facing address.
 

@@ -565,6 +565,7 @@ void radioTask(void*) {
         portENTER_CRITICAL(&rxDiagnosticsMux);
         rxDiagnostics.packet(message,configuration.current.otBridge,millis());
         portEXIT_CRITICAL(&rxDiagnosticsMux);
+        otGateway.noteRxTraffic(millis());
         otGateway.noteDevice(message);
         portENTER_CRITICAL(&thermostatMux);
         if((message.addrMask&1u) &&

@@ -686,10 +686,10 @@ class OpenThermGateway {
     bool oneShot=false;
     ot_tx::Method method=ot_tx::ASYNC_UART;
     portENTER_CRITICAL(&mutex_);
+    const auto previous=singleProbe_.state;
+    singleProbe_.tick(now); // expire queued one-shots BEFORE assessing a send
     oneShot=rxQuiet(now) && singleProbe_.begin(now);
     method=singleProbe_.method;
-    const auto previous=singleProbe_.state;
-    singleProbe_.tick(now);
     if(previous==ot_single::WAITING && singleProbe_.state==ot_single::TIMEOUT)
       comparisons_[method].timeouts++;
     portEXIT_CRITICAL(&mutex_);

@@ -43,13 +43,13 @@ examples](docs/HEATING_DEMAND.md).
 
 An independent and user-friendly Evohome heating integration with a responsive touchscreen-style **Evohome** page in the Home Assistant sidebar.
 
-**Current HA integration source version:** v0.3.7 (from `custom_components/evohome_dashboard/manifest.json`). GitHub Releases and HACS availability are separate from the source version; check [HA releases](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases) for the published integration package. The RF demand feature is **not yet validated against live TRV demand packets**.
+**Current HA integration source version:** v0.3.8 (from `custom_components/evohome_dashboard/manifest.json`). GitHub Releases and HACS availability are separate from the source version; check [HA releases](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases) for the published integration package. The RF demand feature is **not yet validated against live TRV demand packets**.
 
 This project uses the Apache-2.0 licensed [evohome-async](https://github.com/zxdavb/evohome-async) Python transport library as a dependency; it does not include or reuse `colegates/evohome-control` implementation code.
 
-## Gateway Test — OpenTherm ID25 (introduced in v0.3.7)
+## Gateway Test — OpenTherm ID25 (introduced in v0.3.7; shared method v0.3.8)
 
-In the administrator-only **Evohome → Gateway test** tab, enter the ESP32 gateway's **private LAN IPv4 address** and gateway **HTTP Basic Auth** username/password. The password is retained only in the current panel session, not stored in Home Assistant settings. Press **Read status** to fetch the gateway's current `/api/v1/opentherm/one-shot` JSON status; choose **UART** or **Reference FIFO**, then **Run ID25 test** and explicitly confirm the experimental RF request. Press **Read status** again to view the result. The test requires gateway firmware exposing this endpoint, network connectivity from Home Assistant to ESP32 port 80, and a configured strong gateway password (at least 12 characters for triggering). Do **not** enter a URL or an Internet-facing address.
+In the administrator-only **Evohome → Gateway test** tab, enter the ESP32 gateway's **private LAN IPv4 address** and gateway **HTTP Basic Auth** username/password. The password is retained only in the current panel session, not stored in Home Assistant settings. Press **Read status** to fetch the gateway's current `/api/v1/opentherm/one-shot` JSON status; read the **shared gateway method** (FIFO by default), optionally change and **Save shared setting**, then **Run ID25 test** and explicitly confirm the experimental RF request. Press **Read status** again to view the result. The shared method setting requires ESP32 gateway firmware v0.4.0-beta.38 or later. The test requires gateway firmware exposing this endpoint, network connectivity from Home Assistant to ESP32 port 80, and a configured strong gateway password (at least 12 characters for triggering). Do **not** enter a URL or an Internet-facing address.
 
 This is a **manual, active RF transmission**, not a passive read and not a Resideo cloud command. It sends one OpenTherm ID25 read request via the gateway; a queued request or local TX completion **does not prove** that the R8810A received or answered it. Compare actual response details and gateway logs. No automatic pairing, OpenTherm write, or heating-control change is introduced. **No ESP32 firmware update is bundled with the HACS integration.** This test is on the **Evohome sidebar panel**, not guaranteed in the optional standalone HACS Lovelace card. See [user guide](docs/USER_GUIDE.md) and [firmware guide](firmware/arduino-wroom32e/README.md).
 
@@ -57,9 +57,9 @@ This is a **manual, active RF transmission**, not a passive read and not a Resid
 
 The gateway firmware is an independent project within this repository. The
 latest version documented in [the firmware README](firmware/arduino-wroom32e/README.md)
-is **v0.4.0-beta.37**, whose *Read all data* diagnostic lists 16 explicit
+is **v0.4.0-beta.38**, whose *Read all data* diagnostic lists 16 explicit
 OpenTherm read-only IDs plus passive ID0 observation. It uses a minimum
-15-second interval between active requests. The HA v0.3.7 ID25 test page
+15-second interval between active requests. The HA v0.3.8 ID25 test page
 calls the existing gateway **one-shot** endpoint; it does not replace the
 gateway's broader scan, deliver firmware, or imply verified boiler control.
 Check [ESP32 firmware releases](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases)
@@ -90,7 +90,7 @@ is a gateway firmware download.
 | Persistent, redacted error log | Implemented |
 | HomeBoard integration / direct RF control | Not in Phase 1; passive RF monitoring and manually triggered ID25 diagnostics are available separately |
 | Passive heating-demand observation via ESP32 MQTT RX | Implemented; live TRV demand accuracy not fully validated |
-| Manual ESP32 OpenTherm ID25 diagnostic tab | Implemented in v0.3.7; real hardware result still requires verification |
+| Manual ESP32 OpenTherm ID25 diagnostic tab | Implemented in v0.3.8; real hardware result still requires verification |
 
 ## Install
 

@@ -40,12 +40,17 @@ class FrontendSplitTests(unittest.TestCase):
         self.assertIn("backend-version-label-v1", ui)
         self.assertIn("cloud-room-rf-link-v1", ui)
         self.assertIn("cloud-room-rf-link-v1", loader)
+        self.assertIn("gateway-shared-tx-v1", loader)
         self.assertIn("class EvohomeDashboardHAPanel extends EvohomeDashboardPanel", ui)
         self.assertIn("evohome-dashboard-ha-panel", (COMP / "__init__.py").read_text())
 
         self.assertIn('["demand","Heating demand"]', ui)
         bundled = (COMP / "frontend" / "dashboard-legacy.js").read_text()
         self.assertIn('["demand","Heating demand"]', bundled)
+        self.assertIn("gateway-shared-tx-v1", bundled)
+        self.assertIn("gw-method-save", bundled)
+        self.assertIn("method_get", bundled)
+        self.assertIn("method_set", bundled)
 
     def test_frontend_assets_registered_once_without_restart(self):
         init = (COMP / "__init__.py").read_text(encoding="utf-8")

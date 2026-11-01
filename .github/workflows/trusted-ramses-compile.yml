@@ -6,10 +6,9 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
     paths:
-      - 'firmware/arduino-wroom32e/**'
-      - '.github/workflows/ramses-arduino-wroom32e.yml'
-      - '.github/workflows/trusted-ramses-compile.yml'
-      - '.github/workflows/publish-ramses-arduino-v0.4-beta.yml'
+      # Compiled gateway sources only: documentation and CI edits should
+      # never allocate Arduino toolchains or the self-hosted runner.
+      - 'firmware/arduino-wroom32e/RamsesGateway/**'
 
 permissions:
   contents: read

@@ -19,6 +19,17 @@ MANIFEST = COMP + "manifest.json"
 def require_docs(changed: list[str], version: str, readme: str, changelog: str, guide: str) -> None:
     runtime = any(p.startswith(COMP) and p != MANIFEST for p in changed)
     manifest_changed = MANIFEST in changed
+    firmware_code = any(
+        p.startswith("firmware/arduino-wroom32e/RamsesGateway/")
+        or p.startswith("firmware/arduino-wroom32e/tests/")
+        or p.startswith("firmware/arduino-wroom32e/tools/")
+        for p in changed
+    )
+    if firmware_code:
+        if "README.md" not in changed:
+            raise ValueError("Firmware code changes require a root README.md update")
+        if "firmware/arduino-wroom32e/README.md" not in changed:
+            raise ValueError("Firmware code changes require firmware README update")
     if not runtime and not manifest_changed:
         return
     if "README.md" not in changed:

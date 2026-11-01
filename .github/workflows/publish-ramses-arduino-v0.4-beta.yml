@@ -27,6 +27,42 @@ jobs:
           persist-credentials: false
           fetch-depth: 2
 
+      - name: Reject already published firmware version before building
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from urllib.error import HTTPError
+          from urllib.request import Request, urlopen
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          tag = "ramses-arduino-v0.4.0-beta.37"
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": "Bearer " + os.environ["GH_TOKEN"],
+          }
+          for endpoint in (
+              f"/repos/{repo}/releases/tags/{tag}",
+              f"/repos/{repo}/git/ref/tags/{tag}",
+          ):
+              req = Request("https://api.github.com" + endpoint, headers=headers)
+              try:
+                  with urlopen(req, timeout=20) as response:
+                      response.read()
+              except HTTPError as e:
+                  if e.code == 404:
+                      continue
+                  raise
+              raise SystemExit(
+                  f"Firmware {tag} already exists. Bump the firmware release "
+                  "version before running this workflow; no compile performed."
+              )
+          print("New firmware release tag is available; compile permitted")
+          PY
       - name: Provision Node.js 24 for gateway JavaScript regression checks
         uses: actions/setup-node@v7
         with:

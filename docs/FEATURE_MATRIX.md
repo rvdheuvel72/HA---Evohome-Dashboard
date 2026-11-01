@@ -17,7 +17,8 @@
 | Advanced boiler settings | Catalog only | No verified TCC API control |
 | Language/Wi-Fi/factory reset | Catalog only | Physical controller |
 | Passive RF heat-demand observation | Implemented; live TRV accuracy still under test | ESP32 MQTT RX, not cloud control |
-| Manual OpenTherm ID25 test | Implemented in bundled HA panel v0.3.7; live hardware response unverified | Admin-only ESP32 LAN diagnostic; experimental RF TX |
+| Manual OpenTherm ID25 test | Implemented in bundled HA panel v0.3.8; FIFO Read-Ack observed in field test | Admin-only ESP32 LAN diagnostic; experimental RF TX |
+| Shared ID25 TX-method setting | FIFO by default; user can select UART | Gateway beta.38 persists setting in NVS; HA and gateway UI read/write same value; other RF TX paths unchanged |
 | Local/no-cloud heating control | Not implemented | RF monitoring/diagnostics do not replace Evohome controller |
 | HomeBoard integration | Deferred | Separate phase |
 

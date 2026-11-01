@@ -1,3 +1,20 @@
+## Beta.38: Persistent shared ID25 TX method (FIFO default)
+
+[RAMSES Arduino Gateway v0.4.0-beta.38](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.38)
+— ZIP: `RAMSES-Arduino-Gateway-v0.4.0-beta.38-ESP32-WROOM-32E.zip`.
+
+Experimental gateway-source ID25 one-shot tests use a **single NVS-persisted method**
+for both the gateway web page and Home Assistant integration v0.3.8.
+The default for existing installations without a saved preference and new
+installations is **Reference FIFO**. UART remains selectable for comparison.
+The gateway is authoritative: last **successful** save wins, including across
+reboots. A dedicated authenticated `GET/POST /api/v1/opentherm/tx-method`
+controls this preference without changing Wi-Fi/MQTT settings or restarting.
+One-shot POST no longer takes an independent method selection.
+Other RAMSES TX modes are unchanged. The existing one-shot 60-second cooldown,
+manual confirmation, read-only ID25 restriction and no automatic RF requests
+remain intact. See `RELEASE_NOTES_v0.4.0-beta.38.md`.
+
 ## Beta.37: Full diagnostic list restored
 
 [RAMSES Arduino Gateway v0.4.0-beta.37](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.37)

@@ -23,8 +23,8 @@ def register_commands(hass):
         ("errors", {}, "_errors"),
         ("refresh", {}, "_refresh"),
         ("gateway_id25", {vol.Required("host"): str, vol.Required("username"): str,
-                          vol.Required("password"): str, vol.Required("action"): vol.In(("status", "trigger")),
-                          vol.Optional("method", default="uart"): vol.In(("uart", "fifo"))}, "_gateway_id25"),
+                          vol.Required("password"): str, vol.Required("action"): vol.In(("status", "trigger", "method_get", "method_set")),
+                          vol.Optional("method"): vol.In(("uart", "fifo"))}, "_gateway_id25"),
         ("rf_zone_link", {vol.Required("index"): str,
                           vol.Required("system_id"): str,
                           vol.Required("zone_id"): str}, "_rf_zone_link"),
@@ -70,8 +70,16 @@ def register_commands(hass):
                                               "reason": "Configure an RF controller ID in Evohome options"}),
                     }
                 elif _method == "_gateway_id25":
+                    if msg["action"] == "trigger" and "method" in msg:
+                        raise ValueError(
+                            "Per-request TX method is obsolete; reload the HA dashboard "
+                            "and use the gateway-persisted shared setting"
+                        )
+                    if msg["action"] == "method_set" and "method" not in msg:
+                        raise ValueError("Choose FIFO or UART before saving")
                     result = await gateway_id25(hass, msg["host"], msg["username"],
-                                                msg["password"], msg["action"], msg["method"])
+                                                msg["password"], msg["action"],
+                                                msg.get("method", "fifo"))
                 elif _method == "_rf_zone_link":
                     # Select only an *existing* cloud room (stable system/zone
                     # identifiers), never guess cloud ordering from RF index.

@@ -1,4 +1,4 @@
-name: Release RAMSES Arduino v0.4.0 beta.37
+name: Release RAMSES Arduino v0.4.0 beta.38
 
 # Explicit release invocation only. Firmware/docs/HA pushes do not automatically
 # spend compute re-testing and rebuilding the same firmware release.
@@ -40,7 +40,7 @@ jobs:
           from urllib.request import Request, urlopen
 
           repo = os.environ["GITHUB_REPOSITORY"]
-          tag = "ramses-arduino-v0.4.0-beta.37"
+          tag = "ramses-arduino-v0.4.0-beta.38"
           headers = {
               "Accept": "application/vnd.github+json",
               "Authorization": "Bearer " + os.environ["GH_TOKEN"],
@@ -161,7 +161,7 @@ jobs:
               'OpenThermScan.h', 'RamsesReadRequest.h', 'RamsesBinding.h', 'RamsesThermostat.h', 'RamsesControllerIds.h', 'RamsesPeerDetection.h', 'RadioFrequency.h',
               'GatewayWebPage.h', 'GatewayWebScript.h', 'GatewayHostname.h',
               'GatewayDiscovery.h', 'GatewayRuntimeConfig.h',
-              'GatewaySecrets.example.h',
+              'GatewaySecrets.example.h', 'GatewayTxPreference.h',
               'GatewayDebug.h', 'RamsesPacketCapture.h',
           }
           available = {p.name for p in sources}
@@ -171,12 +171,12 @@ jobs:
           if not binaries:
               raise SystemExit('No compiled ESP32 firmware binaries')
           docs = ['README.md', 'READ_ONLY_OPENTHERM.md',
-                  'RELEASE_NOTES_v0.4.0-beta.37.md']
+                  'RELEASE_NOTES_v0.4.0-beta.38.md']
           for name in docs:
               assert (root / name).is_file(), f'Missing {name}'
           out = Path('dist')
           out.mkdir(exist_ok=True)
-          name = 'RAMSES-Arduino-Gateway-v0.4.0-beta.37-ESP32-WROOM-32E.zip'
+          name = 'RAMSES-Arduino-Gateway-v0.4.0-beta.38-ESP32-WROOM-32E.zip'
           bundle = out / name
           with ZipFile(bundle, 'w', compression=ZIP_DEFLATED, compresslevel=9) as z:
               for p in sources:
@@ -228,7 +228,7 @@ jobs:
               if review_disposition(reviews, comments, head) != "reviewed":
                   raise SystemExit(
                       f"PR #{number} has no COMPLETED Codex review for {head}; "
-                      "quota deferrals are not accepted for beta.37")
+                      "quota deferrals are not accepted for beta.38")
           print("Beta.37 release gate: completed exact-head Codex review required")
           PY
 
@@ -258,8 +258,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAG="ramses-arduino-v0.4.0-beta.37"
-          FILE="RAMSES-Arduino-Gateway-v0.4.0-beta.37-ESP32-WROOM-32E.zip"
+          TAG="ramses-arduino-v0.4.0-beta.38"
+          FILE="RAMSES-Arduino-Gateway-v0.4.0-beta.38-ESP32-WROOM-32E.zip"
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "::error::Release $TAG already exists: do not overwrite an immutable beta. Bump beta number for another build."
             exit 1
@@ -268,12 +268,12 @@ jobs:
             echo "::error::Beta tag ${TAG} exists already. Bump beta version; never reuse a stale tag."
             exit 1
           fi
-          cp firmware/arduino-wroom32e/RELEASE_NOTES_v0.4.0-beta.37.md "$RUNNER_TEMP/beta37-release-notes.md"
+          cp firmware/arduino-wroom32e/RELEASE_NOTES_v0.4.0-beta.38.md "$RUNNER_TEMP/beta38-release-notes.md"
           gh release create "$TAG" \
             "dist/$FILE" "dist/$FILE.sha256" \
             --target "$GITHUB_SHA" \
-            --title "RAMSES Arduino Gateway v0.4.0-beta.37 (ESP32-WROOM-32E)" \
-            --notes-file "$RUNNER_TEMP/beta37-release-notes.md" \
+            --title "RAMSES Arduino Gateway v0.4.0-beta.38 (ESP32-WROOM-32E)" \
+            --notes-file "$RUNNER_TEMP/beta38-release-notes.md" \
             --prerelease
 
       - name: Add published date in CET/CEST to beta description
@@ -281,7 +281,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         shell: bash
-        run: python3 scripts/release_local_time.py --tag ramses-arduino-v0.4.0-beta.37
+        run: python3 scripts/release_local_time.py --tag ramses-arduino-v0.4.0-beta.38
 
       - name: Verify release exists and has both downloads
         env:
@@ -290,8 +290,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAG="ramses-arduino-v0.4.0-beta.37"
-          FILE="RAMSES-Arduino-Gateway-v0.4.0-beta.37-ESP32-WROOM-32E.zip"
+          TAG="ramses-arduino-v0.4.0-beta.38"
+          FILE="RAMSES-Arduino-Gateway-v0.4.0-beta.38-ESP32-WROOM-32E.zip"
           gh release view "$TAG" --json isPrerelease,assets \
             --jq '.isPrerelease == true' | grep -Fx true
           gh release view "$TAG" --json assets --jq '.assets[].name' | grep -Fx "$FILE"

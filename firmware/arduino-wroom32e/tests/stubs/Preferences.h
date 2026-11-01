@@ -22,6 +22,13 @@ public:
     const auto* p=reinterpret_cast<const unsigned char*>(ptr);
     memory_[ns_+":"+key]=std::vector<unsigned char>(p,p+n);++writes_;return n;
   }
+  uint8_t getUChar(const char* key,uint8_t fallback=0){
+    auto it=memory_.find(ns_+":"+key);
+    return it!=memory_.end()&&!it->second.empty()?it->second[0]:fallback;
+  }
+  size_t putUChar(const char* key,uint8_t value){
+    memory_[ns_+":"+key]={value};++writes_;return 1;
+  }
   bool getBool(const char* key,bool fallback=false){
     auto it=memory_.find(ns_+":"+key);
     return it!=memory_.end()&&!it->second.empty()?(it->second[0]!=0):fallback;

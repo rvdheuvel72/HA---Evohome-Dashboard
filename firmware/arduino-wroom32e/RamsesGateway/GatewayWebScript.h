@@ -621,11 +621,43 @@ function refreshThermostat(){if(el('thermostat-panel').open)scheduled('thermosta
 el('thermostat-panel').addEventListener('toggle',refreshThermostat);
 setInterval(refreshThermostat,10000);
 
+let oneShotMethodEditing=false;
+async function loadSharedOneShotMethod(){
+ const r=await fetch('/api/v1/opentherm/tx-method',{cache:'no-store'});
+ if(!r.ok)throw Error('Method GET HTTP '+r.status);
+ const p=await r.json();
+ if(!oneShotMethodEditing)el('one-shot-method').value=p.method;
+ set('one-shot-method-status','Shared gateway setting: '+p.method+
+   ' · saved in ESP32 NVS · last save wins');
+ return p.method;
+}
+el('one-shot-method').addEventListener('change',()=>{
+ oneShotMethodEditing=true;
+ set('one-shot-method-status','Unsaved selection — click Save shared method');
+});
+el('one-shot-method-save').addEventListener('click',async()=>{
+ const button=el('one-shot-method-save');
+ button.disabled=true;
+ try {
+  const selected=el('one-shot-method').value;
+  const r=await fetch('/api/v1/opentherm/tx-method',{
+   method:'POST',
+   headers:{'X-Gateway-Config':'tx-method','Content-Type':'application/x-www-form-urlencoded'},
+   body:new URLSearchParams({method:selected}).toString()
+  });
+  const p=await r.json();
+  if(!r.ok)throw Error(p.error||('HTTP '+r.status));
+  oneShotMethodEditing=false;
+  await loadSharedOneShotMethod();
+ }catch(e){set('one-shot-method-status','Save failed: '+e.message)}
+ finally{button.disabled=false}
+});
 async function updateOneShot(){
  try{
   const r=await fetch('/api/v1/opentherm/one-shot',{cache:'no-store'});
   if(!r.ok)throw new Error('HTTP '+r.status);
   const p=await r.json();
+  await loadSharedOneShotMethod();
   const available=p.ready && !['queued','awaiting_reply'].includes(p.status) &&
     Number(p.cooldown_ms)===0;
   el('one-shot-send').disabled=!el('one-shot-confirm').checked||!available;
@@ -663,7 +695,7 @@ el('one-shot-send').addEventListener('click',async()=>{
   const r=await fetch('/api/v1/opentherm/one-shot',{
    method:'POST',
    headers:{'X-Gateway-Config':'one-shot','Content-Type':'application/x-www-form-urlencoded'},
-   body:'confirm=experimental-single-read-25&method='+encodeURIComponent(el('one-shot-method').value)
+   body:'confirm=experimental-single-read-25'
   });
   const body=await r.json();
   if(!r.ok)throw new Error(body.error||('HTTP '+r.status));

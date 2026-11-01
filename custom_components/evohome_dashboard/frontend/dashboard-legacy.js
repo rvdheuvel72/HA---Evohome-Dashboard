@@ -1,3 +1,4 @@
+/* EVOHOME_UI_FEATURE: gateway-shared-tx-v1 */
 /* EVOHOME_UI_FEATURE: gateway-id25-v1 */
 /* Evohome Dashboard — original, dependency-free Home Assistant custom panel. */
 const EVOHOME_UI_SOURCE = "Bundled";
@@ -61,7 +62,7 @@ class EvohomeDashboardPanel extends HTMLElement {
     this.banner = ""; this.loading = false; this.modal = null;
     this.schedule = null; this.scheduleSystem = ""; this.scheduleZone = "";
     this.activeDay = "monday"; this.timer = null; this.refreshing = false;
-    this.gatewayHost = ""; this.gatewayUsername = ""; this.gatewayPassword = ""; this.gatewayMethod = "uart";
+    this.gatewayHost = ""; this.gatewayUsername = ""; this.gatewayPassword = ""; this.gatewayMethod = "fifo"; this.gatewayMethodLoaded = false; this.gatewayMethodNotice = "Read setting to load gateway preference";
     this.shadowRoot.addEventListener("click", e => this.onClick(e));
     this.shadowRoot.addEventListener("change", e => this.onChange(e));
     this.shadowRoot.addEventListener("input", e => this.onGatewayInput(e));
@@ -249,7 +250,8 @@ class EvohomeDashboardPanel extends HTMLElement {
       '<section class="card"><div class="setting"><label>Gateway LAN IPv4 address <input id="gw-ip" placeholder="192.168.1.100" value="'+esc(this.gatewayHost||"")+'"></label></div>'+
       '<div class="setting"><label>Gateway username <input id="gw-user" autocomplete="off" value="'+esc(this.gatewayUsername||"")+'"></label></div>'+
       '<div class="setting"><label>Gateway password <input id="gw-password" type="password" autocomplete="off" placeholder="Gateway Basic Auth password" value="'+esc(this.gatewayPassword||"")+'"></label></div>'+
-      '<div class="setting"><label>Transmission method <select id="gw-method"><option value="uart" '+(this.gatewayMethod!=="fifo"?"selected":"")+'>UART</option><option value="fifo" '+(this.gatewayMethod==="fifo"?"selected":"")+'>Reference FIFO</option></select></label></div>'+
+      '<div class="setting"><label>Shared ID25 transmission method <select id="gw-method"><option value="fifo" '+(this.gatewayMethod==="fifo"?"selected":"")+'>Reference FIFO</option><option value="uart" '+(this.gatewayMethod==="uart"?"selected":"")+'>UART (experimental)</option></select></label></div>'+
+      '<div class="gridbuttons"><button class="btn" data-action="gw-method-load">Read shared setting</button><button class="btn" data-action="gw-method-save">Save shared setting</button></div><p class="caption">'+esc(this.gatewayMethodNotice)+' · Saved on ESP32 NVS; last successful save from HA or gateway wins.</p>'+
       '<p class="caption">The one-shot command queues a real RF transmission using the observed Evohome identity. It is experimental, not a passive read. The gateway must have strong Basic Auth enabled and permit TX.</p>'+
       '<div class="gridbuttons" style="margin-top:18px"><button class="btn" data-action="gw-status">Read status</button>'+
       '<button class="btn warn" data-action="gw-trigger">Run ID25 test</button></div></section>'+
@@ -310,7 +312,7 @@ class EvohomeDashboardPanel extends HTMLElement {
     const node=event.target.closest("[data-action]");if(!node || this.loading)return;
     const action=node.dataset.action;
     if(action==="tab"){this.tab=node.dataset.tab;this.draw();if(this.tab==="errors")this.loadErrors();return;}
-    if(action==="gw-status" || action==="gw-trigger"){
+    if(["gw-status","gw-trigger","gw-method-load","gw-method-save"].includes(action)){
       const ip=this.shadowRoot.querySelector("#gw-ip");
       const username=this.shadowRoot.querySelector("#gw-user");
       const password=this.shadowRoot.querySelector("#gw-password");
@@ -319,16 +321,35 @@ class EvohomeDashboardPanel extends HTMLElement {
       this.gatewayUsername=username?.value||"";
       const credential=password?.value||"";
       this.gatewayPassword=credential;
-      const selectedMethod=method?.value||this.gatewayMethod||"uart";
+      const selectedMethod=method?.value||this.gatewayMethod||"fifo";
       this.gatewayMethod=selectedMethod;
       if(action==="gw-trigger" && !confirm("Transmit one experimental OpenTherm ID25 read via the gateway?"))return;
       this.loading=true;this.draw();
       try{
+        if(["gw-method-load","gw-method-save","gw-status","gw-trigger"].includes(action)){
+          try{
+            const pref=await this.ws("gateway_id25",{
+              host:this.gatewayHost,username:this.gatewayUsername,password:credential,
+              action:action==="gw-method-save"?"method_set":"method_get",method:selectedMethod
+            });
+            this.gatewayMethod=pref.method;
+            this.gatewayMethodLoaded=true;
+            this.gatewayMethodNotice="Gateway setting: "+pref.method+" (persistent)";
+            if(action==="gw-method-load" || action==="gw-method-save"){
+              this.banner=action==="gw-method-save"?"Shared method saved on ESP32":"Shared method loaded from ESP32";
+              return;
+            }
+          }catch(e){
+            if(action!=="gw-status")throw e;
+            this.gatewayMethodLoaded=false;
+            this.gatewayMethodNotice="Shared setting unavailable: "+(e.message||String(e));
+          }
+        }
         this.gatewayId25Result=await this.ws("gateway_id25",{
           host:this.gatewayHost,username:this.gatewayUsername,password:credential,
-          action:action==="gw-trigger"?"trigger":"status",method:selectedMethod
+          action:action==="gw-trigger"?"trigger":"status"
         });
-        this.banner=action==="gw-trigger"?"ID25 request queued. Select Read status for the actual result.":"Gateway ID25 status retrieved.";
+        this.banner=action==="gw-trigger"?"ID25 request queued with gateway-saved method. Select Read status for the actual result.":"Gateway ID25 status retrieved.";
       }catch(e){this.banner="Action failed: "+(e.message||"Gateway test failed");}
       finally{this.loading=false;this.draw();}
       return;

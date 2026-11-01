@@ -80,6 +80,7 @@
 #define GW_TIMEZONE "Europe/Amsterdam"
 #endif
 #include "GatewayRuntimeConfig.h"
+#include "GatewayTxPreference.h"
 #include "RamsesPacketCapture.h"
 #include "OpenThermGateway.h"
 
@@ -92,7 +93,7 @@ constexpr uint32_t HEARTBEAT_MS = 15000;
 constexpr uint32_t RADIO_RECOVERY_RETRY_MS = 5000;
 constexpr uint32_t RX_HEALTH_SAMPLE_MS = 5000;
 constexpr uint8_t DEBUG_QUEUE_SIZE = 32;
-constexpr char FW_VERSION[] = "0.4.0-beta.37";
+constexpr char FW_VERSION[] = "0.4.0-beta.38";
 constexpr uint32_t MDNS_RETRY_MS = 15000;
 constexpr uint32_t MQTT_STATE_INTERVAL_MS = 15000;
 
@@ -1042,6 +1043,41 @@ void httpCvReadBatch(){
   web.send(202,"application/json",
     "{\"queued\":true,\"read_only\":true,\"requests_max\":16,\"minimum_spacing_ms\":15000}");
 }
+// A global persistent preference for the experimental one-shot ID25 path.
+// Separate from full settings: no Wi-Fi restart or queued config rollback.
+void httpOtTxMethod(){
+  if(!authorized())return;
+  if(web.method()==HTTP_GET){
+    web.sendHeader("Cache-Control","no-store");
+    web.send(200,"application/json",
+      String("{\"method\":\"")+gw_tx_pref::label(gw_tx_pref::read())+
+      "\",\"default\":\"fifo\",\"persistent\":true}");
+    return;
+  }
+  if(!web.hasHeader("X-Gateway-Config") ||
+     web.header("X-Gateway-Config")!="tx-method" ||
+     !web.hasArg("method") || !gw_tx_pref::valid(web.arg("method"))){
+    web.send(400,"application/json","{\"error\":\"method_must_be_fifo_or_uart\"}");
+    return;
+  }
+  if(!configuration.current.webUser[0] ||
+     strlen(configuration.current.webPassword)<12 ||
+     strcmp(configuration.current.webPassword,
+            "CHANGE_TO_A_STRONG_PRIVATE_PASSWORD")==0){
+    web.send(403,"application/json","{\"error\":\"strong_web_auth_required\"}");
+    return;
+  }
+  const String choice=web.arg("method");
+  if(!gw_tx_pref::write(choice)){
+    web.send(500,"application/json","{\"error\":\"method_nvs_write_failed\"}");
+    return;
+  }
+  recordLog(GatewayDebug::INFO,(String("ID25 TX method saved in NVS: ")+choice).c_str());
+  web.sendHeader("Cache-Control","no-store");
+  web.send(200,"application/json",
+    String("{\"saved\":true,\"method\":\"")+choice+
+    "\",\"persistent\":true}");
+}
 void httpOtOneShot(){
   if(!authorized())return;
   if(web.method()==HTTP_GET){otGateway.sendOneShotStatus(web);return;}
@@ -1059,14 +1095,15 @@ void httpOtOneShot(){
     web.send(403,"application/json","{\"error\":\"strong_web_auth_required\"}");
     return;
   }
-  const String choice=web.arg("method");
-  ot_tx::Method method=ot_tx::ASYNC_UART;
-  if(choice=="fifo")method=ot_tx::REFERENCE_FIFO;
-  else if(choice!="uart"){
-    web.send(400,"application/json",
-      "{\"error\":\"one_shot_method_must_be_uart_or_fifo\"}");
+  if(web.hasArg("method")){
+    web.send(409,"application/json",
+      "{\"error\":\"per_request_method_not_supported_update_ha_to_v0_3_8\"}");
     return;
   }
+  // Always use the one gateway-owned preference; callers cannot override it.
+  // Both HA and the ESP32 UI change it via the authenticated method endpoint.
+  const ot_tx::Method method=gw_tx_pref::read()==gw_tx_pref::UART?
+    ot_tx::ASYNC_UART:ot_tx::REFERENCE_FIFO;
   if(!radioReady || !otGateway.requestOneShot(method)){
     web.send(409,"application/json",
       "{\"error\":\"one_shot_not_ready_or_in_cooldown_check_status\"}");
@@ -2008,6 +2045,8 @@ void setup() {
   web.on("/api/v1/opentherm/paired-read", HTTP_POST, httpPairedBridgeRead);
   web.on("/api/v1/opentherm/cv-batch", HTTP_GET, httpCvReadBatch);
   web.on("/api/v1/opentherm/cv-batch", HTTP_POST, httpCvReadBatch);
+  web.on("/api/v1/opentherm/tx-method", HTTP_GET, httpOtTxMethod);
+  web.on("/api/v1/opentherm/tx-method", HTTP_POST, httpOtTxMethod);
   web.on("/api/v1/opentherm/one-shot", HTTP_GET, httpOtOneShot);
   web.on("/api/v1/opentherm/one-shot", HTTP_POST, httpOtOneShot);
   web.on("/api/v1/opentherm/scan", HTTP_POST, httpOtScan);

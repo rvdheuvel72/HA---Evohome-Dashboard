@@ -63,10 +63,10 @@ a{color:#a9d5ff}
 <label class="setting-check"><input type="checkbox" id="one-shot-confirm"> I verified the R8810A RF ID and my unique gateway 18: identity, or confirmed the additional 01: controller binding. I authorize ONE manually triggered read-only RF transmission.</label>
 <div class="controls"><label class="field">Single-test transmit method
 <select id="one-shot-method" aria-label="One-shot transmit method">
-<option value="uart">Original asynchronous UART / GDO0</option>
-<option value="fifo">Reference FIFO (upstream bit-aligned, 60 RF bytes)</option>
-</select></label><button type="button" id="one-shot-send" disabled>Test gateway-source ID25</button><a href="/api/v1/opentherm/one-shot" target="_blank">One-shot diagnostic JSON</a></div>
-<small>One click = exactly one RF request using the selected method; never both. Each method shares a fixed nominal -10 dBm 868 MHz PATABLE value. A 433M PCB's radiated power at 868 MHz remains unknown. Keep automatic scans/polling off.</small>
+<option value="fifo" selected>Reference FIFO (upstream bit-aligned, 60 RF bytes)</option>
+<option value="uart">Original asynchronous UART / GDO0 (experimental)</option>
+</select></label><button type="button" id="one-shot-method-save">Save shared method</button><span id="one-shot-method-status" class="muted">Gateway preference: loading...</span><button type="button" id="one-shot-send" disabled>Test gateway-source ID25</button><a href="/api/v1/opentherm/one-shot" target="_blank">One-shot diagnostic JSON</a></div>
+<small>Method is persisted on the ESP32 and shared by this page and Home Assistant; last successful save wins. One click = exactly one RF request using the saved method; never both. Each method shares a fixed nominal -10 dBm 868 MHz PATABLE value. A 433M PCB's radiated power at 868 MHz remains unknown. Keep automatic scans/polling off.</small>
 <p id="one-shot-result" aria-live="polite" class="muted">No request attempted.</p>
 <pre id="one-shot-diag" aria-live="polite">TX diagnostic data appears after one request.</pre>
 <pre id="one-shot-compare">UART/FIFO A-B comparison will appear here.</pre>

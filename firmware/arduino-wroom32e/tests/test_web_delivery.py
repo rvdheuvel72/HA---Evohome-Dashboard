@@ -91,6 +91,8 @@ assert "lastGoodRaw_" in (SKETCH/"OpenThermGateway.h").read_text()
 assert "Last confirmed:" in script
 assert "per_request_method_not_supported_update_ha_to_v0_3_8" in ino
 assert "loadSharedOneShotMethod" in script
+settingsLoader=script[script.index("async function loadConfig()"):script.index("el(\'cfg\').addEventListener")]
+assert "await loadSharedOneShotMethod()" in settingsLoader
 assert 'body:\'confirm=experimental-single-read-25\'' in script
 assert "15s minimum RF spacing" in script
 catalog = script[script.index("const cvCatalog="):script.index("let cvPosting=")]

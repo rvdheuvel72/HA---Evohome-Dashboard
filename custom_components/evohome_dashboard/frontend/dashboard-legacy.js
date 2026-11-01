@@ -1,3 +1,4 @@
+/* EVOHOME_UI_FEATURE: gateway-shared-tx-v1 */
 /* EVOHOME_UI_FEATURE: gateway-id25-v1 */
 /* Evohome Dashboard — original, dependency-free Home Assistant custom panel. */
 const EVOHOME_UI_SOURCE = "Bundled";

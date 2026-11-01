@@ -31,10 +31,21 @@ class ReviewGateContract(unittest.TestCase):
                 for job in jobs:
                     self.assertIn("  " + job + ":\n    needs: [review-preflight]\n", text)
 
-    def test_feature_push_cannot_bypass_review(self):
-        text = (WORKFLOWS / "ramses-arduino-wroom32e.yml").read_text()
-        self.assertIn("  push:\n    branches: [main]\n", text)
-        self.assertIn("  pull_request:\n", text)
+    def test_gateway_compiles_only_for_firmware_source_or_manual_release(self):
+        manual = (WORKFLOWS / "ramses-arduino-wroom32e.yml").read_text()
+        trusted = (WORKFLOWS / "trusted-ramses-compile.yml").read_text()
+        publisher = (WORKFLOWS / "publish-ramses-arduino-v0.4-beta.yml").read_text()
+        ha = (WORKFLOWS / "phase1-self-hosted.yml").read_text()
+        for workflow in (manual, publisher):
+            head = workflow.split("\npermissions:", 1)[0].split("\n# Superseded", 1)[0]
+            self.assertIn("  workflow_dispatch:", head)
+            self.assertNotIn("  push:", head)
+            self.assertNotIn("  pull_request:", head)
+        self.assertIn("  pull_request_target:", trusted)
+        self.assertIn("firmware/arduino-wroom32e/RamsesGateway/**", trusted)
+        self.assertNotIn("firmware/arduino-wroom32e/**", trusted)
+        # Root README maintenance must not trigger the HA runtime test matrix.
+        self.assertNotIn("      - 'README.md'\n", ha)
 
     def test_final_review_is_retained(self):
         text = (WORKFLOWS / "codex-p1-p2-review.yml").read_text()

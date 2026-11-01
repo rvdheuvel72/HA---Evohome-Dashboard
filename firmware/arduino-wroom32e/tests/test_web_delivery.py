@@ -85,6 +85,10 @@ assert "ramses_uart_fifo::fits(wireLen)" in (SKETCH/"OpenThermGateway.h").read_t
 assert "gw_tx_pref::read()==gw_tx_pref::FIFO" in (SKETCH/"OpenThermGateway.h").read_text()
 assert "sendFrameFifo(wire,size,false,d)" in ino
 assert "MAX_ATTEMPTS=3" in (SKETCH/"CvReadBatch.h").read_text()
+assert '"last_good_value"' not in ino  # exposed by OpenThermGateway, not generic status
+assert "last_good_value" in (SKETCH/"OpenThermGateway.h").read_text()
+assert "lastGoodRaw_" in (SKETCH/"OpenThermGateway.h").read_text()
+assert "Last confirmed:" in script
 assert "per_request_method_not_supported_update_ha_to_v0_3_8" in ino
 assert "loadSharedOneShotMethod" in script
 assert 'body:\'confirm=experimental-single-read-25\'' in script

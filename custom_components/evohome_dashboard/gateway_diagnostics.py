@@ -11,6 +11,36 @@ PATH = "/api/v1/opentherm/one-shot"
 METHOD_PATH = "/api/v1/opentherm/tx-method"
 
 
+# Gateway error codes are more useful than a bare HTTP status. They contain
+# no credentials; never forward the request URL, headers or Basic Auth data.
+_GATEWAY_ERROR_HINTS = {
+    "per_request_method_not_supported_update_ha_to_v0_3_8":
+        "The gateway rejected a per-test transport choice; update/reload the HA dashboard and use the global setting.",
+    "one_shot_not_ready_or_in_cooldown_check_status":
+        "The ID25 read is not ready or remains in its cooldown; read status before retrying.",
+    "rf_tx_disabled_or_not_configured":
+        "RF read-request transmission is disabled or the gateway radio is not configured.",
+    "previous_changes_waiting_for_wifi_confirmation":
+        "Another gateway configuration change is awaiting Wi-Fi confirmation.",
+}
+
+
+async def _raise_gateway_http_error(response: aiohttp.ClientResponse, operation: str) -> None:
+    """Surface the gateway's bounded error code; preserve HTTP status if absent."""
+    reason = ""
+    try:
+        data = await response.json(content_type=None)
+        if isinstance(data, dict) and isinstance(data.get("error"), str):
+            code = data["error"]
+            # Do not echo arbitrary remote text (or credential-like material).
+            if 0 < len(code) <= 100 and all(c.isalnum() or c == "_" for c in code):
+                reason = _GATEWAY_ERROR_HINTS.get(code, code)
+    except (ValueError, aiohttp.ClientError):
+        pass
+    detail = f": {reason}" if reason else ""
+    raise ValueError(f"{operation} (HTTP {response.status}){detail}")
+
+
 def validate_gateway_ip(host: str) -> str:
     """Accept only private IPv4 LAN destinations, never arbitrary URLs or DNS."""
     try:
@@ -43,7 +73,7 @@ async def gateway_id25(hass, host: str, username: str, password: str, action: st
                 if response.status == 404:
                     raise ValueError("Shared method requires ESP32 gateway firmware beta.38 or later")
                 if response.status != 200:
-                    raise ValueError(f"Gateway method read failed (HTTP {response.status})")
+                    await _raise_gateway_http_error(response, "Gateway method read failed")
                 return await response.json(content_type=None)
         if action == "method_set":
             async with session.post(
@@ -53,12 +83,12 @@ async def gateway_id25(hass, host: str, username: str, password: str, action: st
                 **kwargs,
             ) as response:
                 if response.status != 200:
-                    raise ValueError(f"Gateway method save failed (HTTP {response.status})")
+                    await _raise_gateway_http_error(response, "Gateway method save failed")
                 return await response.json(content_type=None)
         if action == "status":
             async with session.get(f"http://{gateway}{PATH}", **kwargs) as response:
                 if response.status != 200:
-                    raise ValueError(f"Gateway returned HTTP {response.status}")
+                    await _raise_gateway_http_error(response, "Gateway status read failed")
                 return await response.json(content_type=None)
         async with session.post(
             f"http://{gateway}{PATH}",
@@ -67,7 +97,7 @@ async def gateway_id25(hass, host: str, username: str, password: str, action: st
             **kwargs,
         ) as response:
             if response.status != 202:
-                raise ValueError(f"Gateway rejected ID25 test (HTTP {response.status})")
+                await _raise_gateway_http_error(response, "Gateway rejected ID25 test")
             return await response.json(content_type=None)
     except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
         raise ValueError("Gateway unreachable or request timed out") from exc

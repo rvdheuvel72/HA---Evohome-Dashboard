@@ -41,6 +41,9 @@ class ReviewGateContract(unittest.TestCase):
             self.assertIn("  workflow_dispatch:", head)
             self.assertNotIn("  push:", head)
             self.assertNotIn("  pull_request:", head)
+        self.assertIn("Reject already published firmware version before building", publisher)
+        self.assertLess(publisher.index("Reject already published firmware version before building"),
+                        publisher.index("Set up Arduino CLI"))
         self.assertIn("  pull_request_target:", trusted)
         self.assertIn("firmware/arduino-wroom32e/RamsesGateway/**", trusted)
         self.assertIn("Require firmware README updates before provisioning Arduino", trusted)

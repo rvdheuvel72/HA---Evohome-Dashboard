@@ -80,4 +80,41 @@ inline bool encodePrimedReference(const uint8_t* serial,size_t serialLen,
   used=PRIME_LEN+frameLength+IDLE_LEN;
   return used==REFERENCE_RF_LEN;
 }
+// The global FIFO method supports any encoded RAMSES frame which fits
+// entirely within the CC1101 64-byte hardware FIFO. No streaming/underflow.
+constexpr size_t FIFO_CAPACITY=64;
+constexpr size_t MAX_SERIAL_LEN=((FIFO_CAPACITY-PRIME_LEN-IDLE_LEN)*8)/10;
+static_assert(MAX_SERIAL_LEN==47,"FIFO frame budget changed");
+inline bool fits(size_t serialLength) {
+  return serialLength>0 && serialLength<=MAX_SERIAL_LEN;
+}
+inline bool encodePrimedVariable(const uint8_t* serial,size_t serialLen,
+                                 uint8_t* out,size_t capacity,size_t& used) {
+  used=0;
+  if(!serial || !out || !fits(serialLen))return false;
+  const size_t frameLength=(serialLen*10u+7u)/8u;
+  const size_t total=PRIME_LEN+frameLength+IDLE_LEN;
+  if(capacity<total)return false;
+  const uint8_t prefix[PRIME_LEN]={0x00,0xFF,0x00,0x00};
+  for(size_t i=0;i<PRIME_LEN;i++)out[i]=prefix[i];
+  // Fill unused padding bits with MARK (idle high) rather than zeros.
+  for(size_t i=0;i<frameLength;i++)out[PRIME_LEN+i]=0xFF;
+  size_t bitPos=0;
+  const auto putBit=[&](uint8_t bit){
+    const size_t index=PRIME_LEN+(bitPos>>3);
+    const uint8_t mask=static_cast<uint8_t>(0x80u>>(bitPos&7u));
+    if(bit)out[index]|=mask;
+    else out[index]&=static_cast<uint8_t>(~mask);
+    bitPos++;
+  };
+  for(size_t i=0;i<serialLen;i++){
+    putBit(1); // MARK
+    putBit(0); // START
+    for(unsigned b=0;b<8;b++)
+      putBit(static_cast<uint8_t>((serial[i]>>b)&1u));
+  }
+  out[PRIME_LEN+frameLength]=0xFF;
+  used=total;
+  return bitPos==serialLen*10u;
+}
 } // namespace ramses_uart_fifo

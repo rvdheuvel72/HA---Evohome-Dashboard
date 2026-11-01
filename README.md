@@ -53,6 +53,21 @@ In the administrator-only **Evohome → Gateway test** tab, enter the ESP32 gate
 
 This is a **manual, active RF transmission**, not a passive read and not a Resideo cloud command. It sends one OpenTherm ID25 read request via the gateway; a queued request or local TX completion **does not prove** that the R8810A received or answered it. Compare actual response details and gateway logs. No automatic pairing, OpenTherm write, or heating-control change is introduced. **No ESP32 firmware update is bundled with the HACS integration.** This test is on the **Evohome sidebar panel**, not guaranteed in the optional standalone HACS Lovelace card. See [user guide](docs/USER_GUIDE.md) and [firmware guide](firmware/arduino-wroom32e/README.md).
 
+## Latest ESP32 gateway firmware (separate from HACS)
+
+The gateway firmware is an independent project within this repository. The
+latest version documented in [the firmware README](firmware/arduino-wroom32e/README.md)
+is **v0.4.0-beta.37**, whose *Read all data* diagnostic lists 16 explicit
+OpenTherm read-only IDs plus passive ID0 observation. It uses a minimum
+15-second interval between active requests. The HA v0.3.7 ID25 test page
+calls the existing gateway **one-shot** endpoint; it does not replace the
+gateway's broader scan, deliver firmware, or imply verified boiler control.
+Check [ESP32 firmware releases](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases)
+for current downloadable firmware packages; names beginning with
+`ramses-arduino-v` are firmware, whereas plain `vX.Y.Z` names refer to
+the HA integration. Do not assume the most recently published GitHub release
+is a gateway firmware download.
+
 ## What is included
 
 | Feature | Phase 1 |

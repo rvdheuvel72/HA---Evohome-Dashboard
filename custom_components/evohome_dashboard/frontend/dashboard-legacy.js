@@ -61,8 +61,10 @@ class EvohomeDashboardPanel extends HTMLElement {
     this.banner = ""; this.loading = false; this.modal = null;
     this.schedule = null; this.scheduleSystem = ""; this.scheduleZone = "";
     this.activeDay = "monday"; this.timer = null; this.refreshing = false;
+    this.gatewayHost = ""; this.gatewayUsername = ""; this.gatewayPassword = ""; this.gatewayMethod = "uart";
     this.shadowRoot.addEventListener("click", e => this.onClick(e));
     this.shadowRoot.addEventListener("change", e => this.onChange(e));
+    this.shadowRoot.addEventListener("input", e => this.onGatewayInput(e));
   }
   set hass(value) {
     this._hass = value;
@@ -247,7 +249,7 @@ class EvohomeDashboardPanel extends HTMLElement {
       '<section class="card"><div class="setting"><label>Gateway LAN IPv4 address <input id="gw-ip" placeholder="192.168.1.100" value="'+esc(this.gatewayHost||"")+'"></label></div>'+
       '<div class="setting"><label>Gateway username <input id="gw-user" autocomplete="off" value="'+esc(this.gatewayUsername||"")+'"></label></div>'+
       '<div class="setting"><label>Gateway password <input id="gw-password" type="password" autocomplete="off" placeholder="Gateway Basic Auth password" value="'+esc(this.gatewayPassword||"")+'"></label></div>'+
-      '<div class="setting"><label>Transmission method <select id="gw-method"><option value="uart">UART</option><option value="fifo">Reference FIFO</option></select></label></div>'+
+      '<div class="setting"><label>Transmission method <select id="gw-method"><option value="uart" '+(this.gatewayMethod!=="fifo"?"selected":"")+'>UART</option><option value="fifo" '+(this.gatewayMethod==="fifo"?"selected":"")+'>Reference FIFO</option></select></label></div>'+
       '<p class="caption">The one-shot command queues a real RF transmission using the observed Evohome identity. It is experimental, not a passive read. The gateway must have strong Basic Auth enabled and permit TX.</p>'+
       '<div class="gridbuttons" style="margin-top:18px"><button class="btn" data-action="gw-status">Read status</button>'+
       '<button class="btn warn" data-action="gw-trigger">Run ID25 test</button></div></section>'+
@@ -317,7 +319,8 @@ class EvohomeDashboardPanel extends HTMLElement {
       this.gatewayUsername=username?.value||"";
       const credential=password?.value||"";
       this.gatewayPassword=credential;
-      const selectedMethod=method?.value||"uart";
+      const selectedMethod=method?.value||this.gatewayMethod||"uart";
+      this.gatewayMethod=selectedMethod;
       if(action==="gw-trigger" && !confirm("Transmit one experimental OpenTherm ID25 read via the gateway?"))return;
       this.loading=true;this.draw();
       try{
@@ -413,7 +416,17 @@ class EvohomeDashboardPanel extends HTMLElement {
       },"Weekly schedule saved and verified");this.schedule=null;this.draw();return;
     }
   }
+  onGatewayInput(event) {
+    const field=event.target;
+    if(field.id==="gw-ip")this.gatewayHost=field.value;
+    else if(field.id==="gw-user")this.gatewayUsername=field.value;
+    else if(field.id==="gw-password")this.gatewayPassword=field.value;
+  }
   async onChange(event) {
+    if(event.target.id==="gw-method"){
+      this.gatewayMethod=event.target.value;
+      return;
+    }
     const node=event.target;
     if(node.dataset.rfIndex!=null){
       this.pendingRfLinks[node.dataset.rfIndex]=node.value;

@@ -14,8 +14,6 @@ import ipaddress
 import json
 import re
 
-import aiohttp
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 IDS = (18, 25, 117)
 READ = "/api/v1/opentherm/paired-read"
@@ -125,6 +123,9 @@ class GatewayHTTP:
     """Aiohttp LAN transport; no proxy redirects, credential forwarding or URLs from WS."""
 
     def __init__(self, hass, host: str, username: str, password: str):
+        import aiohttp
+        from homeassistant.helpers.aiohttp_client import async_get_clientsession
+        self._aiohttp = aiohttp
         self.host = valid_gateway_host(host)
         self.session = async_get_clientsession(hass)
         self.auth = aiohttp.BasicAuth(username, password) if username and password else None
@@ -140,7 +141,7 @@ class GatewayHTTP:
             async with self.session.request(
                 method, f"http://{self.host}{path}",
                 auth=self.auth, data=fields, headers=headers, allow_redirects=False,
-                timeout=aiohttp.ClientTimeout(total=10),
+                timeout=self._aiohttp.ClientTimeout(total=10),
             ) as response:
                 if response.status in (301, 302, 303, 307, 308):
                     raise DiagnosticError("Gateway redirect refused")
@@ -162,7 +163,7 @@ class GatewayHTTP:
                 if not isinstance(result, dict):
                     raise DiagnosticError("Gateway returned unexpected JSON")
                 return result
-        except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+        except (self._aiohttp.ClientError, asyncio.TimeoutError) as err:
             raise DiagnosticError(f"Gateway connection failed ({type(err).__name__})") from None
 
     async def get(self, path):
@@ -281,10 +282,10 @@ class R8810aDiagnostic:
         self.reads.append(row)
 
     async def _run(self):
-        capture_started = False
+        capture_attempted = False
         try:
+            capture_attempted = True
             await self.api.post(CAPTURE + "/action", {"action": "start"}, "packet-capture")
-            capture_started = True
             for data_id in self._selected_ids:
                 await self._read(data_id)
             self.state = "complete"
@@ -296,7 +297,7 @@ class R8810aDiagnostic:
             self.state = "interrupted"
         finally:
             errors = []
-            if capture_started:
+            if capture_attempted:
                 self.stage = "Stopping and collecting RF capture"
                 try:
                     await self.api.post(CAPTURE + "/action", {"action": "stop"}, "packet-capture")
@@ -314,6 +315,8 @@ class R8810aDiagnostic:
                 except Exception as err:
                     errors.append("capture download: " + type(err).__name__)
             self.capture_error = "; ".join(errors) or None
+            if errors and self.state == "complete":
+                self.state = "interrupted"
             self.stage = "Completed" if self.state == "complete" else "Incomplete"
 
     async def stop(self):

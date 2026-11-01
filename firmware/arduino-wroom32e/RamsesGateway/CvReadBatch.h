@@ -12,8 +12,10 @@ constexpr uint8_t IDS[]={17,18,25,28,5,33,57,26,117,121,34,35,36,116,120,115};
 constexpr size_t COUNT=sizeof(IDS)/sizeof(IDS[0]);
 constexpr uint32_t SPACING_MS=ramses_bridge_read::COOLDOWN_MS;
 constexpr uint32_t BLOCK_TIMEOUT_MS=120000u;
+constexpr uint8_t MAX_ATTEMPTS=3; // one initial manual read + at most two timeout retries
 struct Item {
   uint8_t id=0;
+  uint8_t attempts=0;
   ramses_bridge_read::State state=ramses_bridge_read::IDLE;
   uint16_t raw=0;
   uint32_t updatedAtMs=0;
@@ -41,6 +43,7 @@ struct Batch {
   void queued() {
     if(!active||inflight||next>=COUNT)return;
     inflight=true;
+    ++items[next].attempts;
     items[next].state=ramses_bridge_read::QUEUED;
   }
   bool settle(const ramses_bridge_read::Probe& probe,
@@ -52,7 +55,12 @@ struct Batch {
     item.txPhase=tx.phase;
     item.txBytes=tx.written_bytes;
     item.txExpectedBytes=tx.expected_bytes;
-    inflight=false;next++;
+    inflight=false;
+    // Retries are ONLY for a manually authorized batch, ONLY on silence or
+    // local TX failure. Never retry a negative Read-Ack / unknown Data-ID.
+    const bool transient=(probe.state==ramses_bridge_read::TIMEOUT ||
+                          probe.state==ramses_bridge_read::TX_FAILED);
+    if(!(transient && item.attempts<MAX_ATTEMPTS))next++;
     dueMs=now+SPACING_MS;
     if(next==COUNT){active=false;completed=true;completedAtMs=now;}
     return true;

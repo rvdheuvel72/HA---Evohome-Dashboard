@@ -74,7 +74,7 @@ class FrontendSplitTests(unittest.TestCase):
 
     def test_independent_versions(self):
         back = json.loads((COMP / "manifest.json").read_text())
-        self.assertEqual(back["version"], "0.3.6")
+        self.assertEqual(back["version"], "0.3.7")
         self.assertEqual(back["requirements"], ["evohome-async==2.1.0"])
 
 

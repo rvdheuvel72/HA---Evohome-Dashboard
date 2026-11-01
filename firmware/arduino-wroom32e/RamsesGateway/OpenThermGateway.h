@@ -466,11 +466,19 @@ class OpenThermGateway {
   }
   void sendCvBatchStatus(WebServer& server,bool radioReady) {
     cv_read_batch::Batch snap;
+    uint16_t lastRaw[cv_read_batch::COUNT]={};
+    uint32_t lastAt[cv_read_batch::COUNT]={};
+    bool lastValid[cv_read_batch::COUNT]={};
     bool passiveChValid=false;
     uint16_t passiveChRaw=0;
     uint32_t passiveChAtMs=0;
     portENTER_CRITICAL(&mutex_);
     snap=cvBatch_;
+    for(size_t i=0;i<cv_read_batch::COUNT;i++){
+      lastRaw[i]=lastGoodRaw_[i];
+      lastAt[i]=lastGoodAtMs_[i];
+      lastValid[i]=lastGoodValid_[i];
+    }
     passiveChValid=passiveChValid_;
     passiveChRaw=passiveChRaw_;
     passiveChAtMs=passiveChAtMs_;
@@ -515,7 +523,7 @@ class OpenThermGateway {
         snprintf(row,sizeof(row),
           "%s{\"id\":%u,\"name\":\"%s\",\"state\":\"%s\","
           "\"raw\":%u,\"value\":%.3f,\"updated_at_ms\":%lu,"
-          "\"tx_phase\":\"%s\",\"tx_method\":\"%s\",\"tx_bytes\":%u,\"tx_expected_bytes\":%u,\"attempts\":%u,\"response_latency_ms\":%lu}",
+          "\"tx_phase\":\"%s\",\"tx_method\":\"%s\",\"tx_bytes\":%u,\"tx_expected_bytes\":%u,\"attempts\":%u,\"response_latency_ms\":%lu",
           i?",":"",id,ot_readonly::label(id),
           ramses_bridge_read::label(item.state),item.raw,
           static_cast<double>(value),static_cast<unsigned long>(item.updatedAtMs),
@@ -527,7 +535,7 @@ class OpenThermGateway {
         snprintf(row,sizeof(row),
           "%s{\"id\":%u,\"name\":\"%s\",\"state\":\"%s\","
           "\"raw\":%u,\"value\":null,\"updated_at_ms\":%lu,"
-          "\"tx_phase\":\"%s\",\"tx_method\":\"%s\",\"tx_bytes\":%u,\"tx_expected_bytes\":%u,\"attempts\":%u,\"response_latency_ms\":%lu}",
+          "\"tx_phase\":\"%s\",\"tx_method\":\"%s\",\"tx_bytes\":%u,\"tx_expected_bytes\":%u,\"attempts\":%u,\"response_latency_ms\":%lu",
           i?",":"",id,ot_readonly::label(id),
           ramses_bridge_read::label(item.state),item.raw,
           static_cast<unsigned long>(item.updatedAtMs),
@@ -536,6 +544,21 @@ class OpenThermGateway {
           static_cast<unsigned>(item.attempts),
           static_cast<unsigned long>(item.responseLatencyMs));
       server.sendContent(row);
+      float lastValue=0;
+      const bool lastHasValue=lastValid[i] &&
+        ot_readonly::fixedPoint(id,lastRaw[i],lastValue);
+      char previous[140];
+      if(lastHasValue)
+        snprintf(previous,sizeof(previous),
+          ",\"last_good_value\":%.3f,\"last_good_raw\":%u,\"last_good_at_ms\":%lu}",
+          static_cast<double>(lastValue),static_cast<unsigned>(lastRaw[i]),
+          static_cast<unsigned long>(lastAt[i]));
+      else
+        snprintf(previous,sizeof(previous),
+          ",\"last_good_value\":null,\"last_good_raw\":%u,\"last_good_at_ms\":%lu}",
+          static_cast<unsigned>(lastValid[i]?lastRaw[i]:0),
+          static_cast<unsigned long>(lastValid[i]?lastAt[i]:0));
+      server.sendContent(previous);
     }
     server.sendContent("]}");
     server.sendContent("");

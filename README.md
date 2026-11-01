@@ -136,6 +136,27 @@ Version 0.3.1 restores the built-in HA 2026.10 transport pin `evohome-async==2.1
 
 **After upgrading in HACS, restart Home Assistant and retry adding the integration.** If Resideo rate-limits the account, wait before retrying; repeated submissions can extend the lockout.
 
+## Separated HA and ESP32 CI
+
+Home Assistant integration changes use the **HA validation pipeline** and do
+not build Arduino firmware. Firmware documentation and CI configuration changes
+do not automatically compile the ESP32 either.
+
+Actual gateway sketch changes under
+`firmware/arduino-wroom32e/RamsesGateway/` receive **one trusted pre-merge
+ESP32 compile** (only after the exact-head Codex P1/P2 gate), so uncompiled
+firmware cannot silently merge. There is no duplicate automatic Arduino
+compile on PRs or pushes. A full gateway regression build is available
+manually via **Build RAMSES Arduino WROOM-32E → Run workflow**.
+
+The firmware beta release builder is **manual-only** via
+**Release RAMSES Arduino v0.4.0 beta.37 → Run workflow** on `main`.
+It independently validates and compiles the distributable firmware when
+publishing; documentation, HA releases, and ordinary pushes never start it.
+A new beta version still needs its sketch version, release notes, and release
+workflow identifiers updated and reviewed before publication. The HA HACS
+release workflow is independent and retains its own exact-head gate.
+
 ## Development / CI
 
 Most validation uses **`[self-hosted, Linux, X64]`** runners; the initial P1/P2 gate runs on GitHub-hosted infrastructure. The workflow provisions Node 24, then executes Python compileall, pure schedule tests, JavaScript syntax checks and packaging-contract checks.

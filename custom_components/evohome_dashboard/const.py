@@ -12,3 +12,8 @@ CONF_RF_MQTT_TOPIC = "rf_mqtt_topic"
 CONF_RF_ZONE_NAMES = "rf_zone_names"
 DEFAULT_RF_MQTT_TOPIC = "RAMSES/GATEWAY/+/rx"
 CONF_RF_ZONE_LINKS = "rf_zone_links"
+
+# Optional local ESP32 diagnostics: host only (no arbitrary URL or port).
+CONF_RF_GATEWAY_HOST = "rf_gateway_host"
+CONF_RF_GATEWAY_USER = "rf_gateway_user"
+CONF_RF_GATEWAY_PASSWORD = "rf_gateway_password"

@@ -14,6 +14,7 @@ from .const import (
     DEFAULT_INTERVAL, DOMAIN, PANEL_PATH,
     CONF_RF_CONTROLLER_ID, CONF_RF_MQTT_TOPIC, CONF_RF_ZONE_NAMES,
     DEFAULT_RF_MQTT_TOPIC,
+    CONF_RF_GATEWAY_HOST, CONF_RF_GATEWAY_USER, CONF_RF_GATEWAY_PASSWORD,
 )
 from .heat_demand import valid_zone_names
 from .room_links import LINKS_OPTION
@@ -79,7 +80,16 @@ async def async_setup_entry(hass, entry):
     hub.system_device_ids = register_system_devices(hass, entry.entry_id, hub.client)
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = hub
     hub.rf_monitor = None
+    hub.rf_diag = None
     try:
+        gateway_host = entry.options.get(CONF_RF_GATEWAY_HOST, "")
+        if gateway_host:
+            from .r8810a_diagnostic import GatewayHTTP, R8810aDiagnostic
+            hub.rf_diag = R8810aDiagnostic(GatewayHTTP(
+                hass, gateway_host,
+                entry.options.get(CONF_RF_GATEWAY_USER, ""),
+                entry.options.get(CONF_RF_GATEWAY_PASSWORD, ""),
+            ))
         controller_id = entry.options.get(CONF_RF_CONTROLLER_ID, "")
         if controller_id:
             # Import optional MQTT requirements only when monitoring is enabled.
@@ -95,6 +105,8 @@ async def async_setup_entry(hass, entry):
         await _setup_frontend(hass)
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     except Exception:
+        if hub.rf_diag is not None:
+            await hub.rf_diag.stop()
         if hub.rf_monitor is not None:
             await hub.rf_monitor.async_stop()
         hass.data[DOMAIN].pop(entry.entry_id, None)
@@ -111,6 +123,8 @@ async def async_unload_entry(hass, entry):
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
         hub = hass.data[DOMAIN].get(entry.entry_id)
+        if hub is not None and hub.rf_diag is not None:
+            await hub.rf_diag.stop()
         if hub is not None and hub.rf_monitor is not None:
             await hub.rf_monitor.async_stop()
         hass.data[DOMAIN].pop(entry.entry_id, None)

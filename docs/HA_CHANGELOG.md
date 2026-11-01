@@ -3,6 +3,25 @@
 This changelog is **only for the HACS Home Assistant integration**.
 ESP32/RAMSES Arduino firmware has separate beta release tags and changelogs.
 
+## 0.3.7
+
+- Add an admin-only **R8810A test** page to the existing Evohome Dashboard.
+  The Home Assistant backend connects directly to the ESP32's pre-existing
+  authenticated single-read and packet-capture HTTP endpoints; no ESP32
+  firmware update, local PC script or browser-to-ESP32 connection is needed.
+- One-click **Test ID25** or **Run IDs 18, 25, 117** after explicit RF
+  identity-collision authorization. All results remain read-only and the
+  gateway enforces its normal RF cooldowns.
+- Show the status, local TX phase, value and RF reply candidates. Export
+  report.json and capture.tsv directly from HA. Backup any existing gateway
+  capture without clearing it.
+- LAN-only gateway hostname / private IPv4 setting and separately stored
+  credentials. Admin-only WebSocket API; no gateway credentials in frontend
+  results, and no arbitrary URL redirects.
+- Timeouts remain inconclusive; the test does not establish what actually
+  traversed the wired OpenTherm bus.
+- This release contains no firmware changes.
+
 ## 0.3.6
 
 - Reuse existing Resideo cloud room names (and stable cloud zone IDs) in the

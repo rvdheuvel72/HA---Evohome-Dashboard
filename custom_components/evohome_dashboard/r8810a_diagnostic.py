@@ -151,9 +151,16 @@ class GatewayHTTP:
                     if response.status == 409:
                         raise DiagnosticError("Gateway read not ready or in RF cooldown")
                     raise DiagnosticError(f"Gateway HTTP {response.status}")
-                data = await response.content.read(MAX_CAPTURE_BYTES + 1)
-                if len(data) > MAX_CAPTURE_BYTES:
-                    raise DiagnosticError("Gateway response exceeds capture size limit")
+                chunks = []
+                total = 0
+                # ESP32's httpCaptureDownload streams separate sendContent()
+                # chunks. read(n) may stop before EOF and truncate a backup.
+                async for chunk in response.content.iter_chunked(4096):
+                    total += len(chunk)
+                    if total > MAX_CAPTURE_BYTES:
+                        raise DiagnosticError("Gateway response exceeds capture size limit")
+                    chunks.append(chunk)
+                data = b"".join(chunks)
                 if not json_result:
                     return data.decode("utf-8", errors="replace")
                 try:

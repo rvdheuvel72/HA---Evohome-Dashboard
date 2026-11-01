@@ -3,6 +3,17 @@
 This changelog is **only for the HACS Home Assistant integration**.
 ESP32/RAMSES Arduino firmware has separate beta release tags and changelogs.
 
+## 0.3.8
+
+- Share the experimental ID25 one-shot transmission method between Home
+  Assistant Gateway test and ESP32 gateway. Default: **Reference FIFO**.
+- The ESP32 stores the method persistently in NVS; both UIs read the same
+  setting and only explicit saves change it. The last successful save wins.
+- HA sends an ID25 request using the gateway-selected method, with no
+  independent per-request override. Gateway firmware beta.38 is required.
+- Existing safety checks, administrator-only HA access and private IPv4
+  gateway proxy restrictions remain in place. No automatic RF polling.
+
 ## 0.3.7
 
 - Add administrator-only **Evohome → Gateway test** in the bundled HA panel to read the existing ESP32 OpenTherm ID25 one-shot status and manually request one UART or reference-FIFO diagnostic.

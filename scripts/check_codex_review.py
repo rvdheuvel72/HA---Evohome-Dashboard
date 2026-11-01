@@ -170,11 +170,16 @@ REQUIRED_CHECKS = (
 
 
 def arduino_validation_required(paths):
-    """Also require a green ESP32 compile when a PR changes radio or its publisher."""
-    return any(path.startswith("firmware/arduino-wroom32e/") or
-               path in (".github/workflows/ramses-arduino-wroom32e.yml",
-                        ".github/workflows/publish-ramses-arduino-v0.4-beta.yml")
-               for path in paths)
+    """Require trusted compilation only for changed compiled gateway sources.
+
+    Firmware docs/tests, release metadata, and workflow configuration should
+    not allocate an ESP32 compiler. A separate explicit release workflow
+    rebuilds the publishable firmware image.
+    """
+    return any(
+        path.startswith("firmware/arduino-wroom32e/RamsesGateway/")
+        for path in paths
+    )
 
 
 HA_CHECK_PATHS = (

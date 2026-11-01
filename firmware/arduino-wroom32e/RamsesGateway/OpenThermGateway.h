@@ -12,6 +12,7 @@
 #include "RamsesReadRequest.h"
 #include "Cc1101Radio.h"
 #include "GatewayRuntimeConfig.h"
+#include "GatewayTxPreference.h"
 #include "RamsesCodec.h"
 #include "RamsesBinding.h"
 #include "RamsesPairedBridgeRead.h"
@@ -924,6 +925,16 @@ class OpenThermGateway {
     if(!wireLen || wireLen>sizeof(wire)) {
       diag.phase=ot_tx::TX_CONFIG_FAILED;return false;
     }
+    if(gw_tx_pref::read()==gw_tx_pref::FIFO &&
+       ramses_uart_fifo::fits(wireLen)){
+      noteControllerTx();
+      const bool ok=radio.sendFrameFifo(wire,wireLen,true,diag);
+      while(port.available())port.read();
+      decoder.reset();
+      return ok;
+    }
+    // Frames larger than the 64-byte hardware FIFO retain UART until a
+    // verified streaming implementation exists. Report actual TX method.
     diag.expected_bytes=static_cast<uint16_t>(wireLen);
     // 38400 baud / 8N1 => ten UART bits per byte. 90% of the nominal
     // wire time is a conservative minimum for a completed flush.
@@ -954,7 +965,8 @@ class OpenThermGateway {
                 ramses::FrameDecoder& decoder,uint8_t id){
     if(!transmitEnabled())return false;
     ot_tx::Report diagnostics;
-    return sendReadRequest(radio,port,decoder,id,false,ot_tx::ASYNC_UART,diagnostics);
+    return sendReadRequest(radio,port,decoder,id,false,
+      gw_tx_pref::read()==gw_tx_pref::FIFO?ot_tx::REFERENCE_FIFO:ot_tx::ASYNC_UART,diagnostics);
   }
   bool sendReadRequest(Cc1101Radio& radio,HardwareSerial& port,
                 ramses::FrameDecoder& decoder,uint8_t id,bool experimental,
@@ -984,11 +996,8 @@ class OpenThermGateway {
     const size_t wireLen=ramses_read::encodeUART(frame,used,wire,sizeof(wire));
     if(wireLen!=44){diag.phase=ot_tx::TX_CONFIG_FAILED;return false;}
     if(method==ot_tx::REFERENCE_FIFO) {
-      if(!experimental) {
-        diag.phase=ot_tx::FREQUENCY_REJECTED;return false;
-      }
       noteControllerTx();
-      const bool ok=radio.sendOneShotFifo(wire,wireLen,true,diag);
+      const bool ok=radio.sendFrameFifo(wire,wireLen,experimental,diag);
       while(port.available())port.read();
       decoder.reset();
       return ok;

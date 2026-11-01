@@ -40,6 +40,8 @@ async def gateway_id25(hass, host: str, username: str, password: str, action: st
     try:
         if action == "method_get":
             async with session.get(f"http://{gateway}{METHOD_PATH}", **kwargs) as response:
+                if response.status == 404:
+                    raise ValueError("Shared method requires ESP32 gateway firmware beta.38 or later")
                 if response.status != 200:
                     raise ValueError(f"Gateway method read failed (HTTP {response.status})")
                 return await response.json(content_type=None)

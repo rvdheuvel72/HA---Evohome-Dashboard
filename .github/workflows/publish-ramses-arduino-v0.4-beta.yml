@@ -1,8 +1,14 @@
 name: Release RAMSES Arduino v0.4.0 beta.38
 
-# Explicit release invocation only. Firmware/docs/HA pushes do not automatically
-# spend compute re-testing and rebuilding the same firmware release.
+# Publish automatically once a reviewed firmware release change lands on main.
+# HA-only changes, ordinary firmware development commits and documentation-only
+# edits outside the release notes do not start a firmware compile.
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-ramses-arduino-v0.4-beta.yml'
+      - 'firmware/arduino-wroom32e/RELEASE_NOTES_v*.md'
   workflow_dispatch:
 
 permissions:
@@ -229,7 +235,7 @@ jobs:
                   raise SystemExit(
                       f"PR #{number} has no COMPLETED Codex review for {head}; "
                       "quota deferrals are not accepted for beta.38")
-          print("Beta.37 release gate: completed exact-head Codex review required")
+          print("Beta.38 release gate: completed exact-head Codex review required")
           PY
 
       - name: Ensure GitHub CLI is available on self-hosted runner

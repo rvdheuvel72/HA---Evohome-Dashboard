@@ -31,6 +31,7 @@ def register_commands(hass):
             vol.Optional("replace_capture", default=False): bool,
         }, "_rf_diag_start"),
         ("rf_diag_export", {}, "_rf_diag_export"),
+        ("rf_diag_existing_capture", {}, "_rf_diag_existing_capture"),
         ("zone_set", {vol.Required("system_id"): str, vol.Required("zone_id"): str,
                       vol.Required("temperature"): vol.Coerce(float),
                       vol.Optional("until"): str}, "set_zone"),
@@ -75,7 +76,8 @@ def register_commands(hass):
                                         else {"enabled": False,
                                               "reason": "Configure an RF controller ID in Evohome options"}),
                     }
-                elif _method in ("_rf_diag_status", "_rf_diag_start", "_rf_diag_export"):
+                elif _method in ("_rf_diag_status", "_rf_diag_start",
+                                    "_rf_diag_export", "_rf_diag_existing_capture"):
                     diagnostic = getattr(hub, "rf_diag", None)
                     if diagnostic is None:
                         raise ValueError(
@@ -85,6 +87,8 @@ def register_commands(hass):
                         result = diagnostic.snapshot()
                     elif _method == "_rf_diag_export":
                         result = diagnostic.export()
+                    elif _method == "_rf_diag_existing_capture":
+                        result = await diagnostic.existing_capture()
                     else:
                         result = await diagnostic.start(
                             confirm=msg["confirm"], data_id=msg["data_id"],

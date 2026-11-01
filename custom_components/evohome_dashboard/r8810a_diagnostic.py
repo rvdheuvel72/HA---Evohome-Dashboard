@@ -141,7 +141,9 @@ class GatewayHTTP:
             async with self.session.request(
                 method, f"http://{self.host}{path}",
                 auth=self.auth, data=fields, headers=headers, allow_redirects=False,
-                timeout=self._aiohttp.ClientTimeout(total=10),
+                timeout=self._aiohttp.ClientTimeout(
+                    total=30 if path == CAPTURE + "/download" else 10
+                ),
             ) as response:
                 if response.status in (301, 302, 303, 307, 308):
                     raise DiagnosticError("Gateway redirect refused")

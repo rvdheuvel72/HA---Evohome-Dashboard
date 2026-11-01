@@ -515,22 +515,26 @@ class OpenThermGateway {
         snprintf(row,sizeof(row),
           "%s{\"id\":%u,\"name\":\"%s\",\"state\":\"%s\","
           "\"raw\":%u,\"value\":%.3f,\"updated_at_ms\":%lu,"
-          "\"tx_phase\":\"%s\",\"tx_bytes\":%u,\"tx_expected_bytes\":%u,\"attempts\":%u}",
+          "\"tx_phase\":\"%s\",\"tx_method\":\"%s\",\"tx_bytes\":%u,\"tx_expected_bytes\":%u,\"attempts\":%u,\"response_latency_ms\":%lu}",
           i?",":"",id,ot_readonly::label(id),
           ramses_bridge_read::label(item.state),item.raw,
           static_cast<double>(value),static_cast<unsigned long>(item.updatedAtMs),
-          ot_tx::phaseName(item.txPhase),item.txBytes,item.txExpectedBytes,
-          static_cast<unsigned>(item.attempts));
+          ot_tx::phaseName(item.txPhase),ot_tx::methodName(item.txMethod),
+          item.txBytes,item.txExpectedBytes,
+          static_cast<unsigned>(item.attempts),
+          static_cast<unsigned long>(item.responseLatencyMs));
       else
         snprintf(row,sizeof(row),
           "%s{\"id\":%u,\"name\":\"%s\",\"state\":\"%s\","
           "\"raw\":%u,\"value\":null,\"updated_at_ms\":%lu,"
-          "\"tx_phase\":\"%s\",\"tx_bytes\":%u,\"tx_expected_bytes\":%u,\"attempts\":%u}",
+          "\"tx_phase\":\"%s\",\"tx_method\":\"%s\",\"tx_bytes\":%u,\"tx_expected_bytes\":%u,\"attempts\":%u,\"response_latency_ms\":%lu}",
           i?",":"",id,ot_readonly::label(id),
           ramses_bridge_read::label(item.state),item.raw,
           static_cast<unsigned long>(item.updatedAtMs),
-          ot_tx::phaseName(item.txPhase),item.txBytes,item.txExpectedBytes,
-          static_cast<unsigned>(item.attempts));
+          ot_tx::phaseName(item.txPhase),ot_tx::methodName(item.txMethod),
+          item.txBytes,item.txExpectedBytes,
+          static_cast<unsigned>(item.attempts),
+          static_cast<unsigned long>(item.responseLatencyMs));
       server.sendContent(row);
     }
     server.sendContent("]}");

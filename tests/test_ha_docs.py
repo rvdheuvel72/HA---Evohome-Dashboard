@@ -42,9 +42,14 @@ class DocumentationGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "README"):
             module.require_docs(changed, VERSION, "v0.3.6", CHANGELOG, GUIDE)
 
-    def test_firmware_only_does_not_require_ha_changelog(self):
-        module.require_docs(["firmware/arduino-wroom32e/RamsesGateway/RamsesGateway.ino"],
-                            VERSION, "", "", "")
+    def test_firmware_source_requires_both_readmes(self):
+        changed = ["firmware/arduino-wroom32e/RamsesGateway/RamsesGateway.ino"]
+        with self.assertRaisesRegex(ValueError, "root README"):
+            module.require_docs(changed, VERSION, README, CHANGELOG, GUIDE)
+        with self.assertRaisesRegex(ValueError, "firmware README"):
+            module.require_docs(changed + ["README.md"], VERSION, README, CHANGELOG, GUIDE)
+        module.require_docs(changed + ["README.md", "firmware/arduino-wroom32e/README.md"],
+                            VERSION, README, CHANGELOG, GUIDE)
 
 
 if __name__ == "__main__":

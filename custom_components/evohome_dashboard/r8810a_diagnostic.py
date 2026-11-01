@@ -325,6 +325,11 @@ class R8810aDiagnostic:
             except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
 
+    async def existing_capture(self):
+        # Non-destructive export before starting a new RAM-only RF capture.
+        status = await self.api.get(CAPTURE + "/status")
+        return {"status": status, "capture_tsv": await self.api.capture()}
+
     def export(self):
         if self._task is not None and not self._task.done():
             raise DiagnosticError("Diagnostic is still running")

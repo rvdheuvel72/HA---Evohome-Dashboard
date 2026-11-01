@@ -8,6 +8,7 @@ import logging
 
 import voluptuous as vol
 from homeassistant import config_entries
+from homeassistant.helpers import selector
 from homeassistant.const import CONF_PASSWORD, CONF_SCAN_INTERVAL, CONF_USERNAME
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from evohomeasync2 import EvohomeClient
@@ -17,9 +18,11 @@ from .const import (
     DEFAULT_INTERVAL, DOMAIN, MIN_INTERVAL,
     CONF_RF_CONTROLLER_ID, CONF_RF_MQTT_TOPIC, CONF_RF_ZONE_NAMES,
     DEFAULT_RF_MQTT_TOPIC,
+    CONF_RF_GATEWAY_HOST, CONF_RF_GATEWAY_USER, CONF_RF_GATEWAY_PASSWORD,
 )
 from .heat_demand import valid_controller_id, valid_zone_names
 from .diagnostics import classify_setup_error
+from .r8810a_diagnostic import valid_gateway_host
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -83,6 +86,16 @@ class EvohomeDashboardOptionsFlow(config_entries.OptionsFlow):
             controller = user_input.get(CONF_RF_CONTROLLER_ID, "").strip()
             topic = user_input.get(CONF_RF_MQTT_TOPIC, DEFAULT_RF_MQTT_TOPIC).strip()
             names = user_input.get(CONF_RF_ZONE_NAMES, "{}")
+            gateway_host = user_input.get(CONF_RF_GATEWAY_HOST, "").strip()
+            gateway_user = user_input.get(CONF_RF_GATEWAY_USER, "").strip()
+            if gateway_host:
+                try:
+                    valid_gateway_host(gateway_host)
+                except ValueError:
+                    errors[CONF_RF_GATEWAY_HOST] = "invalid_gateway_host"
+            if not gateway_host and gateway_user:
+                errors[CONF_RF_GATEWAY_HOST] = "invalid_gateway_host"
+
             if controller and not valid_controller_id(controller):
                 errors[CONF_RF_CONTROLLER_ID] = "invalid_controller_id"
             if (not topic or len(topic) > 128 or not topic.endswith("/rx")
@@ -93,11 +106,21 @@ class EvohomeDashboardOptionsFlow(config_entries.OptionsFlow):
             except (ValueError, TypeError):
                 errors[CONF_RF_ZONE_NAMES] = "invalid_zone_mapping"
             if not errors:
-                return self.async_create_entry(
-                    title="", data={**self.config_entry.options, **user_input,
-                                    CONF_RF_CONTROLLER_ID: controller,
-                                    CONF_RF_MQTT_TOPIC: topic}
-                )
+                options = {**self.config_entry.options, **user_input,
+                           CONF_RF_CONTROLLER_ID: controller,
+                           CONF_RF_MQTT_TOPIC: topic,
+                           CONF_RF_GATEWAY_HOST: gateway_host,
+                           CONF_RF_GATEWAY_USER: gateway_user}
+                # The password field is deliberately blank on reopen. Leaving
+                # it blank must not overwrite a previously saved credential.
+                if not user_input.get(CONF_RF_GATEWAY_PASSWORD):
+                    if CONF_RF_GATEWAY_PASSWORD in self.config_entry.options:
+                        options[CONF_RF_GATEWAY_PASSWORD] = self.config_entry.options[
+                            CONF_RF_GATEWAY_PASSWORD
+                        ]
+                    else:
+                        options.pop(CONF_RF_GATEWAY_PASSWORD, None)
+                return self.async_create_entry(title="", data=options)
         return self.async_show_form(
             step_id="init",
             errors=errors,
@@ -119,5 +142,16 @@ class EvohomeDashboardOptionsFlow(config_entries.OptionsFlow):
                     CONF_RF_ZONE_NAMES,
                     default=self.config_entry.options.get(CONF_RF_ZONE_NAMES, "{}"),
                 ): str,
+                vol.Optional(
+                    CONF_RF_GATEWAY_HOST,
+                    default=self.config_entry.options.get(CONF_RF_GATEWAY_HOST, ""),
+                ): str,
+                vol.Optional(
+                    CONF_RF_GATEWAY_USER,
+                    default=self.config_entry.options.get(CONF_RF_GATEWAY_USER, ""),
+                ): str,
+                vol.Optional(CONF_RF_GATEWAY_PASSWORD): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+                ),
             }),
         )

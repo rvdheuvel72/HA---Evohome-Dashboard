@@ -69,7 +69,18 @@ class EvohomeHub(DataUpdateCoordinator[dict]):
         try:
             # Fetch status only; schedules are loaded on demand.
             await asyncio.gather(*(loc.update() for loc in self.client.locations))
-            return snapshot(self.client)
+            data = snapshot(self.client)
+            monitor = getattr(self, "rf_monitor", None)
+            if monitor is not None:
+                try:
+                    monitor.refresh_names(data)
+                except Exception as error:
+                    # RF room-name decoration is optional. Never turn a
+                    # successful Resideo cloud poll into an UpdateFailed error.
+                    _LOGGER.warning(
+                        "RF room-name refresh failed (%s)", type(error).__name__
+                    )
+            return data
         except Exception as exc:
             await self._record("poll_status", exc)
             raise UpdateFailed("Unable to update Evohome temperatures") from exc

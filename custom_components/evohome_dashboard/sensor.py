@@ -194,8 +194,16 @@ class RFBridgeActivity(_RFBase):
 class _RFZoneBase(_RFBase):
     def __init__(self, monitor, index, suffix, label):
         self.index = index
+        self._room_label = label
         room = monitor.ledger.zone_names.get(index, f"RF zone {index:02X}")
         super().__init__(monitor, f"zone_{index:02x}_{suffix}", f"{room} {label}")
+
+    @property
+    def name(self):
+        # A controller 0004 packet or cloud rename may update the link after
+        # the entity was created; do not freeze the original room label.
+        room = self.monitor.ledger.zone_names.get(self.index, f"RF zone {self.index:02X}")
+        return f"{room} {self._room_label}"
 
     def zone(self):
         for zone in self.monitor.ledger.snapshot()["zones"]:

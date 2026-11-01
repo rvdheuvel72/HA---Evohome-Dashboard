@@ -94,7 +94,8 @@ class EvohomeDashboardOptionsFlow(config_entries.OptionsFlow):
                 errors[CONF_RF_ZONE_NAMES] = "invalid_zone_mapping"
             if not errors:
                 return self.async_create_entry(
-                    title="", data={**user_input, CONF_RF_CONTROLLER_ID: controller,
+                    title="", data={**self.config_entry.options, **user_input,
+                                    CONF_RF_CONTROLLER_ID: controller,
                                     CONF_RF_MQTT_TOPIC: topic}
                 )
         return self.async_show_form(

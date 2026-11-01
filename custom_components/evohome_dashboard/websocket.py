@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import voluptuous as vol
 from homeassistant.components import websocket_api
-from .const import DOMAIN
+from .const import DOMAIN, CONF_RF_ZONE_LINKS
+from .room_links import set_link
 
 
 def _hub(hass, entry_id):
@@ -20,6 +21,9 @@ def register_commands(hass):
         ("status", {}, "_status"),
         ("errors", {}, "_errors"),
         ("refresh", {}, "_refresh"),
+        ("rf_zone_link", {vol.Required("index"): str,
+                          vol.Required("system_id"): str,
+                          vol.Required("zone_id"): str}, "_rf_zone_link"),
         ("zone_set", {vol.Required("system_id"): str, vol.Required("zone_id"): str,
                       vol.Required("temperature"): vol.Coerce(float),
                       vol.Optional("until"): str}, "set_zone"),
@@ -61,6 +65,21 @@ def register_commands(hass):
                                         else {"enabled": False,
                                               "reason": "Configure an RF controller ID in Evohome options"}),
                     }
+                elif _method == "_rf_zone_link":
+                    # Select only an *existing* cloud room (stable system/zone
+                    # identifiers), never guess cloud ordering from RF index.
+                    entry = hass.config_entries.async_get_entry(hub.entry_id)
+                    if entry is None or getattr(hub, "rf_monitor", None) is None:
+                        raise ValueError("RF monitoring is not configured")
+                    links = set_link(
+                        entry.options.get(CONF_RF_ZONE_LINKS, {}),
+                        msg["index"], msg["system_id"], msg["zone_id"],
+                        hub.data,
+                    )
+                    hass.config_entries.async_update_entry(
+                        entry, options={**entry.options, CONF_RF_ZONE_LINKS: links}
+                    )
+                    result = {"ok": True, "links": links}
                 elif _method == "_errors":
                     result = {"events": hub.error_data()}
                 elif _method == "_refresh":

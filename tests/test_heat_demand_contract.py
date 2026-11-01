@@ -46,9 +46,36 @@ class RfFeatureContracts(unittest.TestCase):
             self.assertIn("heatDemand() {", contents)
 
     def test_hub_cloud_writes_are_independent_of_rf_monitor(self):
-        hub = (HA / "hub.py").read_text()
-        self.assertNotIn("rf_monitor", hub)
-        self.assertIn("async def set_zone(", hub)
+        import ast
+        source = (HA / "hub.py").read_text()
+        tree = ast.parse(source)
+        hub_class = next(node for node in tree.body
+                         if isinstance(node, ast.ClassDef) and node.name == "EvohomeHub")
+        control = ("set_zone", "set_zone_frost", "resume_zone",
+                   "set_system_mode", "set_hotwater", "resume_hotwater",
+                   "save_zone_schedule", "_execute", "_wait_for_state")
+        for method in (node for node in hub_class.body
+                       if isinstance(node, ast.AsyncFunctionDef) and node.name in control):
+            with self.subTest(method=method.name):
+                segment = ast.get_source_segment(source, method)
+                self.assertNotIn("rf_monitor", segment)
+                self.assertNotIn("refresh_names", segment)
+        self.assertIn("async def set_zone(", source)
+        # After cloud status has been obtained, name-decoration failures must
+        # never turn that successful cloud poll into UpdateFailed.
+        update = next(node for node in hub_class.body
+                      if isinstance(node, ast.AsyncFunctionDef)
+                      and node.name == "_async_update_data")
+        calls = [node for node in ast.walk(update)
+                 if isinstance(node, ast.Call)
+                 and isinstance(node.func, ast.Attribute)
+                 and node.func.attr == "refresh_names"]
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(any(isinstance(node, ast.Try)
+                            and node.handlers and any(calls[0] in ast.walk(node)
+                                                      for node in node.body)
+                            for node in ast.walk(update)))
+        self.assertIn("Never turn a", source)
 
 
 if __name__ == "__main__":

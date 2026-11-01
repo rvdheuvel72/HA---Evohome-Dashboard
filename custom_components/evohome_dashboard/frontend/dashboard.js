@@ -6,6 +6,7 @@ const FRONTEND_URL = "/hacsfiles/evohome-dashboard-ui/evohome-dashboard-ui.js";
 const REQUIRED_FEATURES = [
   "/* EVOHOME_UI_FEATURE: heating-demand-v1 */",
   "/* EVOHOME_UI_FEATURE: backend-version-label-v1 */",
+  "/* EVOHOME_UI_FEATURE: cloud-room-rf-link-v1 */",
 ];
 const backendVersion = new URL(import.meta.url).searchParams.get("v") || "local";
 const BUNDLED_URL = "./dashboard-legacy.js?v=" + encodeURIComponent(backendVersion);

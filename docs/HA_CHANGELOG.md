@@ -3,6 +3,22 @@
 This changelog is **only for the HACS Home Assistant integration**.
 ESP32/RAMSES Arduino firmware has separate beta release tags and changelogs.
 
+## 0.3.6
+
+- Reuse existing Resideo cloud room names (and stable cloud zone IDs) in the
+  Heating demand tab. RF zone cards now have room selection dropdowns with
+  the actual configured Evohome rooms; no manual JSON room-name entry needed.
+- Decode controller RAMSES `0004` zone-name frames passively and automatically
+  associate RF zone indexes with cloud rooms when the reported name is an exact
+  unique match. Unobserved, missing, or ambiguous names remain explicitly
+  unlinked instead of guessing cloud list order.
+- Save manual selection as a stable RF-to-cloud-zone link in HA options, not
+  merely a copied room label. Cloud room renames will then reflect the new
+  name, and links persist across restarts.
+- Preserve old `rf_zone_names` mappings for backwards compatibility, but prefer
+  a cloud link when explicitly selected. No ESP32 firmware change, RF
+  transmission, pairing, or heating control is required.
+
 ## 0.3.5
 
 - **Automatic HACS update detection:** successful reviewed, merged and

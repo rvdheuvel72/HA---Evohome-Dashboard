@@ -16,6 +16,7 @@ from .const import (
     DEFAULT_RF_MQTT_TOPIC,
 )
 from .heat_demand import valid_zone_names
+from .room_links import LINKS_OPTION
 from .hub import EvohomeHub
 from .device_hierarchy import register_system_devices
 from .websocket import register_commands
@@ -87,6 +88,8 @@ async def async_setup_entry(hass, entry):
                 hass, entry.entry_id, controller_id,
                 entry.options.get(CONF_RF_MQTT_TOPIC, DEFAULT_RF_MQTT_TOPIC),
                 valid_zone_names(entry.options.get(CONF_RF_ZONE_NAMES, "{}")),
+                cloud_state=lambda: hub.data or {},
+                cloud_links=entry.options.get(LINKS_OPTION, {}),
             )
             await hub.rf_monitor.async_start()
         await _setup_frontend(hass)

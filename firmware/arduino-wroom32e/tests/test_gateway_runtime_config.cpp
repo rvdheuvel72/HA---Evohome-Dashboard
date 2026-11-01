@@ -22,6 +22,7 @@
 #define GW_OT_SCAN_ALL_256 0
 #define GW_OT_AUTO_POLL 0
 #include "../RamsesGateway/GatewayRuntimeConfig.h"
+#include "../RamsesGateway/GatewayTxPreference.h"
 
 int main(){
   using namespace gw_config;
@@ -130,5 +131,17 @@ int main(){
   std::tm jan={},jul={};localtime_r(&janUtc,&jan);localtime_r(&julUtc,&jul);
   assert(jan.tm_hour==1 && jul.tm_hour==2);
   assert(jan.tm_isdst==0 && jul.tm_isdst==1);
-  std::puts("NVS config defaults, validation, staging, rollback, CET/CEST DST PASS");
+  // Independent NVS preference survives fresh Store objects/restarts and
+  // must not mutate staged Wi-Fi/MQTT configuration.
+  assert(gw_tx_pref::read()==gw_tx_pref::FIFO);
+  assert(gw_tx_pref::write("uart"));
+  assert(gw_tx_pref::read()==gw_tx_pref::UART);
+  assert(!gw_tx_pref::write("invalid"));
+  assert(gw_tx_pref::read()==gw_tx_pref::UART);
+  assert(gw_tx_pref::write("fifo"));
+  assert(gw_tx_pref::read()==gw_tx_pref::FIFO);
+  Store afterMethodChange;afterMethodChange.begin(868);
+  assert(strcmp(afterMethodChange.current.wifiSSID,"my-home")==0);
+  assert(strcmp(afterMethodChange.current.webPassword,"test-diagnostic-password")==0);
+  std::puts("NVS config and shared FIFO-first ID25 method persistence PASS");
 }

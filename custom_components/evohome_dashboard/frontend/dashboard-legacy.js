@@ -243,17 +243,23 @@ class EvohomeDashboardPanel extends HTMLElement {
     return '<h2>Heating schedules</h2><p class="sub">Edit the schedule stored in Evohome itself, not an unrelated HA automation.</p>'+
        '<section class="card"><div class="form">'+choose+'</div>'+editor+'</section>';
   }
+  gatewayTxSettings() {
+    return '<section class="card"><h3>Global RAMSES RF transmit method</h3>'+
+      '<p class="caption">FIFO is the default for all compatible RAMSES frames. Frames too large for CC1101 FIFO use UART. The gateway saves the preference in NVS.</p>'+
+      '<div class="setting"><label>Gateway LAN IPv4 <input id="gw-ip" placeholder="192.168.1.100" value="'+esc(this.gatewayHost||"")+'"></label></div>'+
+      '<div class="setting"><label>Gateway username <input id="gw-user" autocomplete="off" value="'+esc(this.gatewayUsername||"")+'"></label></div>'+
+      '<div class="setting"><label>Gateway password <input id="gw-password" type="password" autocomplete="off" value="'+esc(this.gatewayPassword||"")+'"></label></div>'+
+      '<div class="setting"><label>Global transmission method <select id="gw-method"><option value="fifo" '+(this.gatewayMethod==="fifo"?"selected":"")+'>Reference FIFO</option><option value="uart" '+(this.gatewayMethod==="uart"?"selected":"")+'>UART (diagnostic)</option></select></label></div>'+
+      '<div class="gridbuttons"><button class="btn" data-action="gw-method-load">Read gateway setting</button><button class="btn" data-action="gw-method-save">Save global setting</button></div>'+
+      '<p class="caption">'+esc(this.gatewayMethodNotice)+' · Last successful save from HA or gateway wins. Credentials are not stored.</p></section>';
+  }
   gatewayTest() {
     const result=this.gatewayId25Result ? esc(JSON.stringify(this.gatewayId25Result,null,2)) : "No gateway response collected yet.";
     return '<h2>R8810A / OpenTherm ID25 test</h2>'+
-      '<p class="sub">Administrator-only diagnostic. Talks to the ESP32 gateway over your local network; it does not call the Resideo cloud. No password is saved.</p>'+
-      '<section class="card"><div class="setting"><label>Gateway LAN IPv4 address <input id="gw-ip" placeholder="192.168.1.100" value="'+esc(this.gatewayHost||"")+'"></label></div>'+
-      '<div class="setting"><label>Gateway username <input id="gw-user" autocomplete="off" value="'+esc(this.gatewayUsername||"")+'"></label></div>'+
-      '<div class="setting"><label>Gateway password <input id="gw-password" type="password" autocomplete="off" placeholder="Gateway Basic Auth password" value="'+esc(this.gatewayPassword||"")+'"></label></div>'+
-      '<div class="setting"><label>Shared ID25 transmission method <select id="gw-method"><option value="fifo" '+(this.gatewayMethod==="fifo"?"selected":"")+'>Reference FIFO</option><option value="uart" '+(this.gatewayMethod==="uart"?"selected":"")+'>UART (experimental)</option></select></label></div>'+
-      '<div class="gridbuttons"><button class="btn" data-action="gw-method-load">Read shared setting</button><button class="btn" data-action="gw-method-save">Save shared setting</button></div><p class="caption">'+esc(this.gatewayMethodNotice)+' · Saved on ESP32 NVS; last successful save from HA or gateway wins.</p>'+
-      '<p class="caption">The one-shot command queues a real RF transmission using the observed Evohome identity. It is experimental, not a passive read. The gateway must have strong Basic Auth enabled and permit TX.</p>'+
-      '<div class="gridbuttons" style="margin-top:18px"><button class="btn" data-action="gw-status">Read status</button>'+
+      '<p class="sub">Administrator-only RF diagnostic. Configure the global transmit method in Settings or below.</p>'+
+      this.gatewayTxSettings()+
+      '<section class="card" style="margin-top:18px"><p class="caption">One manual experimental read-only RF transmission. Strong gateway authentication is required.</p>'+
+      '<div class="gridbuttons"><button class="btn" data-action="gw-status">Read status</button>'+
       '<button class="btn warn" data-action="gw-trigger">Run ID25 test</button></div></section>'+
       '<section class="card" style="margin-top:18px"><h3>Gateway response</h3><pre style="white-space:pre-wrap;overflow-wrap:anywhere">'+result+'</pre></section>';
   }
@@ -266,6 +272,7 @@ class EvohomeDashboardPanel extends HTMLElement {
       ["Destructive maintenance","Unbind devices, resets, factory defaults","Intentionally unavailable"],
     ];
     return '<h2>Settings & capabilities</h2><p class="sub">Transparent controls: we never pretend an undocumented device setting was changed.</p>'+
+      this.gatewayTxSettings()+
       '<section class="card"><h3>Cloud connection</h3><div class="setting"><div><strong>Controller</strong><div class="caption">'+esc(sys?.model||"Unknown")+'</div></div><span class="pill">'+esc(this.online?"Connected":"Unavailable")+'</span></div>'+
       '<div class="setting"><div><strong>Refresh interval</strong><div class="caption">Edit Settings → Devices & services → Evohome Dashboard → Configure</div></div><button class="btn small" data-action="refresh">Refresh now</button></div>'+
       '<div class="setting"><div><strong>Transport</strong><div class="caption">Resideo TCC cloud. A local RF/LAN connection has not been verified.</div></div><span class="pill">Cloud</span></div></section>'+

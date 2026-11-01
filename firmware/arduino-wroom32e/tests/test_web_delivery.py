@@ -70,6 +70,18 @@ assert "const cvCatalog=" in script and "cvStatus()" in script
 assert "/api/v1/opentherm/cv-batch" in script
 assert "sixteen-read-only-requests-existing-evohome-identity" in script
 assert "sixteen-read-only-requests-existing-evohome-identity" in ino, "HTTP batch token must match UI"
+# One persisted method governs requests from both the gateway and HA UI.
+pref = (SKETCH/"GatewayTxPreference.h").read_text()
+assert 'constexpr uint8_t FIFO=1' in pref
+assert 'p.getUChar("method",FIFO)' in pref
+assert 'p.putUChar("method",next)' in pref
+assert 'web.on("/api/v1/opentherm/tx-method", HTTP_GET, httpOtTxMethod);' in ino
+assert 'web.on("/api/v1/opentherm/tx-method", HTTP_POST, httpOtTxMethod);' in ino
+assert 'gw_tx_pref::read()==gw_tx_pref::UART' in ino
+assert 'gw_tx_pref::write(choice)' in ino
+assert "Save shared method" in html
+assert "loadSharedOneShotMethod" in script
+assert 'body:\'confirm=experimental-single-read-25\'' in script
 assert "15s minimum RF spacing" in script
 catalog = script[script.index("const cvCatalog="):script.index("let cvPosting=")]
 expected_ids = {17,18,25,28,5,33,57,26,117,121,34,35,36,116,120,115}

@@ -149,13 +149,20 @@ firmware cannot silently merge. There is no duplicate automatic Arduino
 compile on PRs or pushes. A full gateway regression build is available
 manually via **Build RAMSES Arduino WROOM-32E → Run workflow**.
 
-The firmware beta release builder is **manual-only** via
-**Release RAMSES Arduino v0.4.0 beta.37 → Run workflow** on `main`.
-It independently validates and compiles the distributable firmware when
-publishing; documentation, HA releases, and ordinary pushes never start it.
-A new beta version still needs its sketch version, release notes, and release
-workflow identifiers updated and reviewed before publication. The HA HACS
-release workflow is independent and retains its own exact-head gate.
+The firmware beta release pipeline **automatically starts on `main`**
+when a merged PR changes the versioned firmware release notes or the firmware
+release workflow. It independently validates, compiles, packages and publishes
+the firmware ZIP and SHA-256 checksum to GitHub Releases, subject to the
+merged-PR/exact-head P1/P2 and CI release gates. It fails closed if an existing
+firmware tag would be overwritten. Ordinary HA changes, documentation outside
+release notes, and gateway development commits without release metadata do
+**not** start this expensive release build.
+
+For a new beta, the PR must update the sketch version, matching firmware
+release notes, version-pinned release workflow identifiers, and documentation.
+After review and merge, **no manual workflow invocation is needed**. Manual
+workflow dispatch is retained only as an administrative recovery option.
+The independent HA HACS release workflow retains its own exact-head gate.
 
 ## Development / CI
 

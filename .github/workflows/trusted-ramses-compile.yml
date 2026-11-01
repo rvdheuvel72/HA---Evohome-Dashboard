@@ -96,6 +96,16 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
           test ! -f firmware/arduino-wroom32e/RamsesGateway/GatewaySecrets.h
+      - name: Require firmware README updates before provisioning Arduino
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The script comes from the protected base, not PR-controlled code.
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          git show "$BASE_SHA:scripts/check_ha_docs.py" > scripts/check_ha_docs.py
+          python3 scripts/check_ha_docs.py --base-sha "$BASE_SHA"
       - name: Isolate Arduino configuration per job
         shell: bash
         run: |

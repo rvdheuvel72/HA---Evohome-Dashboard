@@ -39,6 +39,7 @@ async function loadConfig(){
   el('cfg-timezone').value=values.timezone||'Europe/Amsterdam';
   for(const name of ['mqtt_discovery','ot_scan_all','ot_auto_poll','ot_tx_enabled','rf_experimental_rx'])
     el('cfg-'+name).checked=!!values[name];
+  await loadSharedOneShotMethod();
   set('cfg-rf-band','Declared PCB marking: '+values.rf_module_band+
     ' MHz · applied after restart · cross-band 868 MHz RX on 433 MHz board is experimental');
  }catch(e){set('cfg-message','Cannot load configuration: '+e.message)}

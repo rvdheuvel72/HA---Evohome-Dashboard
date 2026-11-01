@@ -24,6 +24,13 @@ def register_commands(hass):
         ("rf_zone_link", {vol.Required("index"): str,
                           vol.Required("system_id"): str,
                           vol.Required("zone_id"): str}, "_rf_zone_link"),
+        ("rf_diag_status", {}, "_rf_diag_status"),
+        ("rf_diag_start", {
+            vol.Required("confirm"): str,
+            vol.Required("data_id"): vol.In([0, 18, 25, 117]),
+            vol.Optional("replace_capture", default=False): bool,
+        }, "_rf_diag_start"),
+        ("rf_diag_export", {}, "_rf_diag_export"),
         ("zone_set", {vol.Required("system_id"): str, vol.Required("zone_id"): str,
                       vol.Required("temperature"): vol.Coerce(float),
                       vol.Optional("until"): str}, "set_zone"),
@@ -60,11 +67,29 @@ def register_commands(hass):
                         "online": hub.last_update_success, "errors": len(hub.error_data()),
                         "entry_id": hub.entry_id,
                         "backend_version": hass.data.get(f"{DOMAIN}_backend_version"),
+                        "r8810a_diag": (hub.rf_diag.snapshot()
+                                        if getattr(hub, "rf_diag", None) is not None
+                                        else {"configured": False, "running": False}),
                         "heat_demand": (hub.rf_monitor.snapshot()
                                         if getattr(hub, "rf_monitor", None) is not None
                                         else {"enabled": False,
                                               "reason": "Configure an RF controller ID in Evohome options"}),
                     }
+                elif _method in ("_rf_diag_status", "_rf_diag_start", "_rf_diag_export"):
+                    diagnostic = getattr(hub, "rf_diag", None)
+                    if diagnostic is None:
+                        raise ValueError(
+                            "Configure local ESP32 gateway host in Evohome options first"
+                        )
+                    if _method == "_rf_diag_status":
+                        result = diagnostic.snapshot()
+                    elif _method == "_rf_diag_export":
+                        result = diagnostic.export()
+                    else:
+                        result = await diagnostic.start(
+                            confirm=msg["confirm"], data_id=msg["data_id"],
+                            replace_capture=msg.get("replace_capture", False),
+                        )
                 elif _method == "_rf_zone_link":
                     # Select only an *existing* cloud room (stable system/zone
                     # identifiers), never guess cloud ordering from RF index.

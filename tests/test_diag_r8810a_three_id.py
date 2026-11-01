@@ -5,16 +5,17 @@ import unittest
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from diag_r8810a_three_id import Gateway, GatewayError, extract_3220, run, one_read, report_text, IDS
+from diag_r8810a_three_id import Gateway, GatewayError, extract_3220, annotate_windows, run, one_read, report_text, IDS
 
 TSV = '''# RAMSES RX capture: test fixture
 sequence\tlocal_time\tutc_epoch_ms\tuptime_ms\ttype\trssi_magnitude\tmessage
 1\t2026-11-01 10:00:00\t1793523600000\t10100\tpacket\t70\t096 RQ --- 01:245914 10:048994 --:------ 3220 005 0000120000
 2\t2026-11-01 10:00:00\t1793523600190\t10290\tpacket\t60\t094 RP --- 10:048994 01:245914 --:------ 3220 005 00C01201CD
 3\t2026-11-01 10:00:16\t1793523616000\t26000\tpacket\t60\t094 RP --- 10:048994 01:245914 --:------ 3220 005 00C0193800
-4\t2026-11-01 10:00:32\t1793523632000\t42000\tpacket\t90\t094 RP --- 10:048994 01:245914 --:------ 3220 005 00F0750000
+4\t2026-11-01 10:00:32\t1793523632000\t42000\tpacket\t90\t094 RP --- 10:048994 01:245914 --:------ 3220 005 0070750000
 5\t2026-11-01 10:00:33\t1793523633000\t43000\trejected\t0\tparity error
 6\t2026-11-01 10:00:34\t1793523634000\t44000\tpacket\t75\t094 RP --- 10:048994 01:245914 --:------ 3220 005 00C0270000
+7\t2026-11-01 10:00:32\t1793523632100\t42100\tpacket\t90\t094 RP --- 10:048994 01:245914 --:------ 3220 005 00F0750000
 '''
 
 
@@ -67,8 +68,12 @@ class DiagnosticTests(unittest.TestCase):
         self.assertEqual(IDS, (18,25,117))
         frame = extract_3220(TSV)
         self.assertEqual([(x['verb'],x['id']) for x in frame],
-                         [('RQ',18),('RP',18),('RP',25),('RP',117)])
-        self.assertEqual(frame[-1]['ot_reply'], 'unknown_data_id')
+                         [('RQ',18),('RP',18),('RP',25),('RP',117),('RP',117)])
+        self.assertEqual(frame[3]['ot_reply'], 'unknown_data_id')
+        self.assertTrue(frame[3]['ot_valid'])
+        self.assertFalse(frame[4]['ot_valid'])
+        self.assertIsNone(frame[4]['ot_reply'])
+        self.assertEqual(frame[4]['invalid_reason'], 'invalid_opentherm_parity_or_reserved_bits')
         self.assertEqual(frame[1]['source'], '10:048994')
 
     def test_one_shot_restricts_data_ids_and_transmit_intent(self):
@@ -101,6 +106,59 @@ class DiagnosticTests(unittest.TestCase):
             doc=(output/'report.md').read_text()
             self.assertIn('Timeout means inconclusive, NOT unsupported.',doc)
             self.assertIn('ID',report_text(result))
+
+    def test_correlation_requires_exact_controller_and_bridge_id_and_valid_parity(self):
+        decoded = extract_3220(TSV)
+        read = {"id": 117, "start_uptime_ms_approx": 41400,
+                "end_uptime_ms_approx": 42500,
+                "preflight_controller": 245914, "preflight_bridge": 48994}
+        annotate_windows([read], decoded)
+        self.assertEqual(len(read["matching_rx_candidates"]), 1)
+        self.assertEqual(read["matching_rx_candidates"][0]["ot_reply"], "unknown_data_id")
+        foreign = [dict(item, source="10:999999", destination="01:111111")
+                   for item in decoded]
+        reread = dict(read)
+        annotate_windows([reread], foreign)
+        self.assertEqual(reread["matching_rx_candidates"], [])
+        self.assertEqual(reread["natural_rq_candidates"], [])
+        no_ids = dict(read, preflight_bridge=None)
+        annotate_windows([no_ids], decoded)
+        self.assertEqual(no_ids["matching_rx_candidates"], [])
+
+    def test_capture_stop_json_failure_still_saves_download_and_reports(self):
+        class BadStop(FakeGateway):
+            def capture_action(self, action):
+                result = super().capture_action(action)
+                if action == "stop":
+                    raise ValueError("truncated JSON")
+                return result
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "bad-stop"
+            report = run(BadStop(), output)
+            self.assertIn("stop: ValueError", report["capture_error"])
+            self.assertTrue((output / "capture.tsv").exists())
+            self.assertTrue((output / "report.json").exists())
+            self.assertTrue((output / "report.md").exists())
+            self.assertEqual(len(report["reads"]), 3)
+
+    def test_capture_status_or_download_error_still_saves_report(self):
+        class BadStatusAndDownload(FakeGateway):
+            def get_json(self, path):
+                if path.endswith("/capture/status") and self.actions == ["start", "stop"]:
+                    raise ValueError("invalid JSON")
+                return super().get_json(path)
+            def request(self, method, path):
+                if path.endswith("/capture/download"):
+                    raise GatewayError("download unavailable")
+                return super().request(method, path)
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "bad-download"
+            report = run(BadStatusAndDownload(), output)
+            self.assertIn("status: ValueError", report["capture_error"])
+            self.assertIn("download: GatewayError", report["capture_error"])
+            self.assertTrue((output / "report.json").exists())
+            self.assertTrue((output / "report.md").exists())
+            self.assertFalse((output / "capture.tsv").exists())
 
     def test_preserves_existing_capture_by_default(self):
         with tempfile.TemporaryDirectory() as tmp:

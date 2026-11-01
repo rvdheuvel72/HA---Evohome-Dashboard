@@ -58,11 +58,11 @@ a{color:#a9d5ff}
 </section>
 <details class="panel" id="one-shot-panel">
 <summary>Advanced legacy RF experiment: ID25 as gateway 18: or separately paired virtual 01:</summary>
-<p class="muted">This does NOT use the original Evohome Display address. For a normal CV read as the Evohome Display, use the R8810A single read or the CV scan above. Send exactly ONE RAMSES 3220 Read-Data ID25 request (boiler flow temperature) at 868.300 MHz. A unique, unobserved 18: gateway identity can now request ID25 on standard 868 MHz hardware before pairing; verified bound 01: identities remain supported. The legacy 433 MHz cross-band path requires explicit experimental RX opt-in. No retries, polling, scan or heating writes. Minimum cooldown: 60 seconds.</p>
+<p class="muted">This does NOT use the original Evohome Display address. For a normal CV read as the Evohome Display, use the R8810A single read or the CV scan above. Send exactly ONE RAMSES 3220 Read-Data ID25 request (boiler flow temperature) at 868.300 MHz. No retries, polling, scan or heating writes. Minimum cooldown: 60 seconds.</p>
 <p id="one-shot-status" class="muted">Checking bridge identity...</p>
 <label class="setting-check"><input type="checkbox" id="one-shot-confirm"> I verified the R8810A RF ID and my unique gateway 18: identity, or confirmed the additional 01: controller binding. I authorize ONE manually triggered read-only RF transmission.</label>
 <div class="controls"><button type="button" id="one-shot-send" disabled>Test gateway-source ID25</button><a href="/api/v1/opentherm/one-shot" target="_blank">One-shot diagnostic JSON</a></div>
-<small>Global method is under Settings → Radio and shared with Home Assistant; last successful save wins. One click = exactly one RF request using the saved method; never both. Each method shares a fixed nominal -10 dBm 868 MHz PATABLE value. A 433M PCB's radiated power at 868 MHz remains unknown. Keep automatic scans/polling off.</small>
+<small>Global method is in Settings and shared with HA. One click = exactly one RF request using the saved method; never both. Each method shares a fixed nominal -10 dBm 868 MHz PATABLE value. A 433M PCB's radiated power at 868 MHz remains unknown. Keep automatic scans/polling off.</small>
 <p id="one-shot-result" aria-live="polite" class="muted">No request attempted.</p>
 <pre id="one-shot-diag" aria-live="polite">TX diagnostic data appears after one request.</pre>
 <pre id="one-shot-compare">UART/FIFO A-B comparison will appear here.</pre>
@@ -159,7 +159,7 @@ a{color:#a9d5ff}
 <option value="fifo" selected>Reference FIFO (upstream bit-aligned, 60 RF bytes)</option>
 <option value="uart">Original asynchronous UART / GDO0 (experimental)</option>
 </select></label><button type="button" id="one-shot-method-save">Save global method</button><span id="one-shot-method-status" class="muted">Gateway preference: loading...</span></div>
-<small>FIFO is preferred for compatible RAMSES frames (default); oversize messages use UART to avoid CC1101 FIFO overflow. The selected preference persists without a reboot.</small>
+<small>FIFO is default. Oversize frames use UART. Saves persist without reboot.</small>
 <div class="fields">
 <label class="field">Module marking / PCB RF hardware<select id="cfg-rf_module_band" name="rf_module_band">
 <option value="433">433 MHz (your photographed board)</option><option value="868">868 MHz</option>

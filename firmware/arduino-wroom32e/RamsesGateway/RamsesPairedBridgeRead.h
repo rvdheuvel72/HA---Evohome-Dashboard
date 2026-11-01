@@ -38,6 +38,7 @@ struct Probe {
   uint32_t controllerId=0,bridgeId=0,lastAttemptMs=0,deadlineMs=0;
   uint8_t dataId=25;
   uint16_t raw=0;
+  uint32_t responseLatencyMs=0;
   bool attempted=false;
   bool busy()const{return state==QUEUED || state==WAITING;}
   uint32_t cooldown(uint32_t now)const {
@@ -48,7 +49,7 @@ struct Probe {
   bool request(uint32_t now,uint32_t controller,uint32_t bridge,uint8_t id) {
     if(busy()||cooldown(now)||!supportedId(id)||
        !controller||controller>=262143||!bridge||bridge>=262143)return false;
-    controllerId=controller;bridgeId=bridge;dataId=id;raw=0;state=QUEUED;
+    controllerId=controller;bridgeId=bridge;dataId=id;raw=0;responseLatencyMs=0;state=QUEUED;
     return true;
   }
   bool begin(uint32_t now) {
@@ -79,6 +80,7 @@ struct Probe {
       default:return false;
     }
     raw=value;
+    responseLatencyMs=static_cast<uint32_t>(now-lastAttemptMs);
     return true;
   }
   static uint8_t ramses_peer_type(const uint8_t* a){return a[0]>>2;}

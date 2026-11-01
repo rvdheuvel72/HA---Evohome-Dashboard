@@ -29,6 +29,8 @@ class GatewayRFDiagnosticContracts(unittest.TestCase):
             self.assertNotIn("gateway_password",text)
             self.assertIn('["rfdiag","R8810A test"]',text)
             self.assertIn('data-action="diag-existing"',text)
+            self.assertIn('data-action="diag-export-json"',text)
+            self.assertIn('data-action="diag-export-capture"',text)
 
     def test_local_gateway_config_has_masked_password_and_safe_backend(self):
         flow=(COMP/"config_flow.py").read_text()

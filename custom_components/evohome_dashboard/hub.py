@@ -72,7 +72,14 @@ class EvohomeHub(DataUpdateCoordinator[dict]):
             data = snapshot(self.client)
             monitor = getattr(self, "rf_monitor", None)
             if monitor is not None:
-                monitor.refresh_names(data)
+                try:
+                    monitor.refresh_names(data)
+                except Exception as error:
+                    # RF room-name decoration is optional. Never turn a
+                    # successful Resideo cloud poll into an UpdateFailed error.
+                    _LOGGER.warning(
+                        "RF room-name refresh failed (%s)", type(error).__name__
+                    )
             return data
         except Exception as exc:
             await self._record("poll_status", exc)

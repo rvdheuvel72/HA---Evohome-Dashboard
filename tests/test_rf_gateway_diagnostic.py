@@ -174,6 +174,53 @@ class RFDiagnosticTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(read[0]["rf_reply_candidates"]), 1)
         self.assertEqual(read[0]["rf_reply_candidates"][0]["source"], "10:048994")
 
+    async def test_gateway_http_capture_reads_every_streamed_chunk(self):
+        # ESP32 emits a TSV header and one sendContent() call per event.
+        # A one-shot read() can return only the first chunk.
+        from types import SimpleNamespace
+
+        class Content:
+            def __init__(self, chunks):
+                self.chunks = chunks
+            async def iter_chunked(self, size):
+                for chunk in self.chunks:
+                    yield chunk
+
+        class Response:
+            status = 200
+            def __init__(self, chunks):
+                self.content = Content(chunks)
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *args):
+                return False
+
+        class Session:
+            def __init__(self, chunks):
+                self.chunks = chunks
+                self.kwargs = None
+            def request(self, method, url, **kwargs):
+                self.kwargs = kwargs
+                return Response(self.chunks)
+
+        data = TSV.encode("utf-8")
+        client = object.__new__(mod.GatewayHTTP)
+        client.host = "evohome-gateway"
+        client.auth = None
+        client._aiohttp = SimpleNamespace(
+            ClientTimeout=lambda total: total,
+            ClientError=Exception,
+        )
+        client.session = Session([data[:10], data[10:52], data[52:]])
+        actual = await client.capture() if hasattr(client, "capture") else None
+        self.assertEqual(actual, TSV)
+        self.assertFalse(client.session.kwargs["allow_redirects"])
+        self.assertEqual(mod.decode_capture(actual), mod.decode_capture(TSV))
+
+        client.session = Session([b"a" * 65000, b"b" * 65000, b"c"])
+        with self.assertRaisesRegex(mod.DiagnosticError, "size limit"):
+            await client.capture()
+
     async def test_missing_gateway_config_has_no_secret_in_ui_status(self):
         _, service = self.make()
         snapshot = service.snapshot()

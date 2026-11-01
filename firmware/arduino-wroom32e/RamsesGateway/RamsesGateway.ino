@@ -1072,7 +1072,7 @@ void httpOtTxMethod(){
     web.send(500,"application/json","{\"error\":\"method_nvs_write_failed\"}");
     return;
   }
-  recordLog(GatewayDebug::INFO,"ID25 TX method saved in NVS: "+choice);
+  recordLog(GatewayDebug::INFO,(String("ID25 TX method saved in NVS: ")+choice).c_str());
   web.sendHeader("Cache-Control","no-store");
   web.send(200,"application/json",
     String("{\"saved\":true,\"method\":\"")+choice+

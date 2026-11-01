@@ -22,19 +22,24 @@
   "options": {
     "step": {
       "init": {
-        "title": "Polling and passive RF demand",
+        "title": "Heating, RF monitoring and R8810A diagnostics",
         "data": {
           "scan_interval": "Temperature refresh (seconds)",
           "rf_controller_id": "Evohome RF controller ID (01:xxxxxx, leave empty to disable)",
           "rf_mqtt_topic": "Gateway MQTT RX topic",
-          "rf_zone_names": "Verified room mapping JSON (for example {\"03\":\"Living room\"})"
-        }
+          "rf_zone_names": "Optional legacy RF room-name JSON (room links can be set from Heating demand)",
+          "rf_gateway_host": "ESP32 gateway LAN hostname or private IPv4 (no http://)",
+          "rf_gateway_user": "ESP32 gateway web username (not Resideo)",
+          "rf_gateway_password": "ESP32 gateway web password (leave blank to keep existing)"
+        },
+        "description": "For the R8810A test page, enter the ESP32 gateway's LAN host/IP and its separate web credentials. This is not your Resideo cloud password. Leave gateway fields empty to disable active diagnostics."
       }
     },
     "error": {
       "invalid_controller_id": "Expected a controller device address such as 01:245914.",
       "invalid_mqtt_topic": "Expected a valid MQTT RX topic ending in /rx.",
-      "invalid_zone_mapping": "Expected a JSON object with RF zone keys 00 to 0B and nonempty room names."
+      "invalid_zone_mapping": "Expected a JSON object with RF zone keys 00 to 0B and nonempty room names.",
+      "invalid_gateway_host": "Enter evohome-gateway, evohome-gateway.local or a private LAN IPv4 address such as 192.168.1.50."
     }
   }
 }

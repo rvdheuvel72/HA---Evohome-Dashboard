@@ -587,7 +587,17 @@ class OpenThermGateway {
   bool observe(const ramses::Message& msg,uint8_t& id,
                ot_readonly::Result& r,uint16_t& raw) {
     portENTER_CRITICAL(&mutex_);
-    pairedBridgeRead_.observe(msg,millis());
+    const bool pairedMatched=pairedBridgeRead_.observe(msg,millis());
+    if(pairedMatched && pairedBridgeRead_.state==ramses_bridge_read::READ_ACK) {
+      for(size_t i=0;i<cv_read_batch::COUNT;i++) {
+        if(cv_read_batch::IDS[i]==pairedBridgeRead_.dataId) {
+          lastGoodRaw_[i]=pairedBridgeRead_.raw;
+          lastGoodAtMs_[i]=millis();
+          lastGoodValid_[i]=true;
+          break;
+        }
+      }
+    }
     binding_.observe(msg,millis());
     portEXIT_CRITICAL(&mutex_);
     if(msg.opcode!=0x3220 || msg.messageType!=3 ||
@@ -883,6 +893,10 @@ class OpenThermGateway {
   ot_single::Probe singleProbe_;
   ramses_bridge_read::Probe pairedBridgeRead_;
   cv_read_batch::Batch cvBatch_;
+  // RAM-only last confirmed values survive individual scans, never fabricate zeros.
+  uint16_t lastGoodRaw_[cv_read_batch::COUNT]={};
+  uint32_t lastGoodAtMs_[cv_read_batch::COUNT]={};
+  bool lastGoodValid_[cv_read_batch::COUNT]={};
   bool passiveChValid_=false;
   uint16_t passiveChRaw_=0;
   uint32_t passiveChAtMs_=0;

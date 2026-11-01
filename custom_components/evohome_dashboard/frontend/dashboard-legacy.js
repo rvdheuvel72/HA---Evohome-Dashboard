@@ -453,7 +453,7 @@ class EvohomeDashboardPanel extends HTMLElement {
     const field=event.target;
     if(["gw-ip","gw-user","gw-password"].includes(field.id)){
       this.gatewayMethodLoaded=false;
-      this.shadowRoot.querySelector(\'[data-action="gw-method-save"]\')?.setAttribute("disabled","");
+      this.shadowRoot.querySelector('[data-action="gw-method-save"]')?.setAttribute("disabled","");
     }
     if(field.id==="gw-ip")this.gatewayHost=field.value;
     else if(field.id==="gw-user")this.gatewayUsername=field.value;

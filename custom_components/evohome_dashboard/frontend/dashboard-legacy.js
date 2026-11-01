@@ -250,7 +250,7 @@ class EvohomeDashboardPanel extends HTMLElement {
       '<div class="setting"><label>Gateway username <input id="gw-user" autocomplete="off" value="'+esc(this.gatewayUsername||"")+'"></label></div>'+
       '<div class="setting"><label>Gateway password <input id="gw-password" type="password" autocomplete="off" value="'+esc(this.gatewayPassword||"")+'"></label></div>'+
       '<div class="setting"><label>Global transmission method <select id="gw-method"><option value="fifo" '+(this.gatewayMethod==="fifo"?"selected":"")+'>Reference FIFO</option><option value="uart" '+(this.gatewayMethod==="uart"?"selected":"")+'>UART (diagnostic)</option></select></label></div>'+
-      '<div class="gridbuttons"><button class="btn" data-action="gw-method-load">Read gateway setting</button><button class="btn" data-action="gw-method-save">Save global setting</button></div>'+
+      '<div class="gridbuttons"><button class="btn" data-action="gw-method-load">Read gateway setting</button><button class="btn" data-action="gw-method-save" '+(this.gatewayMethodLoaded?'':'disabled')+'>Save global setting</button></div>'+
       '<p class="caption">'+esc(this.gatewayMethodNotice)+' · Last successful save from HA or gateway wins. Credentials are not stored.</p></section>';
   }
   gatewayTest() {
@@ -330,6 +330,10 @@ class EvohomeDashboardPanel extends HTMLElement {
       this.gatewayPassword=credential;
       const selectedMethod=method?.value||this.gatewayMethod||"fifo";
       this.gatewayMethod=selectedMethod;
+      if(action==="gw-method-save" && !this.gatewayMethodLoaded){
+        this.banner="Read the current gateway method before saving changes";
+        this.draw();return;
+      }
       if(action==="gw-trigger" && !confirm("Transmit one experimental OpenTherm ID25 read via the gateway?"))return;
       this.loading=true;this.draw();
       try{
@@ -447,6 +451,10 @@ class EvohomeDashboardPanel extends HTMLElement {
   // Capture edits before the 30-second cloud refresh replaces the panel DOM.
   onGatewayInput(event) {
     const field=event.target;
+    if(["gw-ip","gw-user","gw-password"].includes(field.id)){
+      this.gatewayMethodLoaded=false;
+      this.shadowRoot.querySelector(\'[data-action="gw-method-save"]\')?.setAttribute("disabled","");
+    }
     if(field.id==="gw-ip")this.gatewayHost=field.value;
     else if(field.id==="gw-user")this.gatewayUsername=field.value;
     else if(field.id==="gw-password")this.gatewayPassword=field.value;

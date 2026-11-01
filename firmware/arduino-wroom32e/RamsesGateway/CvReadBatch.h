@@ -1,6 +1,7 @@
 // A bounded, manually authorized batch of 16 selected OpenTherm Read-Data queries.
 // The radio task drives this model through the existing paired-bridge Probe.
-// No writes, bind traffic, automatic retries, scans or flash persistence.
+// No writes, binding traffic, unrequested scans or flash persistence.
+// Only this explicitly authorized manual batch may retry silent reads.
 #pragma once
 #include <stdint.h>
 #include <stddef.h>

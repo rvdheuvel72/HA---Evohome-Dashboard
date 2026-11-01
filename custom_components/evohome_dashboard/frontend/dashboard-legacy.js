@@ -57,6 +57,7 @@ class EvohomeDashboardPanel extends HTMLElement {
     this.attachShadow({mode:"open"});
     this.tab = "overview"; this.entry = null; this.entries = [];
     this.state = null; this.online = false; this.errors = 0; this.rfDemand = null; this.backendVersion = null; this.pendingRfLinks = {};
+    this.diag = null; this.diagAuthorized = false; this.diagReplaceCapture = false; this.diagTimer = null;
     this.banner = ""; this.loading = false; this.modal = null;
     this.schedule = null; this.scheduleSystem = ""; this.scheduleZone = "";
     this.activeDay = "monday"; this.timer = null; this.refreshing = false;
@@ -72,8 +73,9 @@ class EvohomeDashboardPanel extends HTMLElement {
     this.draw();
     if (this._hass) this.bootstrap();
     this.timer = setInterval(() => this.entry && !this.refreshing && this.fetchStatus(),30000);
+    this.diagTimer = setInterval(() => this.entry && this.tab==="rfdiag" && this.diag?.running && this.fetchDiag(),2500);
   }
-  disconnectedCallback() { clearInterval(this.timer); }
+  disconnectedCallback() { clearInterval(this.timer); clearInterval(this.diagTimer); }
   async ws(type, values={}) {
     if (!this._hass) throw Error("Home Assistant is not connected");
     return this._hass.callWS({type:"evohome_dashboard/"+type,...values, ...(type==="entries"?{}:{entry_id:this.entry})});
@@ -95,9 +97,51 @@ class EvohomeDashboardPanel extends HTMLElement {
     this.refreshing=true;
     try {
       const x = await this.ws("status");
-      this.state=x.state; this.online=x.online; this.errors=x.errors; this.rfDemand=x.heat_demand||null; this.backendVersion=x.backend_version||null; this.banner="";
+      this.state=x.state; this.online=x.online; this.errors=x.errors; this.rfDemand=x.heat_demand||null; this.diag=x.r8810a_diag||null; this.backendVersion=x.backend_version||null; this.banner="";
     } catch(e) { this.banner = e.message || "Cannot load Evohome data"; }
     finally { this.refreshing=false;this.draw(); }
+  }
+  async fetchDiag() {
+    if (!this.entry) return;
+    try { this.diag=await this.ws("rf_diag_status"); }
+    catch(e) { this.banner="Diagnostic status unavailable: "+(e.message||"Gateway error"); }
+    this.draw();
+  }
+  downloadText(name, data, type) {
+    const url=URL.createObjectURL(new Blob([data],{type}));
+    const link=document.createElement("a");
+    link.href=url;link.download=name;link.style.display="none";
+    document.body.appendChild(link);link.click();link.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),3000);
+  }
+  async downloadDiagnostic(kind) {
+    try {
+      const result=await this.ws(kind==="existing"?"rf_diag_existing_capture":"rf_diag_export");
+      const stamp=new Date().toISOString().replace(/[:.]/g,"-");
+      if(kind==="existing"){
+        this.downloadText("R8810A-existing-capture-"+stamp+".tsv",result.capture_tsv||"","text/tab-separated-values");
+      }else{
+        this.downloadText("R8810A-diagnostic-"+stamp+".json",JSON.stringify(result.report,null,2)+"\\n","application/json");
+        if(result.capture_tsv)this.downloadText("R8810A-diagnostic-capture-"+stamp+".tsv",result.capture_tsv,"text/tab-separated-values");
+      }
+      this.banner="Diagnostic evidence downloaded";
+    }catch(e){this.banner="Action failed: "+(e.message||"Could not export diagnostic");}
+    this.draw();
+  }
+  async startDiagnostic(id) {
+    if(!this.diagAuthorized || this.diag?.running)return;
+    const label=id===0?"three RF requests (IDs 18, 25, 117)":"one RF request (ID "+id+")";
+    if(!confirm("Authorize "+label+" using the observed physical Evohome 01: identity? This can collide with the real controller."))return;
+    this.loading=true;this.draw();
+    try {
+      this.diag=await this.ws("rf_diag_start",{
+        confirm:"authorize-three-rf-reads-observed-evohome-controller-identity",
+        data_id:id,replace_capture:this.diagReplaceCapture
+      });
+      this.diagAuthorized=false;this.diagReplaceCapture=false;
+      this.banner="R8810A RF diagnostic started; no heating setpoint or OpenTherm write is sent.";
+    }catch(e){this.banner="Action failed: "+(e.message||"Could not start RF diagnostic");}
+    finally{this.loading=false;this.draw();}
   }
   systems() {
     return (this.state?.locations || []).flatMap(l => (l.systems||[]).map(s=>({...s,location_name:l.name})));
@@ -122,7 +166,7 @@ class EvohomeDashboardPanel extends HTMLElement {
     }).join("");
   }
   nav() {
-    const items=[["overview","Overview"],["rooms","Rooms"],["demand","Heating demand"],["schedules","Schedules"],["actions","Quick actions"],["settings","Settings"],["errors","Error log"]];
+    const items=[["overview","Overview"],["rooms","Rooms"],["demand","Heating demand"],["rfdiag","R8810A test"],["schedules","Schedules"],["actions","Quick actions"],["settings","Settings"],["errors","Error log"]];
     return '<nav class="nav" aria-label="Evohome navigation">'+items.map(a=>'<button data-action="tab" data-tab="'+a[0]+'" class="'+(this.tab===a[0]?"active":"")+'">'+a[1]+'</button>').join("")+'</nav>';
   }
   overview() {
@@ -263,6 +307,44 @@ class EvohomeDashboardPanel extends HTMLElement {
     try { const r=await this.ws("errors"); this.errorEvents=r.events||[];this.draw(); }
     catch(e) { this.banner=e.message||"Error log unavailable";this.draw(); }
   }
+  diagnosticPage() {
+    const d=this.diag;
+    if(!d?.configured){
+      return '<div class="section"><div><h2>R8810A RF diagnostics</h2><p class="sub">Run OpenTherm reads through the existing ESP32 gateway without PC scripts.</p></div></div>'+
+        '<section class="card"><h3>One-time gateway configuration</h3>'+
+        '<p>Open Settings → Devices &amp; services → Evohome Dashboard → Configure. Set the gateway LAN hostname or private IPv4 address, gateway username and gateway password.</p>'+
+        '<p class="caption">Home Assistant connects over the local network. Credentials are not sent to the browser. The gateway API must be reachable from the Home Assistant host.</p></section>';
+    }
+    const rows=(d.reads||[]).map(row=>{
+      const value=row.value==null?"—":String(row.value)+(row.id===18?" bar":row.id===25?" °C":"");
+      return '<tr><td>'+esc("ID"+row.id+" — "+row.label)+'</td><td>'+esc(value)+'</td>'+
+        '<td>'+esc(row.state)+'</td><td>'+esc(row.tx_phase||"Unknown")+
+        ' · '+esc(row.tx_bytes==null?"—":row.tx_bytes)+'/'+esc(row.tx_expected_bytes==null?"—":row.tx_expected_bytes)+
+        ' bytes</td><td>'+esc((row.rf_reply_candidates||[]).length)+'</td></tr>';
+    }).join("");
+    const displayState=d.running?"Running: "+d.stage:(d.state==="complete"?"Completed":d.state==="interrupted"?"Incomplete: "+(d.error||d.capture_error||"unknown"):"Idle — no RF request sent");
+    const buttonDisabled=d.running?" disabled":"";
+    const requireAuth=!this.diagAuthorized||d.running?" disabled":"";
+    return '<div class="section"><div><h2>R8810A diagnostics</h2>'+
+      '<p class="sub">Test ID25 (boiler flow) or compare IDs 18, 25 and 117; view the gateway responses and export RF evidence.</p></div></div>'+
+      '<section class="card"><h3>Gateway status</h3><p>'+esc(displayState)+'</p>'+
+      (d.error?'<p class="warning">'+esc(d.error)+'</p>':"")+
+      (d.capture_error?'<p class="caption">Capture issue: '+esc(d.capture_error)+'</p>':"")+
+      '<p class="caption">This test uses the existing controller RF address and can collide with ordinary Evohome traffic. No OpenTherm writes, binding or heating overrides.</p>'+
+      '<div class="field" style="margin-top:16px"><label><input type="checkbox" id="diag-authorize" '+(this.diagAuthorized?"checked":"")+buttonDisabled+'> I authorize read-only RF requests as the existing Evohome controller</label></div>'+
+      '<div class="field"><label><input type="checkbox" id="diag-replace" '+(this.diagReplaceCapture?"checked":"")+buttonDisabled+'> Replace the gateway packet capture (download existing evidence first)</label></div>'+
+      '<div class="gridbuttons" style="margin-top:16px">'+
+      '<button class="btn primary" data-action="diag-run" data-id="25"'+requireAuth+'>Test ID25</button>'+
+      '<button class="btn" data-action="diag-run" data-id="0"'+requireAuth+'>Run IDs 18, 25, 117</button>'+
+      '<button class="btn" data-action="diag-refresh">Refresh status</button>'+
+      '<button class="btn" data-action="diag-existing">Download existing gateway capture</button>'+
+      '</div><p class="caption" style="margin-top:12px">The firmware waits for its RF cooldown. This page will update while the test runs.</p></section>'+
+      '<section class="card"><h3>Read results</h3><table class="pin-map"><thead><tr><th>OpenTherm Data-ID</th><th>Value</th><th>Response</th><th>Local TX</th><th>RF reply candidates</th></tr></thead><tbody>'+
+      (rows||'<tr><td colspan="5">No diagnostic completed yet.</td></tr>')+'</tbody></table>'+
+      '<p class="caption">A timeout is inconclusive—not evidence that a register is unsupported. A candidate RF reply cannot prove wired OpenTherm forwarding.</p>'+
+      '<p class="caption">Captured packets: '+esc(d.packet_count||0)+' · Capture full: '+esc(d.capture_full==null?"Unknown":d.capture_full)+'</p>'+
+      '<button class="btn" data-action="diag-export"'+((d.state==="complete"||d.state==="interrupted")?"":" disabled")+'>Download report.json and capture.tsv</button></section>';
+  }
   errorPage() {
     const events=this.errorEvents||[];
     return '<div class="section"><div><h2>Error log</h2><p class="muted">Last '+events.length+' recorded incidents. Credentials and request contents are never logged.</p></div><button class="btn" data-action="load-errors">↻ Reload</button></div>'+
@@ -281,7 +363,7 @@ class EvohomeDashboardPanel extends HTMLElement {
   }
   draw() {
     const root=this.shadowRoot;
-    const body=this.tab==="overview"?this.overview():this.tab==="rooms"?this.rooms():this.tab==="demand"?this.heatDemand():this.tab==="schedules"?this.schedules():this.tab==="actions"?this.actions():this.tab==="settings"?this.settings():this.errorPage();
+    const body=this.tab==="overview"?this.overview():this.tab==="rooms"?this.rooms():this.tab==="demand"?this.heatDemand():this.tab==="rfdiag"?this.diagnosticPage():this.tab==="schedules"?this.schedules():this.tab==="actions"?this.actions():this.tab==="settings"?this.settings():this.errorPage();
     root.innerHTML='<style>'+css+'</style><div class="frame"><header class="top"><div class="brand"><div class="logo">⌂</div><div><h1>Evohome</h1><div class="caption">Home heating, made clear · HA backend '+esc(this.backendVersion?"v"+this.backendVersion:"version unknown")+' · UI: '+EVOHOME_UI_SOURCE+'</div></div></div>'+
       '<div class="status"><span class="dot '+(this.online?"":"off")+'"></span>'+esc(this.online?"Cloud connected":"Cloud not confirmed")+
       ' · '+esc(this.state?.updated?new Date(this.state.updated).toLocaleTimeString():"Awaiting data")+'</div></header>'+this.nav()+
@@ -294,6 +376,11 @@ class EvohomeDashboardPanel extends HTMLElement {
     const node=event.target.closest("[data-action]");if(!node || this.loading)return;
     const action=node.dataset.action;
     if(action==="tab"){this.tab=node.dataset.tab;this.draw();if(this.tab==="errors")this.loadErrors();return;}
+    if(action==="diag-run"){await this.startDiagnostic(Number(node.dataset.id));return;}
+    if(action==="diag-refresh"){await this.fetchDiag();return;}
+    if(action==="diag-existing"){await this.downloadDiagnostic("existing");return;}
+    if(action==="diag-export"){await this.downloadDiagnostic("report");return;}
+
     if(action==="link-rf-zone"){
       const index=node.dataset.index;
       const selector=this.shadowRoot.querySelector('select[data-rf-index="'+index+'"]');
@@ -379,6 +466,9 @@ class EvohomeDashboardPanel extends HTMLElement {
   }
   async onChange(event) {
     const node=event.target;
+    if(node.id==="diag-authorize"){this.diagAuthorized=node.checked;this.draw();return;}
+    if(node.id==="diag-replace"){this.diagReplaceCapture=node.checked;this.draw();return;}
+
     if(node.dataset.rfIndex!=null){
       this.pendingRfLinks[node.dataset.rfIndex]=node.value;
       return;

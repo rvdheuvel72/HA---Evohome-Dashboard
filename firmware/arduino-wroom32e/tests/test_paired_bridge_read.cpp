@@ -5,6 +5,7 @@
 #include <string.h>
 #include "../RamsesGateway/RamsesPairedBridgeRead.h"
 #include "../RamsesGateway/CvReadBatch.h"
+#include "../RamsesGateway/RamsesUartFifo.h"
 using namespace ramses_bridge_read;
 int main(){
   uint8_t f[16]={};size_t n=0;
@@ -51,6 +52,7 @@ int main(){
   assert(!p.observe(wrong,1200));
   assert(p.observe(reply,1200));
   assert(p.state==READ_ACK && p.raw==0x2280 && !p.busy());
+  assert(p.responseLatencyMs==100);
   float temperature=0;
   assert(ot_readonly::fixedPoint(p.dataId,p.raw,temperature));
   assert(temperature==34.5f);
@@ -77,7 +79,7 @@ int main(){
   invalid.payload[1]^=0x80; // OT parity invalid
   assert(!late.observe(invalid,200050));
   assert(late.observe(reply,200060));
-  // CV button uses the same single-read hardware path at most once per ID.
+  // CV manual batch is bounded to three attempts for transient failures only.
   cv_read_batch::Batch batch;
   assert(cv_read_batch::COUNT==16 && cv_read_batch::SPACING_MS==15000u);
   assert(batch.start(1000,245914));
@@ -105,18 +107,45 @@ int main(){
   response.dataId=18;response.state=ramses_bridge_read::TIMEOUT;
   assert(batch.settle(response,localTx,18000));
   assert(batch.items[1].state==ramses_bridge_read::TIMEOUT);
-  assert(batch.next==2 && batch.id()==25 && !batch.due(33000-1));
+  assert(batch.next==1 && batch.id()==18 && !batch.due(32999));
   assert(batch.due(33000));
-  // If a future RF preflight remains blocked, fail closed; never retry the ID.
-  assert(!batch.overdue(153000));
-  assert(batch.overdue(153001));
-  batch.abort(153001);
+  batch.queued(); // second attempt for ID18
+  assert(batch.items[1].attempts==2);
+  assert(batch.settle(response,localTx,34000));
+  assert(batch.next==1 && batch.due(49000));
+  batch.queued(); // third and final attempt
+  assert(batch.items[1].attempts==3);
+  assert(batch.settle(response,localTx,50000));
+  assert(batch.next==2 && batch.id()==25 && !batch.due(64999));
+  assert(batch.due(65000));
+  // If a future RF preflight remains blocked, fail closed after 120 seconds.
+  assert(!batch.overdue(185000));
+  assert(batch.overdue(185001));
+  batch.abort(185001);
   assert(!batch.active && batch.aborted && batch.completed);
-  assert(!batch.due(153002));
+  assert(!batch.due(185002));
   assert(batch.start(154000,245914)); // new click explicitly resets the result set
   assert(batch.items[0].state==ramses_bridge_read::IDLE);
   assert(batch.items[0].id==17 && batch.items[2].id==25 && batch.items[15].id==115);
   assert(!batch.start(154001,245914));
+  // Reference FIFO supports variable-length RAMSES wire encodings without
+  // overflowing the 64-byte CC1101 hardware FIFO.
+  uint8_t serial[48]={};
+  for(size_t i=0;i<sizeof(serial);i++)serial[i]=static_cast<uint8_t>(i*7u);
+  uint8_t fifo[64]={};size_t used=0;
+  for(size_t n:{size_t(32),size_t(40),size_t(44),size_t(47)}){
+    assert(ramses_uart_fifo::encodePrimedVariable(serial,n,fifo,sizeof(fifo),used));
+    assert(used==4u+(n*10u+7u)/8u+1u && used<=64);
+  }
+  uint8_t historical[60]={};size_t historicalLength=0;
+  assert(ramses_uart_fifo::encodePrimedReference(serial,44,
+                                                historical,sizeof(historical),
+                                                historicalLength));
+  assert(ramses_uart_fifo::encodePrimedVariable(serial,44,fifo,sizeof(fifo),used));
+  assert(used==60 && historicalLength==60 &&
+         std::memcmp(historical,fifo,60)==0);
+  assert(!ramses_uart_fifo::encodePrimedVariable(serial,48,fifo,sizeof(fifo),used));
+  assert(!ramses_uart_fifo::encodePrimedVariable(serial,47,fifo,32,used));
   // All previously supported CV IDs plus extended diagnostics are restored.
   const uint8_t expected[]={
     17,18,25,28,5,33,57,26,117,121,34,35,36,116,120,115

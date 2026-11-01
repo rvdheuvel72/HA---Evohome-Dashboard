@@ -2,6 +2,7 @@
 // transmission. Independent NVS key avoids rewriting networking credentials
 // and the staged/reboot-based general settings transaction.
 #pragma once
+#include <Arduino.h>
 #include <Preferences.h>
 #include <stdint.h>
 

@@ -23,6 +23,11 @@
 class OpenThermGateway {
  public:
   void configure(const gw_config::Settings* settings,uint16_t band){config_=settings;moduleBand_=band;}
+  // Radio-task-only valid frame observation; defer NEW reads briefly after RX.
+  void noteRxTraffic(uint32_t now){lastRfRxMs_=now;}
+  bool rxQuiet(uint32_t now)const{
+    return !lastRfRxMs_ || static_cast<uint32_t>(now-lastRfRxMs_)>=300u;
+  }
   bool transmitConfigured() const {
     return config_ && config_->otTxEnabled == 1 &&
         config_->otBridge > 0 && config_->otBridge <= 262143 &&
@@ -644,7 +649,7 @@ class OpenThermGateway {
     bool oneShot=false;
     ot_tx::Method method=ot_tx::ASYNC_UART;
     portENTER_CRITICAL(&mutex_);
-    oneShot=singleProbe_.begin(now);
+    oneShot=rxQuiet(now) && singleProbe_.begin(now);
     method=singleProbe_.method;
     const auto previous=singleProbe_.state;
     singleProbe_.tick(now);
@@ -681,7 +686,7 @@ class OpenThermGateway {
     bool bridgeStart=false;
     portENTER_CRITICAL(&mutex_);
     pairedBridgeRead_.tick(now);
-    bridgeStart=pairedBridgeRead_.begin(now);
+    bridgeStart=rxQuiet(now) && pairedBridgeRead_.begin(now);
     bridgeSnap=pairedBridgeRead_;
     portEXIT_CRITICAL(&mutex_);
     if(bridgeStart) {
@@ -863,6 +868,7 @@ class OpenThermGateway {
     uint16_t raw[256];
   };
   static constexpr uint32_t PROFILE_MAGIC=0x4f543034;
+  uint32_t lastRfRxMs_=0; // valid incoming RAMSES frame; radio task only
   const gw_config::Settings* config_=nullptr;
   uint16_t moduleBand_=868;
   mutable portMUX_TYPE mutex_=portMUX_INITIALIZER_UNLOCKED;

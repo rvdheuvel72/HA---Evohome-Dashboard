@@ -1,25 +1,14 @@
 name: Build RAMSES Arduino WROOM-32E
+# Manual deep regression only. Normal PR firmware safety uses trusted-ramses-compile.
+# Release packaging recompiles when explicitly started by its own workflow.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "firmware/arduino-wroom32e/**"
-      - ".github/workflows/publish-ramses-arduino-v0.4-beta.yml"
-      - ".github/workflows/ramses-arduino-wroom32e.yml"
-      - ".github/workflows/ramses-local-hardware.yml"
-  pull_request:
-    paths:
-      - "firmware/arduino-wroom32e/**"
-      - ".github/workflows/publish-ramses-arduino-v0.4-beta.yml"
-      - ".github/workflows/ramses-arduino-wroom32e.yml"
-      - ".github/workflows/ramses-local-hardware.yml"
   workflow_dispatch:
 
 # Superseded firmware PR builds should not occupy the self-hosted runner.
 # Main-branch builds remain non-cancellable.
 concurrency:
   group: ramses-firmware-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 permissions:
   contents: read

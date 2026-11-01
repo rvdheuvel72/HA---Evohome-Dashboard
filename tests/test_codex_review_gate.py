@@ -60,12 +60,18 @@ class GateTests(unittest.TestCase):
             state,_=gate.check("token","owner/repo",1,SHA)
         self.assertEqual(state,"passed")
 
-    def test_radio_compile_required_if_firmware_or_publisher_changes(self):
+    def test_radio_compile_required_only_for_compiled_gateway_source(self):
         self.assertTrue(gate.arduino_validation_required([
             "firmware/arduino-wroom32e/RamsesGateway/RamsesGateway.ino"
         ]))
-        self.assertTrue(gate.arduino_validation_required([
+        self.assertFalse(gate.arduino_validation_required([
             ".github/workflows/publish-ramses-arduino-v0.4-beta.yml"
+        ]))
+        self.assertFalse(gate.arduino_validation_required([
+            "firmware/arduino-wroom32e/README.md"
+        ]))
+        self.assertFalse(gate.arduino_validation_required([
+            "firmware/arduino-wroom32e/tests/test_codec.cpp"
         ]))
         self.assertFalse(gate.arduino_validation_required([
             "scripts/check_codex_review.py"

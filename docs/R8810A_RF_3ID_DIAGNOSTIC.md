@@ -47,3 +47,19 @@ python3 -m unittest discover -s tests -p test_diag_r8810a_three_id.py -v
 ```
 
 These use fake gateways and never transmit RF.
+## Independent observed DHW temperature reference (not part of this three-read run)
+
+The user reported that a separate existing gateway read of **OpenTherm ID26**
+returned **Read-Ack, 16.05 °C**, matching the solar boiler's own display.
+This is user-observed cross-check evidence that a meaningful hot-water
+measurement can be obtained through the R8810A RF path. The underlying
+display/sensor wiring, bridge caching and wired OpenTherm forwarding were
+**not independently inspected**. This diagnostic deliberately does **not**
+add a fourth request or change boiler operation: its three-ID control set
+remains **18, 25, 117**.
+
+When interpreting the RF capture, note that nested OpenTherm words are
+checked for even parity and reserved bits before they can count as Read-Ack,
+Data-Invalid, or Unknown-DataId. Candidate matching also requires the exact
+observed controller and bridge addresses, and RF reply attribution remains
+uncertain because the real Evohome controller shares the same identity.

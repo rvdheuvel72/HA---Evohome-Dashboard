@@ -41,11 +41,17 @@ packets are not interpreted as zero demand. Demand-weighted duration is
 examples](docs/HEATING_DEMAND.md).
 
 
-A new, independent and user-friendly Evohome heating integration with a responsive touchscreen-style **Evohome** page in the Home Assistant sidebar.
+An independent and user-friendly Evohome heating integration with a responsive touchscreen-style **Evohome** page in the Home Assistant sidebar.
 
-**Current HA integration version:** v0.3.6 (stable HACS release after successful main-branch CI). The RF demand feature is **not yet validated against live TRV demand packets**.
+**Current HA integration source version:** v0.3.7 (from `custom_components/evohome_dashboard/manifest.json`). GitHub Releases and HACS availability are separate from the source version; check [HA releases](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases) for the published integration package. The RF demand feature is **not yet validated against live TRV demand packets**.
 
 This project uses the Apache-2.0 licensed [evohome-async](https://github.com/zxdavb/evohome-async) Python transport library as a dependency; it does not include or reuse `colegates/evohome-control` implementation code.
+
+## Gateway Test — OpenTherm ID25 (introduced in v0.3.7)
+
+In the administrator-only **Evohome → Gateway test** tab, enter the ESP32 gateway's **private LAN IPv4 address** and gateway **HTTP Basic Auth** username/password. The password is retained only in the current panel session, not stored in Home Assistant settings. Press **Read status** to fetch the gateway's current `/api/v1/opentherm/one-shot` JSON status; choose **UART** or **Reference FIFO**, then **Run ID25 test** and explicitly confirm the experimental RF request. Press **Read status** again to view the result. The test requires gateway firmware exposing this endpoint, network connectivity from Home Assistant to ESP32 port 80, and a configured strong gateway password (at least 12 characters for triggering). Do **not** enter a URL or an Internet-facing address.
+
+This is a **manual, active RF transmission**, not a passive read and not a Resideo cloud command. It sends one OpenTherm ID25 read request via the gateway; a queued request or local TX completion **does not prove** that the R8810A received or answered it. Compare actual response details and gateway logs. No automatic pairing, OpenTherm write, or heating-control change is introduced. **No ESP32 firmware update is bundled with the HACS integration.** This test is on the **Evohome sidebar panel**, not guaranteed in the optional standalone HACS Lovelace card. See [user guide](docs/USER_GUIDE.md) and [firmware guide](firmware/arduino-wroom32e/README.md).
 
 ## What is included
 
@@ -67,7 +73,9 @@ This project uses the Apache-2.0 licensed [evohome-async](https://github.com/zxd
 | Settings, device capability inventory | Implemented |
 | Installer-only / hidden settings | **Informational only — cloud API access unverified** |
 | Persistent, redacted error log | Implemented |
-| HomeBoard integration / direct RF | Not in Phase 1 |
+| HomeBoard integration / direct RF control | Not in Phase 1; passive RF monitoring and manually triggered ID25 diagnostics are available separately |
+| Passive heating-demand observation via ESP32 MQTT RX | Implemented; live TRV demand accuracy not fully validated |
+| Manual ESP32 OpenTherm ID25 diagnostic tab | Implemented in v0.3.7; real hardware result still requires verification |
 
 ## Install
 
@@ -89,7 +97,7 @@ The integration's **Configure** action provides temperature polling interval (de
 ### Safety and observability
 
 - Home Assistant stores OAuth access/refresh tokens in private `.storage`, separated by configuration entry. Never add these files to Git.
-- Evohome Dashboard 0.3.1 uses `evohome-async==2.1.0`, matching Home Assistant 2026.10's built-in integration. Version 2.1.0 returns no `CommTask` from cloud writes: the dashboard submits one write, then polls Resideo for the requested state. Schedule saves also guard against concurrent edits and verify results with repeated live GETs. A cloud GET confirmation is not a direct RF acknowledgement.
+- The current integration uses `evohome-async==2.1.0`, matching Home Assistant 2026.10's built-in integration. Version 2.1.0 returns no `CommTask` from cloud writes: the dashboard submits one write, then polls Resideo for the requested state. Schedule saves also guard against concurrent edits and verify results with repeated live GETs. A cloud GET confirmation is not a direct RF acknowledgement.
 - The Error log sidebar tab provides the last 80 diagnostic incidents, persisted across HA restarts. Only timestamp, operation, exception class and target identifier are saved.
 - If HA or Resideo becomes unavailable, Evohome retains its existing locally stored schedule. The frontend displays the last known data and connection health.
 - Installer-only settings (RF pairing, boiler tuning, Wi-Fi, factory reset and device diagnostics) are clearly displayed as **unavailable through verified TCC cloud capabilities**. They cannot honestly be made controllable without further reverse engineering and hardware validation.
@@ -115,17 +123,20 @@ Version 0.3.1 restores the built-in HA 2026.10 transport pin `evohome-async==2.1
 
 ## Development / CI
 
-CI deliberately uses **`[self-hosted, Linux, X64]`** runners. The workflow provisions Node 24, then executes Python compileall, pure schedule tests, JavaScript syntax checks and packaging-contract checks.
+Most validation uses **`[self-hosted, Linux, X64]`** runners; the initial P1/P2 gate runs on GitHub-hosted infrastructure. The workflow provisions Node 24, then executes Python compileall, pure schedule tests, JavaScript syntax checks and packaging-contract checks.
 
 ```bash
 python3 -m compileall -q custom_components tests
 python3 -m unittest discover -s tests -v
 python3 scripts/validate_contract.py
 node --check custom_components/evohome_dashboard/frontend/dashboard.js
+node --check custom_components/evohome_dashboard/frontend/dashboard-legacy.js
 node --check frontend-package/dist/evohome-dashboard-ui.js
 python scripts/package_frontend.py
 python scripts/verify_library_api.py  # in an isolated venv with evohome-async==2.1.0
 ```
+
+The pull-request validation also requires the main README and matching changelog/usage documentation to accompany user-visible integration runtime changes. The documentation gate validates changed files and version correspondence; it cannot prove prose is factually complete, so Codex review must also check documentation against implementation.
 
 See [Architecture](docs/ARCHITECTURE.md) and [Feature matrix](docs/FEATURE_MATRIX.md).
 
@@ -137,7 +148,7 @@ The original code in this repository is MIT-licensed (see `LICENSE`). The separa
 
 **Phase 1:** an improved Evohome touchscreen experience in Home Assistant only.
 
-**Not now:** HomeBoard work schedules, household presence automation, RAMSES RF adapter and unsupported low-level installer controls.
+**Not now:** HomeBoard work schedules, household presence automation, autonomous RAMSES RF control, or unsupported low-level installer settings. Optional passive RF observation and the bounded manual ID25 gateway experiment are already present.
 
 ## Codex quality gate
 
@@ -200,9 +211,9 @@ Once published and installed via HACS **Dashboard**, future UI-only updates
 require **only a browser refresh**, not a HA Core restart. The HACS
 `/hacsfiles/` resource serves updates without caching.
 
-The backend loader at `/api/evohome_dashboard/dashboard.js?v=0.3.0` first
+The versioned backend loader at `/api/evohome_dashboard/dashboard.js?v=<installed-version>` first
 loads `/hacsfiles/evohome-dashboard-ui/evohome-dashboard-ui.js`. If absent,
-it uses the **frozen v0.2 UI fallback** to avoid breaking old installations.
+it uses the **bundled dashboard UI**, which is maintained together with the backend. An outdated external frontend lacking required feature markers is also bypassed.
 No installation of the separate HACS package is forced during migration.
 
 ### Publish the frontend independently

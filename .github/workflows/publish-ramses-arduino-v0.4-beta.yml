@@ -1,13 +1,8 @@
 name: Release RAMSES Arduino v0.4.0 beta.37
 
+# Explicit release invocation only. Firmware/docs/HA pushes do not automatically
+# spend compute re-testing and rebuilding the same firmware release.
 on:
-  # A reviewed/merged push to main can publish the beta. The mandatory
-  # release-readiness checker also validates the exact PR head before release.
-  push:
-    branches: [main]
-    paths:
-      - "firmware/arduino-wroom32e/**"
-      - ".github/workflows/publish-ramses-arduino-v0.4-beta.yml"
   workflow_dispatch:
 
 permissions:

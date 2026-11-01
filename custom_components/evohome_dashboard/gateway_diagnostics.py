@@ -8,6 +8,7 @@ import aiohttp
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 PATH = "/api/v1/opentherm/one-shot"
+METHOD_PATH = "/api/v1/opentherm/tx-method"
 
 
 def validate_gateway_ip(host: str) -> str:
@@ -21,14 +22,14 @@ def validate_gateway_ip(host: str) -> str:
     return str(address)
 
 
-async def gateway_id25(hass, host: str, username: str, password: str, action: str, method: str = "uart") -> dict:
+async def gateway_id25(hass, host: str, username: str, password: str, action: str, method: str = "fifo") -> dict:
     """Proxy only the firmware's ID25 status/trigger endpoint. No credentials stored."""
     gateway = validate_gateway_ip(host)
-    if action not in ("status", "trigger") or method not in ("uart", "fifo"):
+    if action not in ("status", "trigger", "method_get", "method_set") or method not in ("uart", "fifo"):
         raise ValueError("Unsupported diagnostic operation")
     if not username or not password:
         raise ValueError("Enter gateway Basic Auth credentials")
-    if action == "trigger" and len(password) < 12:
+    if action in ("trigger", "method_set") and len(password) < 12:
         raise ValueError("Gateway requires a strong password for this operation")
     session = async_get_clientsession(hass)
     kwargs = {
@@ -37,6 +38,21 @@ async def gateway_id25(hass, host: str, username: str, password: str, action: st
         "allow_redirects": False,
     }
     try:
+        if action == "method_get":
+            async with session.get(f"http://{gateway}{METHOD_PATH}", **kwargs) as response:
+                if response.status != 200:
+                    raise ValueError(f"Gateway method read failed (HTTP {response.status})")
+                return await response.json(content_type=None)
+        if action == "method_set":
+            async with session.post(
+                f"http://{gateway}{METHOD_PATH}",
+                data={"method": method},
+                headers={"X-Gateway-Config": "tx-method"},
+                **kwargs,
+            ) as response:
+                if response.status != 200:
+                    raise ValueError(f"Gateway method save failed (HTTP {response.status})")
+                return await response.json(content_type=None)
         if action == "status":
             async with session.get(f"http://{gateway}{PATH}", **kwargs) as response:
                 if response.status != 200:
@@ -44,7 +60,7 @@ async def gateway_id25(hass, host: str, username: str, password: str, action: st
                 return await response.json(content_type=None)
         async with session.post(
             f"http://{gateway}{PATH}",
-            data={"confirm": "experimental-single-read-25", "method": method},
+            data={"confirm": "experimental-single-read-25"},
             headers={"X-Gateway-Config": "one-shot"},
             **kwargs,
         ) as response:

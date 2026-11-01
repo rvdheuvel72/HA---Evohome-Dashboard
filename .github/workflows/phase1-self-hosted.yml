@@ -119,6 +119,7 @@ jobs:
           node --check frontend-package/dist/evohome-dashboard-ui.js
           node tests/test_ui_fallback_preloaded.js
           node tests/test_ui_cloud_zone_mapping.js
+          node tests/test_ui_r8810a_diagnostic.js
       - name: Execute pure-function tests
         shell: bash
         run: |

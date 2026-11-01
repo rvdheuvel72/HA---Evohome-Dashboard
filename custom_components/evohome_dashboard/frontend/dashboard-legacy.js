@@ -1,3 +1,4 @@
+/* EVOHOME_UI_FEATURE: gateway-id25-v1 */
 /* Evohome Dashboard — original, dependency-free Home Assistant custom panel. */
 const EVOHOME_UI_SOURCE = "Bundled";
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -245,7 +246,7 @@ class EvohomeDashboardPanel extends HTMLElement {
       '<p class="sub">Administrator-only diagnostic. Talks to the ESP32 gateway over your local network; it does not call the Resideo cloud. No password is saved.</p>'+
       '<section class="card"><div class="setting"><label>Gateway LAN IPv4 address <input id="gw-ip" placeholder="192.168.1.100" value="'+esc(this.gatewayHost||"")+'"></label></div>'+
       '<div class="setting"><label>Gateway username <input id="gw-user" autocomplete="off" value="'+esc(this.gatewayUsername||"")+'"></label></div>'+
-      '<div class="setting"><label>Gateway password <input id="gw-password" type="password" autocomplete="off" placeholder="Gateway Basic Auth password"></label></div>'+
+      '<div class="setting"><label>Gateway password <input id="gw-password" type="password" autocomplete="off" placeholder="Gateway Basic Auth password" value="'+esc(this.gatewayPassword||"")+'"></label></div>'+
       '<div class="setting"><label>Transmission method <select id="gw-method"><option value="uart">UART</option><option value="fifo">Reference FIFO</option></select></label></div>'+
       '<p class="caption">The one-shot command queues a real RF transmission using the observed Evohome identity. It is experimental, not a passive read. The gateway must have strong Basic Auth enabled and permit TX.</p>'+
       '<div class="gridbuttons" style="margin-top:18px"><button class="btn" data-action="gw-status">Read status</button>'+
@@ -315,6 +316,7 @@ class EvohomeDashboardPanel extends HTMLElement {
       this.gatewayHost=ip?.value.trim()||"";
       this.gatewayUsername=username?.value||"";
       const credential=password?.value||"";
+      this.gatewayPassword=credential;
       const selectedMethod=method?.value||"uart";
       if(action==="gw-trigger" && !confirm("Transmit one experimental OpenTherm ID25 read via the gateway?"))return;
       this.loading=true;this.draw();

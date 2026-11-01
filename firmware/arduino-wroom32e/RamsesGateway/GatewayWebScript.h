@@ -627,13 +627,13 @@ async function loadSharedOneShotMethod(){
  if(!r.ok)throw Error('Method GET HTTP '+r.status);
  const p=await r.json();
  if(!oneShotMethodEditing)el('one-shot-method').value=p.method;
- set('one-shot-method-status','Shared gateway setting: '+p.method+
+ set('one-shot-method-status','Global RAMSES TX setting: '+p.method+
    ' · saved in ESP32 NVS · last save wins');
  return p.method;
 }
 el('one-shot-method').addEventListener('change',()=>{
  oneShotMethodEditing=true;
- set('one-shot-method-status','Unsaved selection — click Save shared method');
+ set('one-shot-method-status','Unsaved selection — click Save global method');
 });
 el('one-shot-method-save').addEventListener('click',async()=>{
  const button=el('one-shot-method-save');
@@ -688,7 +688,7 @@ async function updateOneShot(){
  }
 }
 el('one-shot-confirm').addEventListener('change',updateOneShot);
-el('one-shot-method').addEventListener('change',updateOneShot);
+// Method controls live under Settings; polling only reads the saved value.
 el('one-shot-send').addEventListener('click',async()=>{
  el('one-shot-send').disabled=true;
  try{

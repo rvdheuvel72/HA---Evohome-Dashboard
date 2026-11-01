@@ -1,8 +1,8 @@
-# Using Evohome Dashboard (source integration v0.3.7)
+# Using Evohome Dashboard (source integration v0.3.8)
 
 ## Installation and upgrade
 
-1. Update **Evohome Dashboard** in HACS to the latest published stable integration version (current source manifest: `0.3.7`).
+1. Update **Evohome Dashboard** in HACS to the latest published stable integration version (current source manifest: `0.3.8`).
 2. Restart Home Assistant Core **once** for this Python backend upgrade; do not keep both the built-in `evohome` integration
    and this custom integration actively polling the same Resideo account
    while diagnosing login / rate limits.
@@ -62,16 +62,16 @@ functions as unsupported instead of inventing controls.
 ## Gateway test: manual ESP32 OpenTherm ID25 diagnostic
 
 The administrator-only **Evohome → Gateway test** tab is part of the
-bundled Home Assistant sidebar panel (v0.3.7 source). It uses the existing
+bundled Home Assistant sidebar panel (v0.3.8 source). It uses the existing
 ESP32 gateway diagnostic endpoint, not the Resideo cloud.
 
 1. Enter the ESP32's **private LAN IPv4 address** (not a URL).
 2. Enter the gateway's **HTTP Basic Auth username and password**.
    Triggering requires a strong gateway password of at least 12 characters.
 3. Select **Read status** to retrieve the current one-shot status.
-4. Choose **UART** or **Reference FIFO**, then click **Run ID25 test**
+5. Click **Run ID25 test** with the gateway's saved method
    and acknowledge the explicit RF transmission confirmation.
-5. Choose **Read status** again and inspect the JSON result and gateway logs.
+6. Choose **Read status** again and inspect the JSON result and gateway logs.
 
 Home Assistant must reach ESP32 port 80 over the LAN. Inputs remain in
 the browser panel session through periodic refreshes, but are not stored
@@ -99,7 +99,7 @@ confirm whole-system Heating Off only if supported.
 
 ## Backend vs frontend upgrades
 
-- Python/backend upgrades (including source v0.3.7): one Home Assistant Core restart required.
+- Python/backend upgrades (including source v0.3.8): one Home Assistant Core restart required.
 - After publishing/installation of the separate HACS Dashboard frontend:
   UI/layout/schedule-editor updates → update frontend in HACS → hard refresh
   browser (Ctrl+Shift+R); Home Assistant Core stays running.

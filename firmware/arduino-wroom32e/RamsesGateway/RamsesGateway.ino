@@ -1095,6 +1095,11 @@ void httpOtOneShot(){
     web.send(403,"application/json","{\"error\":\"strong_web_auth_required\"}");
     return;
   }
+  if(web.hasArg("method")){
+    web.send(409,"application/json",
+      "{\"error\":\"per_request_method_not_supported_update_ha_to_v0_3_8\"}");
+    return;
+  }
   // Always use the one gateway-owned preference; callers cannot override it.
   // Both HA and the ESP32 UI change it via the authenticated method endpoint.
   const ot_tx::Method method=gw_tx_pref::read()==gw_tx_pref::UART?

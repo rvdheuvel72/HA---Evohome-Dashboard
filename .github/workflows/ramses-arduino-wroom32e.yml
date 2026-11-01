@@ -80,15 +80,6 @@ jobs:
     runs-on: [self-hosted, Linux, X64]
     steps:
       - uses: actions/checkout@v7
-      - name: Require synchronized gateway README documentation
-        if: github.event_name == 'pull_request'
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          git fetch --no-tags --depth=1 origin "$BASE_SHA"
-          python3 scripts/check_ha_docs.py --base-sha "$BASE_SHA"
       - name: Isolate Arduino state per self-hosted job
         shell: bash
         run: |

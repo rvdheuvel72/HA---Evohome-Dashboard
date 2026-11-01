@@ -27,6 +27,13 @@ int main(){
   assert(!makeRead(245914,0,25,f,n));
   for(uint8_t id:{17,18,25,28,5,33,57,26,117,121,34,35,36,116,120,115})
     assert(makeRead(245914,48994,id,f,n));
+  Probe congested;
+  assert(congested.request(4000,245914,48994,25));
+  congested.tick(13999);
+  assert(congested.state==QUEUED);
+  congested.tick(14000);
+  assert(congested.state==TX_FAILED && !congested.busy());
+  assert(!congested.begin(14001)); // never transmit after quiet wait expires
   Probe p;
   assert(p.request(1000,245914,48994,18));
   assert(!p.request(1001,245914,48994,18)); // only one in-flight

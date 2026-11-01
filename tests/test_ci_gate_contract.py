@@ -31,16 +31,24 @@ class ReviewGateContract(unittest.TestCase):
                 for job in jobs:
                     self.assertIn("  " + job + ":\n    needs: [review-preflight]\n", text)
 
-    def test_gateway_compiles_only_for_firmware_source_or_manual_release(self):
+    def test_gateway_compile_isolated_and_release_publishes_on_main(self):
         manual = (WORKFLOWS / "ramses-arduino-wroom32e.yml").read_text()
         trusted = (WORKFLOWS / "trusted-ramses-compile.yml").read_text()
         publisher = (WORKFLOWS / "publish-ramses-arduino-v0.4-beta.yml").read_text()
         ha = (WORKFLOWS / "phase1-self-hosted.yml").read_text()
-        for workflow in (manual, publisher):
-            head = workflow.split("\npermissions:", 1)[0].split("\n# Superseded", 1)[0]
-            self.assertIn("  workflow_dispatch:", head)
-            self.assertNotIn("  push:", head)
-            self.assertNotIn("  pull_request:", head)
+        manual_head = manual.split("\n# Superseded", 1)[0]
+        release_head = publisher.split("\npermissions:", 1)[0]
+        self.assertIn("  workflow_dispatch:", manual_head)
+        self.assertNotIn("  push:", manual_head)
+        self.assertNotIn("  pull_request:", manual_head)
+        self.assertIn("  push:", release_head)
+        self.assertIn("    branches: [main]", release_head)
+        self.assertIn("'firmware/arduino-wroom32e/RELEASE_NOTES_v*.md'", release_head)
+        self.assertIn("'.github/workflows/publish-ramses-arduino-v0.4-beta.yml'", release_head)
+        self.assertNotIn("  pull_request:", release_head)
+        self.assertNotIn("custom_components/", release_head)
+        self.assertNotIn("frontend-package/", release_head)
+        self.assertIn("  workflow_dispatch:", release_head)
         self.assertIn("Reject already published firmware version before building", publisher)
         self.assertLess(publisher.index("Reject already published firmware version before building"),
                         publisher.index("Set up Arduino CLI"))

@@ -16,7 +16,9 @@
 | Optimum Start/Stop | Catalog only | No verified TCC API control |
 | Advanced boiler settings | Catalog only | No verified TCC API control |
 | Language/Wi-Fi/factory reset | Catalog only | Physical controller |
-| Local/no-cloud control | Not implemented | Future RF/LAN research |
+| Passive RF heat-demand observation | Implemented; live TRV accuracy still under test | ESP32 MQTT RX, not cloud control |
+| Manual OpenTherm ID25 test | Implemented in bundled HA panel v0.3.7; live hardware response unverified | Admin-only ESP32 LAN diagnostic; experimental RF TX |
+| Local/no-cloud heating control | Not implemented | RF monitoring/diagnostics do not replace Evohome controller |
 | HomeBoard integration | Deferred | Separate phase |
 
 Do not equate a 'catalog only' entry with control support. UI can never create native controller functions that the transport does not expose.

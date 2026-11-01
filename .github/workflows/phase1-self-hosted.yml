@@ -14,6 +14,9 @@ on:
       - '.github/workflows/phase1-self-hosted.yml'
       - '.github/workflows/publish-evohome-hacs.yml'
       - 'docs/HA_CHANGELOG.md'
+      - 'README.md'
+      - 'docs/USER_GUIDE.md'
+      - 'docs/FEATURE_MATRIX.md'
   push:
     branches: [main]
     paths: *ha_paths
@@ -109,6 +112,7 @@ jobs:
           set -euo pipefail
           git fetch --no-tags --depth=1 origin "$BASE_SHA"
           python3 scripts/check_ha_version.py --base-sha "$BASE_SHA"
+          python3 scripts/check_ha_docs.py --base-sha "$BASE_SHA"
       - name: Check source syntax
         shell: bash
         run: |

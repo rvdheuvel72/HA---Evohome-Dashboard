@@ -3,6 +3,14 @@
 This changelog is **only for the HACS Home Assistant integration**.
 ESP32/RAMSES Arduino firmware has separate beta release tags and changelogs.
 
+## 0.3.7
+
+- Add administrator-only **Evohome → Gateway test** in the bundled HA panel to read the existing ESP32 OpenTherm ID25 one-shot status and manually request one UART or reference-FIFO diagnostic.
+- Require LAN IPv4 and gateway Basic Auth; keep input and selected method across periodic dashboard redraws without persisting credentials in HA configuration.
+- The request is experimental RF transmission, not passive observation; queued/local TX completion does not prove R8810A Read-Ack. No gateway firmware, pairing or OpenTherm write behavior is included.
+- Reject older optional HACS UI versions lacking the diagnostic feature marker so the bundled tab stays available.
+- Update version assertions in integration tests for v0.3.7.
+
 ## 0.3.6
 
 - Reuse existing Resideo cloud room names (and stable cloud zone IDs) in the

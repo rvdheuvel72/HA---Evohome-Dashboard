@@ -1,8 +1,8 @@
-# Using Evohome Dashboard 0.3.0 (split frontend/backend)
+# Using Evohome Dashboard (source integration v0.3.7)
 
 ## Installation and upgrade
 
-1. Update **Evohome Dashboard backend 0.3.0** in HACS.
+1. Update **Evohome Dashboard** in HACS to the latest published stable integration version (current source manifest: `0.3.7`).
 2. Restart Home Assistant Core **once** for this Python backend upgrade; do not keep both the built-in `evohome` integration
    and this custom integration actively polling the same Resideo account
    while diagnosing login / rate limits.
@@ -23,7 +23,7 @@
   standard Heat/Off and preset options. This is intentionally not the weekly
   schedule editor.
 - The Evohome sidebar and custom Lovelace card show the **complete UI**:
-  Rooms, Schedules, Quick Actions, Settings, and Error log.
+  Overview, Rooms, Heating demand, Schedules, Quick actions, Settings, Gateway test and Error log. The optional independent HACS Lovelace card may lack the newest sidebar tabs.
 
 ## Zone controls
 
@@ -59,6 +59,27 @@ Evohome controller's hidden/installer menus, RF pairing and boiler installer
 parameters cannot be edited over the verified TCC API. Settings lists these
 functions as unsupported instead of inventing controls.
 
+## Gateway test: manual ESP32 OpenTherm ID25 diagnostic
+
+The administrator-only **Evohome → Gateway test** tab is part of the
+bundled Home Assistant sidebar panel (v0.3.7 source). It uses the existing
+ESP32 gateway diagnostic endpoint, not the Resideo cloud.
+
+1. Enter the ESP32's **private LAN IPv4 address** (not a URL).
+2. Enter the gateway's **HTTP Basic Auth username and password**.
+   Triggering requires a strong gateway password of at least 12 characters.
+3. Select **Read status** to retrieve the current one-shot status.
+4. Choose **UART** or **Reference FIFO**, then click **Run ID25 test**
+   and acknowledge the explicit RF transmission confirmation.
+5. Choose **Read status** again and inspect the JSON result and gateway logs.
+
+Home Assistant must reach ESP32 port 80 over the LAN. Inputs remain in
+the browser panel session through periodic refreshes, but are not stored
+in HA configuration. The proxy accepts only this diagnostic endpoint.
+A queued request or local transmission completion is **not** a verified
+R8810A Read-Ack. No automatic pairing, OpenTherm write, or ESP32 firmware
+update is included. Live hardware validation is still necessary.
+
 ## Diagnostics
 
 - `Evohome → Error log` displays bounded redacted error history.
@@ -78,12 +99,11 @@ confirm whole-system Heating Off only if supported.
 
 ## Backend vs frontend upgrades
 
-- Python/backend v0.3.0 migration: one Home Assistant Core restart required.
+- Python/backend upgrades (including source v0.3.7): one Home Assistant Core restart required.
 - After publishing/installation of the separate HACS Dashboard frontend:
   UI/layout/schedule-editor updates → update frontend in HACS → hard refresh
   browser (Ctrl+Shift+R); Home Assistant Core stays running.
-- The existing sidebar gracefully falls back to frozen v0.2 JavaScript if
-  the external package is missing. Any current `/api/evohome_dashboard/dashboard.js`
+- The sidebar uses the maintained bundled JavaScript if the external package is missing or lacks required feature markers. Any current `/api/evohome_dashboard/dashboard.js`
   Lovelace resource remains valid as a compatibility loader.
 - Install the standalone frontend as a HACS **Dashboard**, not as a second
   Python integration. No heating-device re-pairing is needed.

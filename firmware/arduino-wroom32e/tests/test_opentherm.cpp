@@ -147,6 +147,13 @@ int main(){
   ot_tx::Comparison foo;
   foo.attempts++;foo.local_completed++;
   assert(foo.attempts==1 && foo.local_completed==1);
+  ot_single::Probe congested;
+  assert(congested.request(200000,ot_tx::REFERENCE_FIFO));
+  congested.tick(209999);
+  assert(congested.state==ot_single::QUEUED);
+  congested.tick(210000);
+  assert(congested.state==ot_single::TX_FAILED);
+  assert(!congested.begin(210001)); // bounded no-TX timeout
   ot_single::Probe invalid;
   assert(!invalid.request(9999,static_cast<ot_tx::Method>(2)));
   assert(invalid.state==ot_single::IDLE);

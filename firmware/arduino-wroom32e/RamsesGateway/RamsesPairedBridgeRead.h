@@ -9,6 +9,7 @@
 namespace ramses_bridge_read {
 constexpr uint32_t COOLDOWN_MS=15000u;
 constexpr uint32_t RESPONSE_TIMEOUT_MS=1800u;
+constexpr uint32_t QUEUE_TIMEOUT_MS=10000u;
 inline bool supportedId(uint8_t id) {
   switch(id) {
     case 5:case 17:case 18:case 25:case 26:case 28:case 33:
@@ -35,7 +36,7 @@ inline const char* label(State state) {
 }
 struct Probe {
   State state=IDLE;
-  uint32_t controllerId=0,bridgeId=0,lastAttemptMs=0,deadlineMs=0;
+  uint32_t controllerId=0,bridgeId=0,lastAttemptMs=0,deadlineMs=0,queuedAtMs=0;
   uint8_t dataId=25;
   uint16_t raw=0;
   uint32_t responseLatencyMs=0;
@@ -49,7 +50,8 @@ struct Probe {
   bool request(uint32_t now,uint32_t controller,uint32_t bridge,uint8_t id) {
     if(busy()||cooldown(now)||!supportedId(id)||
        !controller||controller>=262143||!bridge||bridge>=262143)return false;
-    controllerId=controller;bridgeId=bridge;dataId=id;raw=0;responseLatencyMs=0;state=QUEUED;
+    controllerId=controller;bridgeId=bridge;dataId=id;raw=0;responseLatencyMs=0;
+    queuedAtMs=now;state=QUEUED;
     return true;
   }
   bool begin(uint32_t now) {
@@ -59,6 +61,8 @@ struct Probe {
   }
   void sent(bool ok){if(state==WAITING && !ok)state=TX_FAILED;}
   void tick(uint32_t now){
+    if(state==QUEUED && static_cast<uint32_t>(now-queuedAtMs)>=QUEUE_TIMEOUT_MS)
+      state=TX_FAILED;
     if(state==WAITING && static_cast<int32_t>(now-deadlineMs)>=0)state=TIMEOUT;
   }
   bool observe(const ramses::Message& m,uint32_t now) {

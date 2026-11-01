@@ -43,6 +43,8 @@ class ReviewGateContract(unittest.TestCase):
             self.assertNotIn("  pull_request:", head)
         self.assertIn("  pull_request_target:", trusted)
         self.assertIn("firmware/arduino-wroom32e/RamsesGateway/**", trusted)
+        self.assertIn("Require firmware README updates before provisioning Arduino", trusted)
+        self.assertIn("git show \"$BASE_SHA:scripts/check_ha_docs.py\"", trusted)
         self.assertNotIn("firmware/arduino-wroom32e/**", trusted)
         # Root README maintenance must not trigger the HA runtime test matrix.
         self.assertNotIn("      - 'README.md'\n", ha)

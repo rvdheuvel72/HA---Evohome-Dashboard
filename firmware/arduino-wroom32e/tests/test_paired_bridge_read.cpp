@@ -124,10 +124,10 @@ int main(){
   batch.abort(185001);
   assert(!batch.active && batch.aborted && batch.completed);
   assert(!batch.due(185002));
-  assert(batch.start(154000,245914)); // new click explicitly resets the result set
+  assert(batch.start(186000,245914)); // new click explicitly resets the result set
   assert(batch.items[0].state==ramses_bridge_read::IDLE);
   assert(batch.items[0].id==17 && batch.items[2].id==25 && batch.items[15].id==115);
-  assert(!batch.start(154001,245914));
+  assert(!batch.start(186001,245914));
   // Reference FIFO supports variable-length RAMSES wire encodings without
   // overflowing the 64-byte CC1101 hardware FIFO.
   uint8_t serial[48]={};
@@ -143,7 +143,7 @@ int main(){
                                                 historicalLength));
   assert(ramses_uart_fifo::encodePrimedVariable(serial,44,fifo,sizeof(fifo),used));
   assert(used==60 && historicalLength==60 &&
-         std::memcmp(historical,fifo,60)==0);
+         memcmp(historical,fifo,60)==0);
   assert(!ramses_uart_fifo::encodePrimedVariable(serial,48,fifo,sizeof(fifo),used));
   assert(!ramses_uart_fifo::encodePrimedVariable(serial,47,fifo,32,used));
   // All previously supported CV IDs plus extended diagnostics are restored.

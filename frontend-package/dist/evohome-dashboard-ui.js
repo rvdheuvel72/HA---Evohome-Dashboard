@@ -124,9 +124,11 @@ class EvohomeDashboardPanel extends HTMLElement {
       const stamp=new Date().toISOString().replace(/[:.]/g,"-");
       if(kind==="existing"){
         this.downloadText("R8810A-existing-capture-"+stamp+".tsv",result.capture_tsv||"","text/tab-separated-values");
-      }else{
+      }else if(kind==="json"){
         this.downloadText("R8810A-diagnostic-"+stamp+".json",JSON.stringify(result.report,null,2)+"\n","application/json");
-        if(result.capture_tsv)this.downloadText("R8810A-diagnostic-capture-"+stamp+".tsv",result.capture_tsv,"text/tab-separated-values");
+      }else if(kind==="capture"){
+        if(!result.capture_tsv)throw Error("No RF capture available for this run");
+        this.downloadText("R8810A-diagnostic-capture-"+stamp+".tsv",result.capture_tsv,"text/tab-separated-values");
       }
       this.banner="Diagnostic evidence downloaded";
     }catch(e){this.banner="Action failed: "+(e.message||"Could not export diagnostic");}
@@ -347,7 +349,8 @@ class EvohomeDashboardPanel extends HTMLElement {
       (rows||'<tr><td colspan="5">No diagnostic completed yet.</td></tr>')+'</tbody></table>'+
       '<p class="caption">A timeout is inconclusive—not evidence that a register is unsupported. A candidate RF reply cannot prove wired OpenTherm forwarding.</p>'+
       '<p class="caption">Captured packets: '+esc(d.packet_count||0)+' · Capture full: '+esc(d.capture_full==null?"Unknown":d.capture_full)+'</p>'+
-      '<button class="btn" data-action="diag-export"'+((d.state==="complete"||d.state==="interrupted")?"":" disabled")+'>Download report.json and capture.tsv</button></section>';
+      '<div class="gridbuttons"><button class="btn" data-action="diag-export-json"'+((d.state==="complete"||d.state==="interrupted")?"":" disabled")+'>Download report.json</button>'+
+      '<button class="btn" data-action="diag-export-capture"'+((d.state==="complete"||d.state==="interrupted")&&d.capture_available?"":" disabled")+'>Download capture.tsv</button></div></section>';
   }
   errorPage() {
     const events=this.errorEvents||[];
@@ -383,7 +386,8 @@ class EvohomeDashboardPanel extends HTMLElement {
     if(action==="diag-run"){await this.startDiagnostic(Number(node.dataset.id));return;}
     if(action==="diag-refresh"){await this.fetchDiag();return;}
     if(action==="diag-existing"){await this.downloadDiagnostic("existing");return;}
-    if(action==="diag-export"){await this.downloadDiagnostic("report");return;}
+    if(action==="diag-export-json"){await this.downloadDiagnostic("json");return;}
+    if(action==="diag-export-capture"){await this.downloadDiagnostic("capture");return;}
 
     if(action==="link-rf-zone"){
       const index=node.dataset.index;

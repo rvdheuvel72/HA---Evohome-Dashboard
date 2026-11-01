@@ -416,6 +416,7 @@ class EvohomeDashboardPanel extends HTMLElement {
       },"Weekly schedule saved and verified");this.schedule=null;this.draw();return;
     }
   }
+  // Capture edits before the 30-second cloud refresh replaces the panel DOM.
   onGatewayInput(event) {
     const field=event.target;
     if(field.id==="gw-ip")this.gatewayHost=field.value;

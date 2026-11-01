@@ -718,7 +718,8 @@ class OpenThermGateway {
       portEXIT_CRITICAL(&mutex_);
     }
     // Start a selected, explicit single READ-Data transaction after
-    // lower-level RF quiet gating. Never retry automatically.
+    // lower-level RF quiet gating. Standalone reads never retry; only the
+    // explicitly authorized CV batch may retry bounded timeout failures.
     ramses_bridge_read::Probe bridgeSnap;
     bool bridgeStart=false;
     portENTER_CRITICAL(&mutex_);

@@ -130,7 +130,7 @@ jobs:
               'OpenThermScan.h', 'RamsesReadRequest.h', 'RamsesBinding.h', 'RamsesThermostat.h', 'RamsesControllerIds.h', 'RamsesPeerDetection.h', 'RadioFrequency.h',
               'GatewayWebPage.h', 'GatewayWebScript.h', 'GatewayHostname.h',
               'GatewayDiscovery.h', 'GatewayRuntimeConfig.h',
-              'GatewaySecrets.example.h',
+              'GatewaySecrets.example.h', 'GatewayTxPreference.h',
               'GatewayDebug.h', 'RamsesPacketCapture.h',
           }
           available = {p.name for p in sources}

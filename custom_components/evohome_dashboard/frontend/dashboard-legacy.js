@@ -122,7 +122,7 @@ class EvohomeDashboardPanel extends HTMLElement {
     }).join("");
   }
   nav() {
-    const items=[["overview","Overview"],["rooms","Rooms"],["demand","Heating demand"],["schedules","Schedules"],["actions","Quick actions"],["settings","Settings"],["errors","Error log"]];
+    const items=[["overview","Overview"],["rooms","Rooms"],["demand","Heating demand"],["schedules","Schedules"],["actions","Quick actions"],["settings","Settings"],["gateway","Gateway test"],["errors","Error log"]];
     return '<nav class="nav" aria-label="Evohome navigation">'+items.map(a=>'<button data-action="tab" data-tab="'+a[0]+'" class="'+(this.tab===a[0]?"active":"")+'">'+a[1]+'</button>').join("")+'</nav>';
   }
   overview() {
@@ -239,6 +239,19 @@ class EvohomeDashboardPanel extends HTMLElement {
     return '<h2>Heating schedules</h2><p class="sub">Edit the schedule stored in Evohome itself, not an unrelated HA automation.</p>'+
        '<section class="card"><div class="form">'+choose+'</div>'+editor+'</section>';
   }
+  gatewayTest() {
+    const result=this.gatewayId25Result ? esc(JSON.stringify(this.gatewayId25Result,null,2)) : "No gateway response collected yet.";
+    return '<h2>R8810A / OpenTherm ID25 test</h2>'+
+      '<p class="sub">Administrator-only diagnostic. Talks to the ESP32 gateway over your local network; it does not call the Resideo cloud. No password is saved.</p>'+
+      '<section class="card"><div class="setting"><label>Gateway LAN IPv4 address <input id="gw-ip" placeholder="192.168.1.100" value="'+esc(this.gatewayHost||"")+'"></label></div>'+
+      '<div class="setting"><label>Gateway username <input id="gw-user" autocomplete="off" value="'+esc(this.gatewayUsername||"")+'"></label></div>'+
+      '<div class="setting"><label>Gateway password <input id="gw-password" type="password" autocomplete="off" placeholder="Gateway Basic Auth password"></label></div>'+
+      '<div class="setting"><label>Transmission method <select id="gw-method"><option value="uart">UART</option><option value="fifo">Reference FIFO</option></select></label></div>'+
+      '<p class="caption">The one-shot command queues a real RF transmission using the observed Evohome identity. It is experimental, not a passive read. The gateway must have strong Basic Auth enabled and permit TX.</p>'+
+      '<div class="gridbuttons" style="margin-top:18px"><button class="btn" data-action="gw-status">Read status</button>'+
+      '<button class="btn warn" data-action="gw-trigger">Run ID25 test</button></div></section>'+
+      '<section class="card" style="margin-top:18px"><h3>Gateway response</h3><pre style="white-space:pre-wrap;overflow-wrap:anywhere">'+result+'</pre></section>';
+  }
   settings() {
     const sys=this.systems()[0];
     const settings=[
@@ -281,7 +294,7 @@ class EvohomeDashboardPanel extends HTMLElement {
   }
   draw() {
     const root=this.shadowRoot;
-    const body=this.tab==="overview"?this.overview():this.tab==="rooms"?this.rooms():this.tab==="demand"?this.heatDemand():this.tab==="schedules"?this.schedules():this.tab==="actions"?this.actions():this.tab==="settings"?this.settings():this.errorPage();
+    const body=this.tab==="overview"?this.overview():this.tab==="rooms"?this.rooms():this.tab==="demand"?this.heatDemand():this.tab==="schedules"?this.schedules():this.tab==="actions"?this.actions():this.tab==="settings"?this.settings():this.tab==="gateway"?this.gatewayTest():this.errorPage();
     root.innerHTML='<style>'+css+'</style><div class="frame"><header class="top"><div class="brand"><div class="logo">⌂</div><div><h1>Evohome</h1><div class="caption">Home heating, made clear · HA backend '+esc(this.backendVersion?"v"+this.backendVersion:"version unknown")+' · UI: '+EVOHOME_UI_SOURCE+'</div></div></div>'+
       '<div class="status"><span class="dot '+(this.online?"":"off")+'"></span>'+esc(this.online?"Cloud connected":"Cloud not confirmed")+
       ' · '+esc(this.state?.updated?new Date(this.state.updated).toLocaleTimeString():"Awaiting data")+'</div></header>'+this.nav()+
@@ -294,6 +307,27 @@ class EvohomeDashboardPanel extends HTMLElement {
     const node=event.target.closest("[data-action]");if(!node || this.loading)return;
     const action=node.dataset.action;
     if(action==="tab"){this.tab=node.dataset.tab;this.draw();if(this.tab==="errors")this.loadErrors();return;}
+    if(action==="gw-status" || action==="gw-trigger"){
+      const ip=this.shadowRoot.querySelector("#gw-ip");
+      const username=this.shadowRoot.querySelector("#gw-user");
+      const password=this.shadowRoot.querySelector("#gw-password");
+      const method=this.shadowRoot.querySelector("#gw-method");
+      this.gatewayHost=ip?.value.trim()||"";
+      this.gatewayUsername=username?.value||"";
+      const credential=password?.value||"";
+      const selectedMethod=method?.value||"uart";
+      if(action==="gw-trigger" && !confirm("Transmit one experimental OpenTherm ID25 read via the gateway?"))return;
+      this.loading=true;this.draw();
+      try{
+        this.gatewayId25Result=await this.ws("gateway_id25",{
+          host:this.gatewayHost,username:this.gatewayUsername,password:credential,
+          action:action==="gw-trigger"?"trigger":"status",method:selectedMethod
+        });
+        this.banner=action==="gw-trigger"?"ID25 request queued. Select Read status for the actual result.":"Gateway ID25 status retrieved.";
+      }catch(e){this.banner="Action failed: "+(e.message||"Gateway test failed");}
+      finally{this.loading=false;this.draw();}
+      return;
+    }
     if(action==="link-rf-zone"){
       const index=node.dataset.index;
       const selector=this.shadowRoot.querySelector('select[data-rf-index="'+index+'"]');

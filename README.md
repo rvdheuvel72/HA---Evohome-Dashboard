@@ -43,7 +43,7 @@ examples](docs/HEATING_DEMAND.md).
 
 An independent and user-friendly Evohome heating integration with a responsive touchscreen-style **Evohome** page in the Home Assistant sidebar.
 
-**Current HA integration source version:** v0.3.8 (from `custom_components/evohome_dashboard/manifest.json`). GitHub Releases and HACS availability are separate from the source version; check [HA releases](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases) for the published integration package. The RF demand feature is **not yet validated against live TRV demand packets**.
+**Current HA integration source version:** v0.3.9 (from `custom_components/evohome_dashboard/manifest.json`). GitHub Releases and HACS availability are separate from the source version; check [HA releases](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases) for the published integration package. The RF demand feature is **not yet validated against live TRV demand packets**.
 
 This project uses the Apache-2.0 licensed [evohome-async](https://github.com/zxdavb/evohome-async) Python transport library as a dependency; it does not include or reuse `colegates/evohome-control` implementation code.
 
@@ -57,7 +57,7 @@ This is a **manual, active RF transmission**, not a passive read and not a Resid
 
 The gateway firmware is an independent project within this repository. The
 latest version documented in [the firmware README](firmware/arduino-wroom32e/README.md)
-is **v0.4.0-beta.38**, whose *Read all data* diagnostic lists 16 explicit
+is **v0.4.0-beta.39**, whose *Read all data* diagnostic lists 16 explicit
 OpenTherm read-only IDs plus passive ID0 observation. It uses a minimum
 15-second interval between active requests. The HA v0.3.8 ID25 test page
 calls the existing gateway **one-shot** endpoint; it does not replace the
@@ -280,3 +280,15 @@ HACS then installs it as a **Dashboard** repository.
 See [Frontend migration](docs/FRONTEND_MIGRATION.md) for step-by-step upgrade
 instructions and the limitations. **The separate repository must be
 published before no-restart HACS UI updates become available.**
+
+
+### Global RAMSES FIFO/UART and CV batch reliability (HA v0.3.9 / ESP32 beta.39)
+
+Set the persistent transmit method in **Evohome → Settings** or
+**Gateway → Settings → Radio**. Default FIFO is used for all bounded
+compatible gateway-originated RAMSES frames (not only ID25). Frames too long
+for the CC1101 FIFO use UART explicitly. The manual 16-ID read batch permits
+at most two delayed retries per silent or locally failed ID, with 15-second
+minimum spacing and no automatic retries for negative acknowledgements,
+pairing or heating-control commands. Exact RF reliability improvement is
+unverified until hardware testing.

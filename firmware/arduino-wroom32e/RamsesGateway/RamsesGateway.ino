@@ -93,7 +93,7 @@ constexpr uint32_t HEARTBEAT_MS = 15000;
 constexpr uint32_t RADIO_RECOVERY_RETRY_MS = 5000;
 constexpr uint32_t RX_HEALTH_SAMPLE_MS = 5000;
 constexpr uint8_t DEBUG_QUEUE_SIZE = 32;
-constexpr char FW_VERSION[] = "0.4.0-beta.38";
+constexpr char FW_VERSION[] = "0.4.0-beta.39";
 constexpr uint32_t MDNS_RETRY_MS = 15000;
 constexpr uint32_t MQTT_STATE_INTERVAL_MS = 15000;
 
@@ -370,6 +370,14 @@ bool sendThermostatFrame(const uint8_t* frame,size_t count,
   if(!size || size>sizeof(wire)) {
     d.phase=ot_tx::TX_CONFIG_FAILED;return false;
   }
+  if(gw_tx_pref::read()==gw_tx_pref::FIFO &&
+     ramses_uart_fifo::fits(size)){
+    const bool ok=radio.sendFrameFifo(wire,size,false,d);
+    while(rfUart.available())rfUart.read();
+    decoder.reset();
+    return ok;
+  }
+  // Hardware FIFO cannot fit larger frames: use UART and expose actual method.
   d.expected_bytes=static_cast<uint16_t>(size);
   d.uart_min_expected_us=static_cast<uint32_t>(
     (static_cast<uint64_t>(size)*10000000ULL*9ULL)/(38400ULL*10ULL));
@@ -557,6 +565,7 @@ void radioTask(void*) {
         portENTER_CRITICAL(&rxDiagnosticsMux);
         rxDiagnostics.packet(message,configuration.current.otBridge,millis());
         portEXIT_CRITICAL(&rxDiagnosticsMux);
+        otGateway.noteRxTraffic(millis());
         otGateway.noteDevice(message);
         portENTER_CRITICAL(&thermostatMux);
         if((message.addrMask&1u) &&
@@ -1072,7 +1081,7 @@ void httpOtTxMethod(){
     web.send(500,"application/json","{\"error\":\"method_nvs_write_failed\"}");
     return;
   }
-  recordLog(GatewayDebug::INFO,(String("ID25 TX method saved in NVS: ")+choice).c_str());
+  recordLog(GatewayDebug::INFO,(String("Global RAMSES TX preference saved in NVS: ")+choice).c_str());
   web.sendHeader("Cache-Control","no-store");
   web.send(200,"application/json",
     String("{\"saved\":true,\"method\":\"")+choice+

@@ -303,19 +303,18 @@ class Cc1101Radio {
   // bytes and ends with an FF idle MARK: 60 FIFO bytes total.
   // Fixed-length FIFO transmission avoids infinite-streaming underrun risks.
   // HW sync/CRC disabled: RAW RAMSES preamble/sync and checksum are included.
-  bool sendOneShotFifo(const uint8_t* wire,size_t wireLength,
-                       bool experimentalOneShot,ot_tx::Report& d) {
+  bool sendFrameFifo(const uint8_t* wire,size_t wireLength,
+                     bool experimentalOneShot,ot_tx::Report& d) {
     d.method=ot_tx::REFERENCE_FIFO;
     const uint32_t begun=micros();
-    if(!wire || wireLength!=ramses_uart_fifo::INPUT_LEN ||
+    if(!wire || !ramses_uart_fifo::fits(wireLength) ||
        !txFrequencyAllowed(experimentalOneShot)) {
       d.phase=ot_tx::FREQUENCY_REJECTED;return false;
     }
-    uint8_t txFifo[ramses_uart_fifo::REFERENCE_RF_LEN]={};
+    uint8_t txFifo[ramses_uart_fifo::FIFO_CAPACITY]={};
     size_t txLength=0;
-    if(!ramses_uart_fifo::encodePrimedReference(
-          wire,wireLength,txFifo,sizeof(txFifo),txLength) ||
-       txLength!=ramses_uart_fifo::REFERENCE_RF_LEN) {
+    if(!ramses_uart_fifo::encodePrimedVariable(
+          wire,wireLength,txFifo,sizeof(txFifo),txLength)) {
       d.phase=ot_tx::TX_CONFIG_FAILED;return false;
     }
     d.expected_bytes=static_cast<uint16_t>(txLength);
@@ -338,7 +337,7 @@ class Cc1101Radio {
       d.phase=ot_tx::FIFO_PREFILL_FAILED;
       endReadRequestTx(&d);return false;
     }
-    if(!strobe(0x35)) { // STX, fixed length 60 FIFO bytes incl. priming
+    if(!strobe(0x35)) { // STX, bounded fixed FIFO including priming
       d.phase=ot_tx::TX_START_FAILED;
       endReadRequestTx(&d);return false;
     }
@@ -364,6 +363,16 @@ class Cc1101Radio {
     const bool rxOk=endReadRequestTx(&d);
     if(!rxOk)d.phase=ot_tx::RX_RESTORE_FAILED;
     return d.phase==ot_tx::LOCAL_COMPLETE;
+  }
+
+  // Preserve the historical one-shot API for callers and tests.
+  bool sendOneShotFifo(const uint8_t* wire,size_t wireLength,
+                       bool experimentalOneShot,ot_tx::Report& d) {
+    if(wireLength!=ramses_uart_fifo::INPUT_LEN){
+      d.phase=ot_tx::TX_CONFIG_FAILED;
+      return false;
+    }
+    return sendFrameFifo(wire,wireLength,experimentalOneShot,d);
   }
 
   bool enterReceive(bool startupTrace=false) {

@@ -79,9 +79,20 @@ assert 'web.on("/api/v1/opentherm/tx-method", HTTP_GET, httpOtTxMethod);' in ino
 assert 'web.on("/api/v1/opentherm/tx-method", HTTP_POST, httpOtTxMethod);' in ino
 assert 'gw_tx_pref::read()==gw_tx_pref::UART' in ino
 assert 'gw_tx_pref::write(choice)' in ino
-assert "Save shared method" in html
+assert "Save global method" in html
+assert "Global RAMSES transmit method" in html
+assert "ramses_uart_fifo::fits(wireLen)" in (SKETCH/"OpenThermGateway.h").read_text()
+assert "gw_tx_pref::read()==gw_tx_pref::FIFO" in (SKETCH/"OpenThermGateway.h").read_text()
+assert "sendFrameFifo(wire,size,false,d)" in ino
+assert "MAX_ATTEMPTS=3" in (SKETCH/"CvReadBatch.h").read_text()
+assert '"last_good_value"' not in ino  # exposed by OpenThermGateway, not generic status
+assert "last_good_value" in (SKETCH/"OpenThermGateway.h").read_text()
+assert "lastGoodRaw_" in (SKETCH/"OpenThermGateway.h").read_text()
+assert "Last confirmed:" in script
 assert "per_request_method_not_supported_update_ha_to_v0_3_8" in ino
 assert "loadSharedOneShotMethod" in script
+settingsLoader=script[script.index("async function loadConfig()"):script.index("el(\'cfg\').addEventListener")]
+assert "await loadSharedOneShotMethod()" in settingsLoader
 assert 'body:\'confirm=experimental-single-read-25\'' in script
 assert "15s minimum RF spacing" in script
 catalog = script[script.index("const cvCatalog="):script.index("let cvPosting=")]

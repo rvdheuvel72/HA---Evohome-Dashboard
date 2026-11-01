@@ -1,3 +1,20 @@
+## Beta.39: Global FIFO / UART and more reliable CV readings
+
+[RAMSES Arduino Gateway v0.4.0-beta.39](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.39)
+— ZIP: `RAMSES-Arduino-Gateway-v0.4.0-beta.39-ESP32-WROOM-32E.zip`.
+
+The **Global RAMSES transmit method** selector now lives in Gateway →
+Settings → Radio, with Reference FIFO as the persistent default. It applies
+to all outgoing compatible gateway frames, including the 16-ID heating
+scan, individual reads, pairing and thermostat reports; packets too long
+for the CC1101's 64-byte FIFO fall back safely to UART.
+The manual CV batch may retry a timed-out read at most twice, separated
+by the same 15-second minimum gap. The status JSON reports per-ID
+attempts, method and measured reply latency. New reads are deferred
+briefly after received RAMSES traffic. No automatic retries of commands,
+binding or heating writes were introduced.
+See `RELEASE_NOTES_v0.4.0-beta.39.md`.
+
 ## Beta.38: Persistent shared ID25 TX method (FIFO default)
 
 [RAMSES Arduino Gateway v0.4.0-beta.38](https://github.com/rvdheuvel72/HA---Evohome-Dashboard/releases/tag/ramses-arduino-v0.4.0-beta.38)

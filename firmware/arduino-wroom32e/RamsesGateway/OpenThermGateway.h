@@ -12,6 +12,7 @@
 #include "RamsesReadRequest.h"
 #include "Cc1101Radio.h"
 #include "GatewayRuntimeConfig.h"
+#include "GatewayTxPreference.h"
 #include "RamsesCodec.h"
 #include "RamsesBinding.h"
 #include "RamsesPairedBridgeRead.h"
@@ -22,6 +23,11 @@
 class OpenThermGateway {
  public:
   void configure(const gw_config::Settings* settings,uint16_t band){config_=settings;moduleBand_=band;}
+  // Radio-task-only valid frame observation; defer NEW reads briefly after RX.
+  void noteRxTraffic(uint32_t now){lastRfRxMs_=now;}
+  bool rxQuiet(uint32_t now)const{
+    return !lastRfRxMs_ || static_cast<uint32_t>(now-lastRfRxMs_)>=300u;
+  }
   bool transmitConfigured() const {
     return config_ && config_->otTxEnabled == 1 &&
         config_->otBridge > 0 && config_->otBridge <= 262143 &&
@@ -460,11 +466,19 @@ class OpenThermGateway {
   }
   void sendCvBatchStatus(WebServer& server,bool radioReady) {
     cv_read_batch::Batch snap;
+    uint16_t lastRaw[cv_read_batch::COUNT]={};
+    uint32_t lastAt[cv_read_batch::COUNT]={};
+    bool lastValid[cv_read_batch::COUNT]={};
     bool passiveChValid=false;
     uint16_t passiveChRaw=0;
     uint32_t passiveChAtMs=0;
     portENTER_CRITICAL(&mutex_);
     snap=cvBatch_;
+    for(size_t i=0;i<cv_read_batch::COUNT;i++){
+      lastRaw[i]=lastGoodRaw_[i];
+      lastAt[i]=lastGoodAtMs_[i];
+      lastValid[i]=lastGoodValid_[i];
+    }
     passiveChValid=passiveChValid_;
     passiveChRaw=passiveChRaw_;
     passiveChAtMs=passiveChAtMs_;
@@ -509,21 +523,42 @@ class OpenThermGateway {
         snprintf(row,sizeof(row),
           "%s{\"id\":%u,\"name\":\"%s\",\"state\":\"%s\","
           "\"raw\":%u,\"value\":%.3f,\"updated_at_ms\":%lu,"
-          "\"tx_phase\":\"%s\",\"tx_bytes\":%u,\"tx_expected_bytes\":%u}",
+          "\"tx_phase\":\"%s\",\"tx_method\":\"%s\",\"tx_bytes\":%u,\"tx_expected_bytes\":%u,\"attempts\":%u,\"response_latency_ms\":%lu",
           i?",":"",id,ot_readonly::label(id),
           ramses_bridge_read::label(item.state),item.raw,
           static_cast<double>(value),static_cast<unsigned long>(item.updatedAtMs),
-          ot_tx::phaseName(item.txPhase),item.txBytes,item.txExpectedBytes);
+          ot_tx::phaseName(item.txPhase),ot_tx::methodName(item.txMethod),
+          item.txBytes,item.txExpectedBytes,
+          static_cast<unsigned>(item.attempts),
+          static_cast<unsigned long>(item.responseLatencyMs));
       else
         snprintf(row,sizeof(row),
           "%s{\"id\":%u,\"name\":\"%s\",\"state\":\"%s\","
           "\"raw\":%u,\"value\":null,\"updated_at_ms\":%lu,"
-          "\"tx_phase\":\"%s\",\"tx_bytes\":%u,\"tx_expected_bytes\":%u}",
+          "\"tx_phase\":\"%s\",\"tx_method\":\"%s\",\"tx_bytes\":%u,\"tx_expected_bytes\":%u,\"attempts\":%u,\"response_latency_ms\":%lu",
           i?",":"",id,ot_readonly::label(id),
           ramses_bridge_read::label(item.state),item.raw,
           static_cast<unsigned long>(item.updatedAtMs),
-          ot_tx::phaseName(item.txPhase),item.txBytes,item.txExpectedBytes);
+          ot_tx::phaseName(item.txPhase),ot_tx::methodName(item.txMethod),
+          item.txBytes,item.txExpectedBytes,
+          static_cast<unsigned>(item.attempts),
+          static_cast<unsigned long>(item.responseLatencyMs));
       server.sendContent(row);
+      float lastValue=0;
+      const bool lastHasValue=lastValid[i] &&
+        ot_readonly::fixedPoint(id,lastRaw[i],lastValue);
+      char previous[140];
+      if(lastHasValue)
+        snprintf(previous,sizeof(previous),
+          ",\"last_good_value\":%.3f,\"last_good_raw\":%u,\"last_good_at_ms\":%lu}",
+          static_cast<double>(lastValue),static_cast<unsigned>(lastRaw[i]),
+          static_cast<unsigned long>(lastAt[i]));
+      else
+        snprintf(previous,sizeof(previous),
+          ",\"last_good_value\":null,\"last_good_raw\":%u,\"last_good_at_ms\":%lu}",
+          static_cast<unsigned>(lastValid[i]?lastRaw[i]:0),
+          static_cast<unsigned long>(lastValid[i]?lastAt[i]:0));
+      server.sendContent(previous);
     }
     server.sendContent("]}");
     server.sendContent("");
@@ -575,7 +610,17 @@ class OpenThermGateway {
   bool observe(const ramses::Message& msg,uint8_t& id,
                ot_readonly::Result& r,uint16_t& raw) {
     portENTER_CRITICAL(&mutex_);
-    pairedBridgeRead_.observe(msg,millis());
+    const bool pairedMatched=pairedBridgeRead_.observe(msg,millis());
+    if(pairedMatched && pairedBridgeRead_.state==ramses_bridge_read::READ_ACK) {
+      for(size_t i=0;i<cv_read_batch::COUNT;i++) {
+        if(cv_read_batch::IDS[i]==pairedBridgeRead_.dataId) {
+          lastGoodRaw_[i]=pairedBridgeRead_.raw;
+          lastGoodAtMs_[i]=millis();
+          lastGoodValid_[i]=true;
+          break;
+        }
+      }
+    }
     binding_.observe(msg,millis());
     portEXIT_CRITICAL(&mutex_);
     if(msg.opcode!=0x3220 || msg.messageType!=3 ||
@@ -641,10 +686,10 @@ class OpenThermGateway {
     bool oneShot=false;
     ot_tx::Method method=ot_tx::ASYNC_UART;
     portENTER_CRITICAL(&mutex_);
-    oneShot=singleProbe_.begin(now);
-    method=singleProbe_.method;
     const auto previous=singleProbe_.state;
-    singleProbe_.tick(now);
+    singleProbe_.tick(now); // expire queued one-shots BEFORE assessing a send
+    oneShot=rxQuiet(now) && singleProbe_.begin(now);
+    method=singleProbe_.method;
     if(previous==ot_single::WAITING && singleProbe_.state==ot_single::TIMEOUT)
       comparisons_[method].timeouts++;
     portEXIT_CRITICAL(&mutex_);
@@ -673,12 +718,13 @@ class OpenThermGateway {
       portEXIT_CRITICAL(&mutex_);
     }
     // Start a selected, explicit single READ-Data transaction after
-    // lower-level RF quiet gating. Never retry automatically.
+    // lower-level RF quiet gating. Standalone reads never retry; only the
+    // explicitly authorized CV batch may retry bounded timeout failures.
     ramses_bridge_read::Probe bridgeSnap;
     bool bridgeStart=false;
     portENTER_CRITICAL(&mutex_);
     pairedBridgeRead_.tick(now);
-    bridgeStart=pairedBridgeRead_.begin(now);
+    bridgeStart=rxQuiet(now) && pairedBridgeRead_.begin(now);
     bridgeSnap=pairedBridgeRead_;
     portEXIT_CRITICAL(&mutex_);
     if(bridgeStart) {
@@ -860,6 +906,7 @@ class OpenThermGateway {
     uint16_t raw[256];
   };
   static constexpr uint32_t PROFILE_MAGIC=0x4f543034;
+  uint32_t lastRfRxMs_=0; // valid incoming RAMSES frame; radio task only
   const gw_config::Settings* config_=nullptr;
   uint16_t moduleBand_=868;
   mutable portMUX_TYPE mutex_=portMUX_INITIALIZER_UNLOCKED;
@@ -870,6 +917,10 @@ class OpenThermGateway {
   ot_single::Probe singleProbe_;
   ramses_bridge_read::Probe pairedBridgeRead_;
   cv_read_batch::Batch cvBatch_;
+  // RAM-only last confirmed values survive individual scans, never fabricate zeros.
+  uint16_t lastGoodRaw_[cv_read_batch::COUNT]={};
+  uint32_t lastGoodAtMs_[cv_read_batch::COUNT]={};
+  bool lastGoodValid_[cv_read_batch::COUNT]={};
   bool passiveChValid_=false;
   uint16_t passiveChRaw_=0;
   uint32_t passiveChAtMs_=0;
@@ -924,6 +975,16 @@ class OpenThermGateway {
     if(!wireLen || wireLen>sizeof(wire)) {
       diag.phase=ot_tx::TX_CONFIG_FAILED;return false;
     }
+    if(gw_tx_pref::read()==gw_tx_pref::FIFO &&
+       ramses_uart_fifo::fits(wireLen)){
+      noteControllerTx();
+      const bool ok=radio.sendFrameFifo(wire,wireLen,true,diag);
+      while(port.available())port.read();
+      decoder.reset();
+      return ok;
+    }
+    // Frames larger than the 64-byte hardware FIFO retain UART until a
+    // verified streaming implementation exists. Report actual TX method.
     diag.expected_bytes=static_cast<uint16_t>(wireLen);
     // 38400 baud / 8N1 => ten UART bits per byte. 90% of the nominal
     // wire time is a conservative minimum for a completed flush.
@@ -954,7 +1015,8 @@ class OpenThermGateway {
                 ramses::FrameDecoder& decoder,uint8_t id){
     if(!transmitEnabled())return false;
     ot_tx::Report diagnostics;
-    return sendReadRequest(radio,port,decoder,id,false,ot_tx::ASYNC_UART,diagnostics);
+    return sendReadRequest(radio,port,decoder,id,false,
+      gw_tx_pref::read()==gw_tx_pref::FIFO?ot_tx::REFERENCE_FIFO:ot_tx::ASYNC_UART,diagnostics);
   }
   bool sendReadRequest(Cc1101Radio& radio,HardwareSerial& port,
                 ramses::FrameDecoder& decoder,uint8_t id,bool experimental,
@@ -984,11 +1046,8 @@ class OpenThermGateway {
     const size_t wireLen=ramses_read::encodeUART(frame,used,wire,sizeof(wire));
     if(wireLen!=44){diag.phase=ot_tx::TX_CONFIG_FAILED;return false;}
     if(method==ot_tx::REFERENCE_FIFO) {
-      if(!experimental) {
-        diag.phase=ot_tx::FREQUENCY_REJECTED;return false;
-      }
       noteControllerTx();
-      const bool ok=radio.sendOneShotFifo(wire,wireLen,true,diag);
+      const bool ok=radio.sendFrameFifo(wire,wireLen,experimental,diag);
       while(port.available())port.read();
       decoder.reset();
       return ok;

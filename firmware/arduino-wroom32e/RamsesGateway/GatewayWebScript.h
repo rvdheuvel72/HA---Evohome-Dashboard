@@ -39,6 +39,7 @@ async function loadConfig(){
   el('cfg-timezone').value=values.timezone||'Europe/Amsterdam';
   for(const name of ['mqtt_discovery','ot_scan_all','ot_auto_poll','ot_tx_enabled','rf_experimental_rx'])
     el('cfg-'+name).checked=!!values[name];
+  await loadSharedOneShotMethod();
   set('cfg-rf-band','Declared PCB marking: '+values.rf_module_band+
     ' MHz · applied after restart · cross-band 868 MHz RX on 433 MHz board is experimental');
  }catch(e){set('cfg-message','Cannot load configuration: '+e.message)}
@@ -281,14 +282,20 @@ const cvCatalog=[
 ];
 let cvPosting=false,cvPostError='';
 function cvFormatValue(field,result){
- if(!result||result.state!=='read_ack')return '—';
- const raw=Number(result.raw)||0;
+ if(!result)return '—';
+ const current=result.state==='read_ack';
+ if(!current && !result.last_good_at_ms)return '—';
+ const raw=Number(current?result.raw:result.last_good_raw)||0;
+ const value=current?result.value:result.last_good_value;
+ let rendered='';
  if(field.id===5||field.id===115)
-  return '0x'+raw.toString(16).toUpperCase().padStart(4,'0');
- if(field.id===35)
-  return 'Set '+(raw>>8)+' / actual '+(raw&255)+' (encoded)';
- if(result.value===null||!Number.isFinite(Number(result.value)))return 'Raw '+raw;
- return Number(result.value).toFixed(field.digits)+' '+field.unit;
+  rendered='0x'+raw.toString(16).toUpperCase().padStart(4,'0');
+ else if(field.id===35)
+  rendered='Set '+(raw>>8)+' / actual '+(raw&255)+' (encoded)';
+ else if(value===null||!Number.isFinite(Number(value)))
+  rendered='Raw '+raw;
+ else rendered=Number(value).toFixed(field.digits)+' '+field.unit;
+ return current?rendered:'Last confirmed: '+rendered;
 }
 function cvDraw(snapshot){
  const tbody=el('cv-read-results');
@@ -319,9 +326,14 @@ function cvDraw(snapshot){
   const phase=item?.state||'not_tested';
   const tx= item?.tx_phase==='local_complete' &&
     item.tx_expected_bytes>0 && item.tx_bytes===item.tx_expected_bytes;
-  const status=phase==='read_ack'?
+  const tries=item?.attempts||0;
+  const link=item?.tx_method?(' · '+item.tx_method):'';
+  const latency=phase==='read_ack'&&item?.response_latency_ms?
+    ' · '+item.response_latency_ms+'ms response':'';
+  const status=(phase==='read_ack'?
       (tx?'Read-Ack / local TX complete':'Read-Ack / TX unverified'):
-      phase.replace(/_/g,' ');
+      phase.replace(/_/g,' '))+
+      (tries?' · '+tries+' attempt'+(tries===1?'':'s'):'')+link+latency;
   const timestamp=item?.updated_at_ms?'+ '+Math.round(item.updated_at_ms/1000)+'s uptime':'—';
   const row=document.createElement('tr');
   for(const content of ['ID '+field.id+' · '+field.name,
@@ -339,8 +351,7 @@ async function cvStatus(){
   if(!response.ok)throw Error('HTTP '+response.status);
   const s=await response.json();
   cvDraw(s);
-  const finished=(s.results||[]).filter(x=>
-   ['read_ack','data_invalid','unknown_data_id','timeout','tx_failed'].includes(x.state)).length;
+  const finished=Number(s.next_index)||0;
   const acks=(s.results||[]).filter(x=>x.state==='read_ack').length;
   const phase=s.active?
     'Reading '+finished+'/'+s.count+' completed · '+acks+
@@ -627,13 +638,13 @@ async function loadSharedOneShotMethod(){
  if(!r.ok)throw Error('Method GET HTTP '+r.status);
  const p=await r.json();
  if(!oneShotMethodEditing)el('one-shot-method').value=p.method;
- set('one-shot-method-status','Shared gateway setting: '+p.method+
+ set('one-shot-method-status','Global RAMSES TX setting: '+p.method+
    ' · saved in ESP32 NVS · last save wins');
  return p.method;
 }
 el('one-shot-method').addEventListener('change',()=>{
  oneShotMethodEditing=true;
- set('one-shot-method-status','Unsaved selection — click Save shared method');
+ set('one-shot-method-status','Unsaved selection — click Save global method');
 });
 el('one-shot-method-save').addEventListener('click',async()=>{
  const button=el('one-shot-method-save');
@@ -688,7 +699,7 @@ async function updateOneShot(){
  }
 }
 el('one-shot-confirm').addEventListener('change',updateOneShot);
-el('one-shot-method').addEventListener('change',updateOneShot);
+// Method controls live under Settings; polling only reads the saved value.
 el('one-shot-send').addEventListener('click',async()=>{
  el('one-shot-send').disabled=true;
  try{

@@ -3,6 +3,18 @@
 This changelog is **only for the HACS Home Assistant integration**.
 ESP32/RAMSES Arduino firmware has separate beta release tags and changelogs.
 
+## 0.3.9
+
+- Move the shared **global RAMSES FIFO/UART transmission preference** into
+  Home Assistant Settings, while retaining the control in Gateway test.
+- The same ESP32 NVS preference is available from Gateway → Settings → Radio.
+  FIFO applies to compatible outgoing gateway frames; oversized frames
+  use a safe UART fallback. Gateway beta.39 is needed for global routing.
+- The manually triggered 16-ID CV batch may retry each unanswered ID at
+  most twice, with 15-second spacing. Per-ID attempt count, TX method and
+  matched Read-Ack latency are available in gateway status.
+- No new automatic radio commands or OpenTherm writes are introduced.
+
 ## 0.3.8
 
 - Share the experimental ID25 one-shot transmission method between Home

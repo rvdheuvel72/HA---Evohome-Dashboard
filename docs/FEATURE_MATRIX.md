@@ -18,7 +18,7 @@
 | Language/Wi-Fi/factory reset | Catalog only | Physical controller |
 | Passive RF heat-demand observation | Implemented; live TRV accuracy still under test | ESP32 MQTT RX, not cloud control |
 | Manual OpenTherm ID25 test | Implemented in bundled HA panel v0.3.8; FIFO Read-Ack observed in field test | Admin-only ESP32 LAN diagnostic; experimental RF TX |
-| Shared ID25 TX-method setting | FIFO by default; user can select UART | Gateway beta.38 persists setting in NVS; HA and gateway UI read/write same value; other RF TX paths unchanged |
+| Global gateway RAMSES RF transport | FIFO default, UART selectable in HA and gateway Settings | ESP32 beta.39 uses the same persistent NVS setting for all outgoing compatible RAMSES frames; oversized frames fall back to UART |\n| Manual CV read resilience | Bounded retries and cached last-good values | Maximum three attempts per ID after timeout/local TX failure, 15-second spacing; response latency and actual transport in gateway diagnostics |
 | Local/no-cloud heating control | Not implemented | RF monitoring/diagnostics do not replace Evohome controller |
 | HomeBoard integration | Deferred | Separate phase |
 

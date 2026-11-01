@@ -1,8 +1,8 @@
-# Using Evohome Dashboard (source integration v0.3.8)
+# Using Evohome Dashboard (source integration v0.3.9)
 
 ## Installation and upgrade
 
-1. Update **Evohome Dashboard** in HACS to the latest published stable integration version (current source manifest: `0.3.8`).
+1. Update **Evohome Dashboard** in HACS to the latest published stable integration version (current source manifest: `0.3.9`).
 2. Restart Home Assistant Core **once** for this Python backend upgrade; do not keep both the built-in `evohome` integration
    and this custom integration actively polling the same Resideo account
    while diagnosing login / rate limits.
@@ -99,7 +99,7 @@ confirm whole-system Heating Off only if supported.
 
 ## Backend vs frontend upgrades
 
-- Python/backend upgrades (including source v0.3.8): one Home Assistant Core restart required.
+- Python/backend upgrades (including source v0.3.9): one Home Assistant Core restart required.
 - After publishing/installation of the separate HACS Dashboard frontend:
   UI/layout/schedule-editor updates → update frontend in HACS → hard refresh
   browser (Ctrl+Shift+R); Home Assistant Core stays running.
@@ -109,3 +109,15 @@ confirm whole-system Heating Off only if supported.
   Python integration. No heating-device re-pairing is needed.
 
 For repository publication instructions see [Frontend migration](FRONTEND_MIGRATION.md).
+
+
+## Global RF transmit preference and CV retry behavior
+
+For ESP32 firmware beta.39 or newer, select **Gateway → Settings → Radio →
+Global RAMSES transmit method**, or in Home Assistant's Evohome **Settings**.
+Default FIFO is shared in ESP32 NVS. The method covers compatible outgoing
+RAMSES messages, with a UART fallback for packets larger than the chip FIFO.
+The manual heating/boiler 16-ID scan retries timeout/TX failure up to two
+additional times per ID at a minimum of 15 seconds between requests.
+An explicit unknown or invalid OpenTherm ID is not retried. One-shot
+ID25 remains a single manually authorized request; no writes are issued.

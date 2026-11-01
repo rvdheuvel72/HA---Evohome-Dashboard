@@ -33,7 +33,8 @@ const root=path.resolve(__dirname,"..");
     assert.ok(html.includes("Test ID25"));
     assert.ok(html.includes("Run IDs 18, 25, 117"));
     assert.ok(html.includes("data-action=\"diag-existing\""));
-    assert.ok(html.includes("data-action=\"diag-export\""));
+    assert.ok(html.includes("data-action=\"diag-export-json\""));
+    assert.ok(html.includes("data-action=\"diag-export-capture\""));
     assert.ok(html.includes("disabled"),"RF initiation must start disabled");
 
     let request;
@@ -59,7 +60,18 @@ const root=path.resolve(__dirname,"..");
     const completed=panel.diagnosticPage();
     assert.ok(completed.includes("55.25"));
     assert.ok(completed.includes("read_ack"));
-    assert.ok(completed.includes("Download report.json and capture.tsv"));
+    assert.ok(completed.includes("Download report.json"));
+    assert.ok(completed.includes("Download capture.tsv"));
+
+    const saved=[];
+    panel.downloadText=(name,data)=>saved.push({name,data});
+    panel.ws=async()=>({report:{state:"complete",reads:[{id:25,state:"read_ack"}]},capture_tsv:"packet\n"});
+    await panel.downloadDiagnostic("json");
+    assert.equal(saved.length,1,"One click produces one download");
+    assert.equal(JSON.parse(saved[0].data).reads[0].id,25);
+    await panel.downloadDiagnostic("capture");
+    assert.equal(saved.length,2);
+    assert.ok(saved[1].name.endsWith(".tsv"));
 
     panel.diag={configured:false};
     assert.ok(panel.diagnosticPage().includes("One-time gateway configuration"));

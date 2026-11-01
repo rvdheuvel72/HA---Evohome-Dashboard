@@ -125,7 +125,7 @@ class EvohomeDashboardPanel extends HTMLElement {
       if(kind==="existing"){
         this.downloadText("R8810A-existing-capture-"+stamp+".tsv",result.capture_tsv||"","text/tab-separated-values");
       }else{
-        this.downloadText("R8810A-diagnostic-"+stamp+".json",JSON.stringify(result.report,null,2)+"\\n","application/json");
+        this.downloadText("R8810A-diagnostic-"+stamp+".json",JSON.stringify(result.report,null,2)+"\n","application/json");
         if(result.capture_tsv)this.downloadText("R8810A-diagnostic-capture-"+stamp+".tsv",result.capture_tsv,"text/tab-separated-values");
       }
       this.banner="Diagnostic evidence downloaded";

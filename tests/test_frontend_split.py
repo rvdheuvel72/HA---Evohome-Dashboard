@@ -40,10 +40,13 @@ class FrontendSplitTests(unittest.TestCase):
         self.assertIn("backend-version-label-v1", ui)
         self.assertIn("cloud-room-rf-link-v1", ui)
         self.assertIn("cloud-room-rf-link-v1", loader)
+        self.assertIn("r8810a-test-page-v1", loader)
+        self.assertIn("r8810a-test-page-v1", ui)
         self.assertIn("class EvohomeDashboardHAPanel extends EvohomeDashboardPanel", ui)
         self.assertIn("evohome-dashboard-ha-panel", (COMP / "__init__.py").read_text())
 
         self.assertIn('["demand","Heating demand"]', ui)
+        self.assertIn('["rfdiag","R8810A test"]', ui)
         bundled = (COMP / "frontend" / "dashboard-legacy.js").read_text()
         self.assertIn('["demand","Heating demand"]', bundled)
 
@@ -74,7 +77,7 @@ class FrontendSplitTests(unittest.TestCase):
 
     def test_independent_versions(self):
         back = json.loads((COMP / "manifest.json").read_text())
-        self.assertEqual(back["version"], "0.3.6")
+        self.assertEqual(back["version"], "0.3.7")
         self.assertEqual(back["requirements"], ["evohome-async==2.1.0"])
 
 

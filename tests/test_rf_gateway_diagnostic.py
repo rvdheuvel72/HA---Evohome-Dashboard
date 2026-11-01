@@ -207,9 +207,11 @@ class RFDiagnosticTests(unittest.IsolatedAsyncioTestCase):
         client = object.__new__(mod.GatewayHTTP)
         client.host = "evohome-gateway"
         client.auth = None
+        class DummyClientError(Exception):
+            pass
         client._aiohttp = SimpleNamespace(
             ClientTimeout=lambda total: total,
-            ClientError=Exception,
+            ClientError=DummyClientError,
         )
         client.session = Session([data[:10], data[10:52], data[52:]])
         actual = await client.capture() if hasattr(client, "capture") else None
@@ -217,7 +219,7 @@ class RFDiagnosticTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(client.session.kwargs["allow_redirects"])
         self.assertEqual(mod.decode_capture(actual), mod.decode_capture(TSV))
 
-        client.session = Session([b"a" * 65000, b"b" * 65000, b"c"])
+        client.session = Session([b"a" * 70000, b"b" * 70000, b"c"])
         with self.assertRaisesRegex(mod.DiagnosticError, "size limit"):
             await client.capture()
 

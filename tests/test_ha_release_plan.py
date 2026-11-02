@@ -70,7 +70,7 @@ class StableReleasePlanTests(unittest.TestCase):
         manifest = json.loads(
             (ROOT / "custom_components/evohome_dashboard/manifest.json").read_text()
         )
-        self.assertEqual(manifest["version"], "0.3.9")
+        self.assertEqual(manifest["version"], "0.3.10")
         self.assertEqual(mod.plan_release(manifest["version"], []), "publish")
 
 

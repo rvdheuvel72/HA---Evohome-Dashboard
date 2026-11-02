@@ -3,6 +3,14 @@
 This changelog is **only for the HACS Home Assistant integration**.
 ESP32/RAMSES Arduino firmware has separate beta release tags and changelogs.
 
+## 0.3.10
+
+- Show the gateway's explicit, sanitized HTTP error reason in Home Assistant
+  for ID25 tests and global TX-method reads/saves; HTTP 409 no longer hides
+  cooldown, disabled TX, or obsolete per-request method rejection.
+- Keep gateway Basic Auth credentials private and never copy request data into
+  user-facing errors. Does not change the ESP32 radio firmware or bypass RF gates.
+
 ## 0.3.9
 
 - Move the shared **global RAMSES FIFO/UART transmission preference** into

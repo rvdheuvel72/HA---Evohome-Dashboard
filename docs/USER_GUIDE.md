@@ -121,3 +121,12 @@ The manual heating/boiler 16-ID scan retries timeout/TX failure up to two
 additional times per ID at a minimum of 15 seconds between requests.
 An explicit unknown or invalid OpenTherm ID is not retried. One-shot
 ID25 remains a single manually authorized request; no writes are issued.
+
+
+### Gateway HTTP 409 diagnostics (HA v0.3.10)
+
+Home Assistant shows the gateway's sanitized JSON error reason for a rejected
+ID25 read or global FIFO/UART setting change. A 409 on ID25 can indicate
+cooldown or a stale per-request method request; it is not proof of a UART RF
+failure. Gateway firmware beta.39 displays the global method under Settings →
+Radio; firmware beta.38 and earlier do not include that Settings layout.
